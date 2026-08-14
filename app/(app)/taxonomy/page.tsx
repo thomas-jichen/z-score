@@ -3,7 +3,6 @@
 import Link from "next/link";
 import { useCallback, useMemo, useState } from "react";
 import { useApp } from "@/components/AppState";
-import { PROGRAMS } from "@/lib/searchTaxonomy";
 import { ARCHETYPES, archetypeLabel, type Archetype } from "@/lib/zscore";
 import { DEFAULT_WEIGHT, START_WEIGHT, TERM_CLUSTER } from "@/lib/clusters";
 import { COUNT_KINDS, extractTags, type CountKind } from "@/lib/extract";
@@ -20,7 +19,7 @@ import {
   type TagFacet,
   type TagRegistry,
 } from "@/lib/tagRegistry";
-import { termCounts, unmatchedTerms } from "@/lib/tags";
+import { heldTags, termCounts, unmatchedTerms } from "@/lib/tags";
 import { Button, Card, EmptyState, Pill } from "@/components/primitives";
 
 /**
@@ -75,19 +74,18 @@ export default function TaxonomyPage() {
    * a tag nobody holds is wasted effort. Counted over the whole roster in one pass.
    */
   const tagHolders = useMemo(() => {
-    const index = indexRegistry(t.tags);
     const tally = new Map<string, number>();
     for (const p of people) {
-      const seen = new Set<string>();
-      for (const cand of extractTags(p).tags) {
-        const res = resolveTag(index, cand);
-        if (res.kind !== "exact" || seen.has(res.def.id)) continue;
-        seen.add(res.def.id);
-        tally.set(res.def.id, (tally.get(res.def.id) ?? 0) + 1);
+      // `heldTags`, not the structured extractor alone. Counting only structured
+      // output reported zero holders for every programme, award, college and high
+      // school, because those are found by text matching and by the tagger — so
+      // RSI scored +1.8σ on a profile while this screen said nobody had it.
+      for (const { def } of heldTags(p, t)) {
+        tally.set(def.id, (tally.get(def.id) ?? 0) + 1);
       }
     }
     return tally;
-  }, [people, t.tags]);
+  }, [people, t]);
 
   const weightOf = useCallback(
     (label: string) => draft[label] ?? t.weights[label] ?? START_WEIGHT[label] ?? DEFAULT_WEIGHT,

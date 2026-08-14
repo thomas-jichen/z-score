@@ -340,9 +340,9 @@ export function mergeTags(reg: TagRegistry, fromId: string, intoId: string): Tag
  * already had. Only genuinely new things reach the review queue.
  */
 export function seedRegistry(input: {
-  programs: string[];
-  colleges: string[];
-  highSchools: string[];
+  programs: { label: string; aliases?: string[] }[];
+  colleges: { label: string; aliases?: string[] }[];
+  highSchools: { label: string; aliases?: string[] }[];
   titles: { label: string; aliases?: string[] }[];
   majors: { label: string; aliases?: string[] }[];
   companies: { label: string; aliases?: string[] }[];
@@ -380,12 +380,12 @@ export function seedRegistry(input: {
     };
   };
 
-  for (const p of input.programs) add(p, "program");
+  for (const p of input.programs) add(p.label, "program", p.aliases);
   // Written every which way in a headline — "Z-Fellow", "Z Fellows", "ZFellows" —
   // and the headline is usually the only place it appears.
   add("Z Fellow", "program", ["Z-Fellow", "Z Fellows", "ZFellows", "Z Fellowship"], 1.4);
-  for (const c of input.colleges) add(c, "college");
-  for (const h of input.highSchools) add(h, "highschool");
+  for (const c of input.colleges) add(c.label, "college", c.aliases);
+  for (const h of input.highSchools) add(h.label, "highschool", h.aliases);
   for (const t of input.titles) add(t.label, "title", t.aliases);
   for (const m of input.majors) add(m.label, "major", m.aliases);
   for (const c of input.companies) add(c.label, "company", c.aliases);

@@ -8,7 +8,12 @@ import {
   PROGRAMS,
   TITLES,
 } from "./searchTaxonomy";
-import { seedRegistry, type TagFacet, type TagRegistry } from "./tagRegistry";
+import {
+  normalizeKey as seedKey,
+  seedRegistry,
+  type TagFacet,
+  type TagRegistry,
+} from "./tagRegistry";
 import type { Hit } from "./types";
 import type { Selection } from "./query";
 import type { ProfileId } from "./profiles";
@@ -315,22 +320,95 @@ export function hydrate(stored: Partial<ProfileState> | null): ProfileState {
  */
 const LEGACY_SCHOOL = "school";
 
-function migrateFacets(tags: TagRegistry): TagRegistry {
-  const stale = Object.values(tags).filter(
-    (d) => (d.facet as string) === LEGACY_SCHOOL
-  );
-  if (stale.length === 0) return tags;
+/**
+ * The facet a seed list assigns, keyed by canonical id.
+ *
+ * The seed lists are authoritative: a curated entry knows what it is. A tag
+ * promoted from the review queue defaults to `award`, because that is what the
+ * tagger reads out of prose — so "Z Fellows" arrived as an award even though
+ * `PROGRAMS` names it a programme. This corrects that on read rather than leaving
+ * it to be noticed and fixed by hand.
+ */
+function seedFacets(): Map<string, TagFacet> {
+  const m = new Map<string, TagFacet>();
+  const put = (label: string, facet: TagFacet) => {
+    const id = seedKey(label);
+    if (id && !m.has(id)) m.set(id, facet);
+  };
+  for (const x of PROGRAMS) put(x.label, "program");
+  for (const x of COLLEGES) put(x.label, "college");
+  for (const x of HIGH_SCHOOLS) put(x.label, "highschool");
+  for (const x of TITLES) put(x.label, "title");
+  for (const x of MAJORS) put(x.label, "major");
+  for (const x of COMPANIES) put(x.label, "company");
+  return m;
+}
 
-  const colleges = new Set(COLLEGES.map((c) => c.toLowerCase()));
+/**
+ * Bring a stored registry up to date with the seed vocabulary.
+ *
+ * Three jobs, all on read, so a stored document never has to be edited by hand:
+ *
+ *   1. Reclassify the retired "school" facet, split into college and high school.
+ *      A facet that no longer exists is dropped by validation, so without this the
+ *      sixty seeded school tags vanish from the screens and take their weights.
+ *   2. Correct a facet the seed lists disagree with. A tag promoted from the review
+ *      queue defaults to `award`, so "Z Fellows" arrived as an award even though
+ *      PROGRAMS names it a programme.
+ *   3. Union in new seed tags and new aliases. Aliases are the whole mechanism
+ *      preventing "Massachusetts Institute of Technology" from becoming a second
+ *      MIT, and adding one to a seed list has to reach documents already stored.
+ *
+ * Weights, clusters and promoted state are never touched: those are the team's
+ * tuning, and a seed list has no business overwriting them.
+ */
+function migrateFacets(tags: TagRegistry): TagRegistry {
+  const colleges = new Set(COLLEGES.map((c) => c.label.toLowerCase()));
+  const authoritative = seedFacets();
+  const seeded = seededTags();
+  let changed = false;
   const next = { ...tags };
-  for (const def of stale) {
-    const label = def.label.toLowerCase();
-    const isCollege =
-      colleges.has(label) ||
-      /university|college|institute of technology|\bpolytechnic\b/.test(label);
-    next[def.id] = { ...def, facet: isCollege ? "college" : "highschool" };
+
+  for (const def of Object.values(tags)) {
+    let updated = def;
+
+    if ((updated.facet as string) === LEGACY_SCHOOL) {
+      const label = updated.label.toLowerCase();
+      const isCollege =
+        colleges.has(label) ||
+        /university|college|institute of technology|\bpolytechnic\b/.test(label);
+      updated = { ...updated, facet: isCollege ? "college" : "highschool" };
+    }
+
+    const should = authoritative.get(updated.id);
+    if (should && should !== updated.facet) updated = { ...updated, facet: should };
+
+    // Union, never replace: an alias someone added by hand must survive.
+    const fresh = seeded[updated.id];
+    if (fresh && fresh.aliases.some((a) => !updated.aliases.includes(a))) {
+      updated = {
+        ...updated,
+        aliases: [...new Set([...updated.aliases, ...fresh.aliases])].filter(
+          (a) => a !== updated.id
+        ),
+      };
+    }
+
+    if (updated !== def) {
+      next[updated.id] = updated;
+      changed = true;
+    }
   }
-  return next;
+
+  // Newly seeded entries the stored document has never seen.
+  for (const [id, def] of Object.entries(seeded)) {
+    if (!next[id]) {
+      next[id] = def;
+      changed = true;
+    }
+  }
+
+  return changed ? next : tags;
 }
 
 export function hydrateTeam(stored: Partial<TeamState> | null): TeamState {

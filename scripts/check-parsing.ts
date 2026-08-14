@@ -24,7 +24,7 @@ import { emptyTeam, type TaxonomyPrefs } from "../lib/state";
 import { scoreOne, toCandidates } from "../lib/candidates";
 import { buildSearchLabels, matchedTerms, termCounts, unmatchedTerms } from "../lib/tags";
 import { assignCluster, round } from "../lib/clusters";
-import { makeTag } from "../lib/tagRegistry";
+import { indexRegistry, makeTag, resolveAny } from "../lib/tagRegistry";
 import { buildGraph, DEFAULT_MIN_HOLDERS } from "../lib/graph";
 
 let failures = 0;
@@ -555,15 +555,15 @@ console.log("\ntermCounts and unmatchedTerms");
   check("RSI counted on two people", counts.RSI, 2);
   check("a term nobody has is absent", counts.IMO, undefined);
 
-  const tagged: Person = { ...bare("t"), extractedTerms: ["Davidson Fellow", "RSI"] };
-  const also: Person = { ...bare("u"), extractedTerms: ["Davidson Fellow"] };
+  const tagged: Person = { ...bare("t"), extractedTerms: ["Brooke Owens Fellow", "RSI"] };
+  const also: Person = { ...bare("u"), extractedTerms: ["Brooke Owens Fellow"] };
   const pending = unmatchedTerms([tagged, also], TAX);
-  check("a term outside the taxonomy is offered", pending[0].term, "Davidson Fellow");
+  check("a term outside the taxonomy is offered", pending[0].term, "Brooke Owens Fellow");
   check("counted over real people", pending[0].count, 2);
   check("a term already in the taxonomy is not offered", pending.some((x) => x.term === "RSI"), false);
   check(
     "a dismissed term stops being offered",
-    unmatchedTerms([tagged, also], { ...TAX, dismissed: ["Davidson Fellow"] }).length,
+    unmatchedTerms([tagged, also], { ...TAX, dismissed: ["Brooke Owens Fellow"] }).length,
     0
   );
   check(
@@ -584,11 +584,11 @@ console.log("\npromoting a term actually makes it score");
   // alone meant promoting a term did nothing, with no way to see why.
   const tagged: Person = {
     ...bare("tagged"),
-    extractedTerms: ["Davidson Fellow"],
+    extractedTerms: ["Brooke Owens Fellow"],
   };
 
   const before = scoreOne(tagged, TAX);
-  check("unpromoted, it carries no weight", before.signals.some((s) => s.label === "Davidson Fellow"), false);
+  check("unpromoted, it carries no weight", before.signals.some((s) => s.label === "Brooke Owens Fellow"), false);
 
   // A tag IS the term now. There is no separate promoted list, no separate weights
   // map and no separate clusters map — one registry entry carries all three, which
@@ -597,8 +597,8 @@ console.log("\npromoting a term actually makes it score");
     ...TAX,
     tags: {
       ...TAX.tags,
-      "davidson": makeTag({
-        label: "Davidson Fellow",
+      "brooke-owens": makeTag({
+        label: "Brooke Owens Fellow",
         facet: "award",
         weight: 1.9,
         cluster: "research",
@@ -607,7 +607,7 @@ console.log("\npromoting a term actually makes it score");
     },
   };
   const after = scoreOne(tagged, promoted);
-  check("promoted, it scores", after.signals.some((s) => s.label === "Davidson Fellow"), true);
+  check("promoted, it scores", after.signals.some((s) => s.label === "Brooke Owens Fellow"), true);
   // Now the score IS the sum, so the delta is the weight exactly. It used to be
   // the weight divided by sigma, and the assertion needed a tolerance.
   const delta = round(after.score - before.score);
@@ -620,13 +620,13 @@ console.log("\npromoting a term actually makes it score");
   );
 
   // A hand-added term behaves identically, since it is the same finding.
-  const byHand: Person = { ...bare("byhand"), manualTerms: ["Davidson Fellow"] };
-  check("a hand-added term scores once promoted too", scoreOne(byHand, promoted).signals.some((s) => s.label === "Davidson Fellow"), true);
+  const byHand: Person = { ...bare("byhand"), manualTerms: ["Brooke Owens Fellow"] };
+  check("a hand-added term scores once promoted too", scoreOne(byHand, promoted).signals.some((s) => s.label === "Brooke Owens Fellow"), true);
 
   // Casing must not matter, or the same credential scores for one person and not
   // another depending on how the model happened to capitalise it.
-  const cased: Person = { ...bare("cased"), extractedTerms: ["davidson fellow"] };
-  check("matching is case-insensitive", scoreOne(cased, promoted).signals.some((s) => s.label === "Davidson Fellow"), true);
+  const cased: Person = { ...bare("cased"), extractedTerms: ["brooke owens fellow"] };
+  check("matching is case-insensitive", scoreOne(cased, promoted).signals.some((s) => s.label === "Brooke Owens Fellow"), true);
 
   // A term already found in the text must not be counted a second time.
   const both: Person = { ...bare("both", ["RSI"]), extractedTerms: ["RSI"] };
@@ -634,6 +634,34 @@ console.log("\npromoting a term actually makes it score");
 }
 
 // ── Scoring: fixed calibration ───────────────────────────────────────────
+
+console.log("\nseeded aliases — one tag per real-world thing");
+{
+  const ix = indexRegistry(TAX.tags);
+  const resolves = (written: string, expect: string) =>
+    check(`"${written}" is ${expect}`, resolveAny(ix, written)?.label, expect);
+
+  // The full legal name is what a LinkedIn education record actually says, while
+  // the label is what people call it. Without the alias these are two tags for one
+  // school, and neither carries the right holder count.
+  resolves("Massachusetts Institute of Technology", "MIT");
+  resolves("Stanford University", "Stanford");
+  resolves("Thomas Jefferson High School for Science and Technology", "TJHSST");
+  resolves("Phillips Exeter Academy", "Phillips Exeter");
+  resolves("Research Science Institute", "RSI");
+  resolves("Regeneron Science Talent Search", "STS");
+  resolves("Andreessen Horowitz", "a16z");
+  // A headline writes it every which way.
+  resolves("Z Fellows", "Z Fellow");
+  resolves("Z-Fellow", "Z Fellow");
+  // Z Fellows is a fellowship for starting something, so it is a programme that
+  // votes Founder rather than an award.
+  const z = resolveAny(ix, "Z Fellow")!;
+  check("Z Fellow is a program", z.facet, "program");
+  check("and it votes Founder", z.cluster, "founder");
+  // Distinct things must stay distinct.
+  check("USACO Gold is not USACO Platinum", resolveAny(ix, "USACO Gold")?.label, undefined);
+}
 
 console.log("\nthe score is a sum — the documented worked examples");
 {

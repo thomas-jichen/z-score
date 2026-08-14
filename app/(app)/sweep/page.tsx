@@ -1,13 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import {
-  COLLEGES,
-  GRAD_YEARS,
-  HIGH_SCHOOLS,
-  PROGRAMS,
-  TITLE_KEYWORDS,
-} from "@/lib/searchTaxonomy";
+import { GRAD_YEARS } from "@/lib/searchTaxonomy";
 import { buildQuery, COST_PER_QUERY, selectionCount, type Selection } from "@/lib/query";
 import type { Hit, ShardResult } from "@/lib/types";
 import { MAX_RECENT_SLUGS, type CustomTerms, type SavedSweep, type SweepMode } from "@/lib/state";

@@ -6,13 +6,13 @@ import type { TaxonomyPrefs } from "./state";
 import type { Selection } from "./query";
 import {
   indexRegistry,
+  normalizeKey,
   resolveAny,
   resolveTag,
   type TagDef,
   type TagFacet,
 } from "./tagRegistry";
 import type { Signal } from "./zscore";
-import { PROGRAMS } from "./searchTaxonomy";
 
 /**
  * Everything that turns a record into labels.
@@ -171,6 +171,22 @@ export function vocabulary(tax: TaxonomyPrefs): string[] {
 /** Facets whose evidence is prose rather than a structured field. */
 const TEXT_FACETS = new Set<TagFacet>(["program", "award"]);
 
+/** Which part of a record a facet is understood to have come from. */
+const SOURCE_FOR_FACET: Record<TagFacet, MatchedTerm["source"]> = {
+  program: "honors",
+  award: "honors",
+  company: "experience",
+  org: "volunteering",
+  college: "education",
+  highschool: "education",
+  major: "education",
+  title: "experience",
+  flag: "projects",
+  count: "projects",
+  year: "education",
+  state: "education",
+};
+
 /**
  * Which taxonomy terms this record evidences, and where each was found.
  *
@@ -179,16 +195,25 @@ const TEXT_FACETS = new Set<TagFacet>(["program", "award"]);
  * terms and score lower. That is a consequence of the evidence, not a penalty
  * applied on top of it.
  */
-export function matchedTerms(p: Person, tax: TaxonomyPrefs): MatchedTerm[] {
+/**
+ * Which registry tags a person holds, and where each was found.
+ *
+ * Split out from `matchedTerms` because the taxonomy screen needs the same answer
+ * *ignoring* whether a tag is switched on — it has to say how many people hold a
+ * tag in order to decide whether to switch it on. It used to count only the
+ * structured extractor's output, so Programs, Awards, Colleges and High schools
+ * all reported zero holders: those are found by text matching and by the tagger,
+ * neither of which `extractTags` covers.
+ */
+export function heldTags(p: Person, tax: TaxonomyPrefs): { def: TagDef; source: Signal["source"] }[] {
   const index = indexRegistry(tax.tags);
-  const out: MatchedTerm[] = [];
+  const out: { def: TagDef; source: Signal["source"] }[] = [];
   const seen = new Set<string>();
 
-  /** Every path funnels through here, so nothing can be counted twice. */
   const take = (def: TagDef, source: Signal["source"]) => {
-    if (!def.promoted || def.weight <= 0 || seen.has(def.id)) return;
+    if (seen.has(def.id)) return;
     seen.add(def.id);
-    out.push({ label: def.label, weight: def.weight, cluster: def.cluster, source });
+    out.push({ def, source });
   };
 
   /**
@@ -213,7 +238,9 @@ export function matchedTerms(p: Person, tax: TaxonomyPrefs): MatchedTerm[] {
   const fields = fieldedText(p);
   for (const def of Object.values(tax.tags)) {
     if (!TEXT_FACETS.has(def.facet) || seen.has(def.id)) continue;
-    const hit = fields.find((f) => mentions(f.text, def.label));
+    // Aliases count: "Z-Fellow" in a headline is the Z Fellow tag.
+    const forms = [def.label, ...def.aliases];
+    const hit = fields.find((f) => forms.some((form) => mentions(f.text, form)));
     if (hit) take(def, hit.source);
   }
 
@@ -243,24 +270,20 @@ export function matchedTerms(p: Person, tax: TaxonomyPrefs): MatchedTerm[] {
     if (def) take(def, "snippet");
   }
 
-  return out.sort((a, b) => b.weight - a.weight);
+  return out;
 }
 
-/** Which part of a record a facet is understood to have come from. */
-const SOURCE_FOR_FACET: Record<TagFacet, MatchedTerm["source"]> = {
-  program: "honors",
-  award: "honors",
-  company: "experience",
-  org: "volunteering",
-  college: "education",
-  highschool: "education",
-  major: "education",
-  title: "experience",
-  flag: "projects",
-  count: "projects",
-  year: "education",
-  state: "education",
-};
+export function matchedTerms(p: Person, tax: TaxonomyPrefs): MatchedTerm[] {
+  const out: MatchedTerm[] = [];
+
+  // Only the tags actually switched on contribute to a score.
+  for (const { def, source } of heldTags(p, tax)) {
+    if (!def.promoted || def.weight <= 0) continue;
+    out.push({ label: def.label, weight: def.weight, cluster: def.cluster, source });
+  }
+
+  return out.sort((a, b) => b.weight - a.weight);
+}
 
 /** Facts about a person rather than credentials. Used to group, not to score. */
 export function attributeTags(p: Person): Tag[] {
@@ -380,8 +403,11 @@ export function unmatchedTerms(
   people: Person[],
   tax: TaxonomyPrefs
 ): { term: string; count: number; slugs: string[] }[] {
-  const known = new Set(vocabulary(tax).map((t) => t.toLowerCase()));
-  const dismissed = new Set(tax.dismissed.map((t) => t.toLowerCase()));
+  // Resolved through the registry, not compared by lowercase. A term the tagger
+  // wrote as "Massachusetts Institute of Technology" is already known as the MIT
+  // tag, and offering it again would be offering a duplicate.
+  const index = indexRegistry(tax.tags);
+  const dismissed = new Set(tax.dismissed.map((t) => normalizeKey(t)));
   const tally = new Map<string, { term: string; slugs: string[] }>();
 
   for (const p of people) {
@@ -391,8 +417,8 @@ export function unmatchedTerms(
     for (const raw of [...(p.extractedTerms ?? []), ...(p.manualTerms ?? [])]) {
       const term = raw.trim();
       if (!term) continue;
-      const key = term.toLowerCase();
-      if (known.has(key) || dismissed.has(key)) continue;
+      const key = normalizeKey(term);
+      if (!key || resolveAny(index, term) || dismissed.has(key)) continue;
       const entry = tally.get(key) ?? { term, slugs: [] };
       if (!entry.slugs.includes(p.slug)) entry.slugs.push(p.slug);
       tally.set(key, entry);
