@@ -4,8 +4,12 @@ Internal talent-discovery tool for Z Fellows. It finds high school and early-col
 before the world knows their names, scores them against a program taxonomy, and ranks them in a
 digest.
 
-The name is the metric. A candidate's score is a true z-score: standard deviations from a **fixed
-reference point**, shown in sigma notation (`+2.4σ`), never as points out of 100.
+A candidate's score is a **hand-calibrated sum**: the weight of every tag they hold, plus a priced
+count of their experiences, projects, publications and patents. No mean, no standard deviation, no
+division, and no dependence on who else has been enriched.
+
+It is still written in sigma notation (`+24.0σ`), which is house style and where the name comes from.
+It is not a standard deviation, and nothing in the product claims it is.
 
 ## The pipeline
 

@@ -1,5 +1,6 @@
-import type { EnrichedProfile, Provenance } from "./enrichment";
-import { currentSchool, profileUrl } from "./enrichment";
+import type { EnrichedProfile, HopCandidate, Provenance } from "./enrichment";
+import { currentSchool, profileUrl, usableNeighbors } from "./enrichment";
+import { inferYear } from "./search";
 import type { Hit } from "./types";
 import type { Archetype } from "./clusters";
 
@@ -111,13 +112,24 @@ export function personFromHit(
   };
 }
 
-/** A hand-supplied seed or a neighbour, known only by slug until enrichment. */
-export function personFromSlug(slug: string, via: Provenance, name?: string): Person {
+/**
+ * A hand-supplied seed or a neighbour, known only by slug until enrichment.
+ *
+ * A neighbour arrives with a name and a position already, so `seed` carries them
+ * through. Without it a queued neighbour is written into the shared roster as a
+ * bare slug with no headline, and every teammate sees that until someone pays to
+ * enrich them.
+ */
+export function personFromSlug(
+  slug: string,
+  via: Provenance,
+  seed?: { name?: string; headline?: string }
+): Person {
   const t = now();
   return {
     slug,
-    name: name || slug,
-    headline: "",
+    name: seed?.name || slug,
+    headline: seed?.headline ?? "",
     url: profileUrl(slug),
     searchLabels: [],
     discoveredVia: via,
@@ -136,7 +148,12 @@ export function personFromSlug(slug: string, via: Provenance, name?: string): Pe
  * worth knowing, and it is what the graph draws.
  */
 export function withEnriched(existing: Person | undefined, profile: EnrichedProfile): Person {
-  const base = existing ?? personFromSlug(profile.slug, profile.discoveredVia, profile.name);
+  const base =
+    existing ??
+    personFromSlug(profile.slug, profile.discoveredVia, {
+      name: profile.name,
+      headline: profile.headline,
+    });
   return {
     ...base,
     name: profile.name || base.name,
@@ -189,21 +206,48 @@ export function topHonorOf(p: Person): string | undefined {
  * attribution travels with each neighbour, which is what makes drift measurable
  * rather than a guess.
  */
-export function nextHopFrom(
-  people: Person[],
-  known: Set<string>
-): { slug: string; seedSlug: string; seedName: string }[] {
-  const out: { slug: string; seedSlug: string; seedName: string }[] = [];
+export function nextHopFrom(people: Person[], known: Set<string>): HopCandidate[] {
+  const out: HopCandidate[] = [];
   const picked = new Set<string>();
 
   for (const p of people) {
-    for (const n of p.enriched?.neighbors ?? []) {
+    // The same cut as at parse time, applied again on read, so the twenty-entry
+    // records stored before the tail was understood are cleaned up without
+    // paying to enrich anyone twice.
+    for (const n of usableNeighbors(p.enriched?.neighbors ?? [])) {
       if (!n.slug || known.has(n.slug) || picked.has(n.slug)) continue;
       picked.add(n.slug);
-      out.push({ slug: n.slug, seedSlug: p.slug, seedName: p.name });
+      // The neighbour's own name and position travel with it. Projecting just
+      // the slug here is what left the review table showing bare usernames.
+      //
+      // The year is inferred on read when the stored record has none, so
+      // profiles enriched before it was parsed still fill the class column.
+      out.push({
+        ...n,
+        year: n.year ?? inferYear(n.position),
+        seedSlug: p.slug,
+        seedName: p.name,
+      });
     }
   }
   return out;
+}
+
+/** One person's neighbours, minus anyone already held. The per-person reveal. */
+export function neighborsFrom(person: Person, known: Set<string>): HopCandidate[] {
+  return nextHopFrom([person], known);
+}
+
+/**
+ * Which hop a neighbour of this person sits at.
+ *
+ * Read off the surfacing person's own provenance rather than counted on a page,
+ * so an expansion records the truth no matter which screen it was started from.
+ * Capped at what the enrich route accepts.
+ */
+export function hopAfter(person: Person | undefined): number {
+  const via = person?.discoveredVia;
+  return Math.min((via?.kind === "pav" ? via.hop : 0) + 1, 5);
 }
 
 export const MAX_PEOPLE = 2000;

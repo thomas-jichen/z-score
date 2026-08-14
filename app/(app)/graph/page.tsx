@@ -318,7 +318,7 @@ export default function GraphPage() {
                     </div>
 
                     <div className="z-row z-row-wrap" style={{ gap: 6, marginTop: "var(--z-space-4)" }}>
-                      <ZScoreBadge candidate={selectedCandidate} />
+                      <ZScoreBadge candidate={selectedCandidate} bands={team.taxonomy.bands} />
                       {selectedCandidate.polymath && (
                         <PolymathBadge clusters={selectedCandidate.secondary_archetypes} />
                       )}
@@ -412,7 +412,7 @@ export default function GraphPage() {
               </span>
             ))}
             <span className="z-small" style={{ marginLeft: "auto", color: "var(--z-ink-faint)" }}>
-              Node size is the z-score
+              Node size is the score
             </span>
           </div>
 
@@ -433,14 +433,14 @@ export default function GraphPage() {
           <div className="z-show-mobile z-stack">
             {queued
               .slice()
-              .sort((a, b) => b.z_score_normalized - a.z_score_normalized)
+              .sort((a, b) => b.score - a.score)
               .map((c) => (
                 <div className="z-card" key={c.slug}>
                   <Link href={`/candidate/${c.slug}`} className="z-person-name">
                     {c.name}
                   </Link>
                   <div className="z-row z-row-wrap" style={{ marginTop: 6, gap: 6 }}>
-                    <ZScoreBadge candidate={c} />
+                    <ZScoreBadge candidate={c} bands={team.taxonomy.bands} />
                     {c.polymath && <PolymathBadge clusters={c.secondary_archetypes} />}
                   </div>
                   <div className="z-row z-row-wrap" style={{ marginTop: 6, gap: 4 }}>

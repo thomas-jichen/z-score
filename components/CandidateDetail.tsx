@@ -3,9 +3,9 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { useApp } from "@/components/AppState";
+import { hopAfter, neighborsFrom } from "@/lib/people";
 import { allTags } from "@/lib/tags";
 import { ARCHETYPES, archetypeLabel, formatSigma, type Archetype } from "@/lib/zscore";
-import { CLUSTER_CALIBRATION, POLYMATH_SIGMA } from "@/lib/clusters";
 import {
   ArchetypeTag,
   Button,
@@ -26,14 +26,25 @@ import {
  * on their profile, and how they were found.
  */
 export function CandidateDetail({ slug }: { slug: string }) {
-  const { roster, bySlug, marks, team, candidates, loading, mark, setCluster, editTerms, enrich, analyze, analyzing, taggerEnabled, job } =
+  const { roster, bySlug, marks, team, candidates, loading, mark, setCluster, editTerms, enrich, addNeighbors, analyze, analyzing, taggerEnabled, job } =
     useApp();
 
   const [addingTag, setAddingTag] = useState(false);
   const [draftTag, setDraftTag] = useState("");
+  const [queueing, setQueueing] = useState<string | null>(null);
 
   const person = roster[slug];
   const c = bySlug.get(slug);
+
+  /**
+   * This person's People Also Viewed sidebar, minus anyone already in the roster.
+   * Persisted with the enrichment, so it is here for good rather than only in the
+   * session where the run happened.
+   */
+  const alsoViewed = useMemo(
+    () => (person ? neighborsFrom(person, new Set(Object.keys(roster))) : []),
+    [person, roster]
+  );
 
   const tags = useMemo(
     () => (person ? allTags(person, team.taxonomy) : []),
@@ -66,7 +77,7 @@ export function CandidateDetail({ slug }: { slug: string }) {
     );
   }
 
-  const headline = [...c.signals].sort((a, b) => b.deviation - a.deviation).slice(0, 3);
+  const headline = [...c.signals].sort((a, b) => b.points - a.points).slice(0, 3);
   const rest = c.signals.filter((s) => !headline.includes(s));
   const isSeed = c.discovery.length === 1 && c.discovery[0].kind === "seed";
   const e = person.enriched;
@@ -81,8 +92,10 @@ export function CandidateDetail({ slug }: { slug: string }) {
     e?.registeredAt ? ["On LinkedIn since", e.registeredAt.slice(0, 4)] : undefined,
   ].filter(Boolean) as [string, string][];
 
+  // Was "clears +0.5σ". Now "reaches the polymath threshold in points", set in
+  // the taxonomy, because there is no sigma left to clear.
   const clustersCleared = (Object.entries(c.cluster_scores) as [Archetype, number][])
-    .filter(([, z]) => z >= POLYMATH_SIGMA)
+    .filter(([, points]) => points >= team.taxonomy.polymathPoints)
     .sort((a, b) => b[1] - a[1]);
 
   return (
@@ -93,7 +106,7 @@ export function CandidateDetail({ slug }: { slug: string }) {
 
       {/* Hero. The score is the headline, the name is second. */}
       <div style={{ margin: "var(--z-space-8) 0 var(--z-space-12)" }}>
-        <ZScoreBadge candidate={c} display />
+        <ZScoreBadge candidate={c} bands={team.taxonomy.bands} display />
         <h1 className="z-h1" style={{ marginTop: "var(--z-space-4)" }}>
           {c.name}
         </h1>
@@ -162,7 +175,7 @@ export function CandidateDetail({ slug }: { slug: string }) {
                     {s.label}
                   </span>
                   <span className="z-h4 z-num" style={{ color: "var(--z-blue)" }}>
-                    {formatSigma(s.deviation)}
+                    {formatSigma(s.points)}
                   </span>
                 </div>
               ))}
@@ -193,8 +206,8 @@ export function CandidateDetail({ slug }: { slug: string }) {
                         from {s.source}
                       </span>
                     </span>
-                    <span className="z-breakdown-dev" data-negative={s.deviation < 0}>
-                      {formatSigma(s.deviation)}
+                    <span className="z-breakdown-dev" data-negative={s.points < 0}>
+                      {formatSigma(s.points)}
                     </span>
                   </div>
                 ))}
@@ -347,6 +360,56 @@ export function CandidateDetail({ slug }: { slug: string }) {
               </ol>
             )}
           </div>
+
+          {/* Where this person leads next. The sidebar came free with their
+              enrichment, so looking costs nothing and queueing costs nothing
+              either. Enriching happens from the queue, where the spend is
+              already the subject of the screen. */}
+          {alsoViewed.length > 0 && (
+            <details className="z-disclosure z-section-gap">
+              <summary>
+                People also viewed
+                <span className="z-count">{alsoViewed.length}</span>
+              </summary>
+              <div className="z-disclosure-body">
+                <p className="z-small" style={{ marginBottom: "var(--z-space-4)", maxWidth: "62ch" }}>
+                  Who browsers looked at in the same session as {c.name}. A co-view,
+                  not a judgement of similarity, and nobody here is in the roster yet.
+                </p>
+                <div className="z-stack" style={{ gap: "var(--z-space-4)" }}>
+                  {alsoViewed.map((n) => (
+                    <div key={n.slug} className="z-row">
+                      <span style={{ minWidth: 0 }}>
+                        <a
+                          href={n.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="z-person-name"
+                        >
+                          {n.name}
+                        </a>
+                        <span className="z-person-sub">
+                          {[n.position, n.year].filter(Boolean).join(", ")}
+                        </span>
+                      </span>
+                      <span className="z-spacer" />
+                      <button
+                        className="z-linkish"
+                        disabled={queueing === n.slug}
+                        onClick={async () => {
+                          setQueueing(n.slug);
+                          await addNeighbors([n], hopAfter(person));
+                          setQueueing(null);
+                        }}
+                      >
+                        {queueing === n.slug ? "Adding" : "Add to queue"}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </details>
+          )}
         </div>
 
         <div className="z-stack" style={{ gap: "var(--z-space-6)" }}>
@@ -354,12 +417,12 @@ export function CandidateDetail({ slug }: { slug: string }) {
             <div className="z-row" style={{ marginBottom: "var(--z-space-5)" }}>
               <div>
                 <p className="z-small">In {archetypeLabel(c.archetype)}</p>
-                <p className="z-h3 z-num">{formatSigma(c.z_score_archetype)}</p>
+                <p className="z-h3 z-num">{formatSigma(c.archetype_score)}</p>
               </div>
               <div style={{ marginLeft: "auto", textAlign: "right" }}>
                 <p className="z-small">Whole profile</p>
                 <p className="z-h3 z-num" style={{ color: "var(--z-blue)" }}>
-                  {formatSigma(c.z_score_normalized)}
+                  {formatSigma(c.score)}
                 </p>
               </div>
             </div>
@@ -380,11 +443,16 @@ export function CandidateDetail({ slug }: { slug: string }) {
               </div>
             )}
 
-            {/* The score is reproducible, and saying so is the point. */}
+            {/* The score is reproducible, and saying so is the point. The old copy
+                here claimed a fixed mean and a cluster mean, which stopped being
+                true when the score became a sum. */}
             <p className="z-micro" style={{ marginTop: "var(--z-space-4)" }}>
-              Scored against fixed calibration, not against whoever else has been enriched, so this
-              number does not move as the queue grows. Cluster mean is{" "}
-              {CLUSTER_CALIBRATION[c.archetype].mu.toFixed(1)}.
+              The total is the sum of the rows above, nothing more. It does not move as the queue
+              grows, and every weight is editable on the{" "}
+              <Link href="/taxonomy" className="z-linkish">
+                taxonomy screen
+              </Link>
+              .
             </p>
           </Card>
 

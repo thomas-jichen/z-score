@@ -10,6 +10,8 @@ import { parseProfile } from "../lib/apify";
 import {
   estimateCost,
   formatCost,
+  isUsableNeighbor,
+  MAX_NEIGHBORS,
   neighborsOf,
   nextHop,
   parseSeedInput,
@@ -17,11 +19,12 @@ import {
   type EnrichedProfile,
   type Provenance,
 } from "../lib/enrichment";
-import { capRoster, isSuppressed, migrateLegacy, nextHopFrom, withEnriched, MAX_PEOPLE, type Person } from "../lib/people";
+import { capRoster, hopAfter, isSuppressed, migrateLegacy, neighborsFrom, nextHopFrom, withEnriched, MAX_PEOPLE, type Person } from "../lib/people";
 import { emptyTeam, type TaxonomyPrefs } from "../lib/state";
 import { scoreOne, toCandidates } from "../lib/candidates";
 import { buildSearchLabels, matchedTerms, termCounts, unmatchedTerms } from "../lib/tags";
-import { CALIBRATION, POLYMATH_SIGMA, assignCluster } from "../lib/clusters";
+import { assignCluster, round } from "../lib/clusters";
+import { makeTag } from "../lib/tagRegistry";
 import { buildGraph, DEFAULT_MIN_HOLDERS } from "../lib/graph";
 
 let failures = 0;
@@ -68,6 +71,17 @@ check("hyphenated name survives", parseTitle("Mary-Kate Olsen - Student | Linked
 console.log("\ninferYear");
 check("class of", inferYear("Class of 2027 at TJHSST"), "2027");
 check("apostrophe", inferYear("TJHSST '28"), "2028");
+// LinkedIn writes U+2019, not the ASCII apostrophe. Every real headline took
+// this path and matched nothing until the class was widened.
+check("curly apostrophe, as LinkedIn actually writes it", inferYear("Stanford ’30"), "2030");
+check(
+  "curly apostrophe mid-headline",
+  inferYear("Incoming CS @ Stanford | Stanford AIMI ’26"),
+  "2026"
+);
+// "Class of" with a two-digit year falls through to the apostrophe branch,
+// because the qualified pattern wants four digits. The answer is still right.
+check("two-digit class of", inferYear("Class of ’29 at Exeter"), "2029");
 check("bare year in range", inferYear("Graduating 2026"), "2026");
 check("ignores out-of-band", inferYear("Born in 1999"), undefined);
 
@@ -173,7 +187,8 @@ const RAW_PROFILE = {
       id: "ACoAAA1",
       firstName: "Mira",
       lastName: "Okonkwo",
-      position: "Student",
+      // A real `position` usually states the year. This one does, Ken's does not.
+      position: "Student, class of 2027",
       publicIdentifier: "mira-okonkwo",
       linkedinUrl: "https://www.linkedin.com/in/mira-okonkwo",
     },
@@ -187,6 +202,25 @@ const RAW_PROFILE = {
     },
     // No identifier at all — must be dropped, not turned into a junk lookup.
     { id: "ACoAAA3", firstName: "Ghost", lastName: "Entry", position: "Unknown" },
+    // The headline-less tail. The vendor pads the sidebar with accounts it has
+    // no headline for and writes "--" into position. One of them shows the
+    // scraper stringifying a missing lastName.
+    {
+      id: "ACoAAA4",
+      firstName: "Penny",
+      lastName: "Gallear",
+      position: "--",
+      publicIdentifier: "penny-gallear-1a5872427",
+      linkedinUrl: "https://www.linkedin.com/in/penny-gallear-1a5872427",
+    },
+    {
+      id: "ACoAAA5",
+      firstName: "Datollski",
+      lastName: "undefined",
+      position: "-",
+      publicIdentifier: "datollski-undefined-860314422",
+      linkedinUrl: "https://www.linkedin.com/in/datollski-undefined-860314422",
+    },
   ],
 };
 
@@ -225,7 +259,11 @@ const p = parsed as EnrichedProfile;
 check("slug is folded to lowercase", p.slug, "ada-chen-7a12");
 check("name is joined", p.name, "Ada Chen");
 check("location unwrapped from object", p.location, "Austin, TX");
-check("grad year from education endDate", p.gradYear, 2027);
+// "Class of" means the COLLEGE graduating class throughout the app, so a 2027
+// high-school leaver is the class of 2031. The fixture's only education record is
+// a high school diploma.
+check("high school leaver is given a college class year", p.gradYear, 2031);
+check("and the raw education year is untouched", p.educations[0].endYear, 2027);
 check("endDate year survives being a string", p.educations[0].endYear, 2027);
 check("honors kept in order", p.honors.map((h) => h.title), ["RSI 2025", "ISEF Finalist"]);
 check("skills flattened from objects", p.skills, ["Python", "PyTorch"]);
@@ -233,6 +271,66 @@ check("publications flattened", p.publications, ["A paper"]);
 check("empty patents stay empty", p.patents, []);
 check("neighbours parsed", p.neighbors.map((n) => n.slug), ["mira-okonkwo", "ken-tanaka"]);
 check("neighbour without an identifier is dropped", p.neighbors.length, 2);
+// The sidebar arrives with identity attached. Asserting only slugs is what let
+// the name and position be silently dropped everywhere downstream.
+check("neighbour name is kept", p.neighbors[0].name, "Mira Okonkwo");
+check("neighbour position is kept", p.neighbors[0].position, "Student, class of 2027");
+check("neighbour year inferred from position", p.neighbors[0].year, "2027");
+check("no year in the position means no guess", p.neighbors[1].year, undefined);
+check("neighbour url kept", p.neighbors[0].url, "https://www.linkedin.com/in/mira-okonkwo");
+// The sidebar's tail is padding, not people. Keeping it meant paying $0.004 to
+// find out that a row with no headline was a dormant unrelated account.
+check("headline-less padding is left out", p.neighbors.length, 2);
+check("and the count of what was left out is kept", p.neighborsDropped, 2);
+check('"--" is not a headline', isUsableNeighbor({ ...p.neighbors[0], position: "--" }), false);
+check('a single dash is not either', isUsableNeighbor({ ...p.neighbors[0], position: " - " }), false);
+check("an empty position is not", isUsableNeighbor({ ...p.neighbors[0], position: "" }), false);
+check("a real headline is", isUsableNeighbor(p.neighbors[0]), true);
+check(
+  "a hyphenated headline survives",
+  isUsableNeighbor({ ...p.neighbors[0], position: "Co-founder" }),
+  true
+);
+{
+  // The cut is positional, not textual. Measured over five real profiles the
+  // array came back at 10 or 20 and the quality cliff was at index 10 every
+  // time; one profile's entire tail had real headlines ("Student at Stanford
+  // University", a cash-for-gold business) and sailed through a headline test.
+  const wide = parseProfile(
+    {
+      publicIdentifier: "wide",
+      moreProfiles: Array.from({ length: 14 }, (_, i) => ({
+        firstName: "Neighbor",
+        lastName: `${i + 1}`,
+        position: `CS @ Stanford, number ${i + 1}`,
+        publicIdentifier: `n${i + 1}`,
+      })),
+    },
+    VIA_SERP
+  )!;
+  check("only the sidebar block is kept", wide.neighbors.length, MAX_NEIGHBORS);
+  check("the tenth survives", wide.neighbors[9].slug, "n10");
+  check(
+    "the eleventh is dropped despite a plausible headline",
+    wide.neighbors.some((n) => n.slug === "n11"),
+    false
+  );
+  check("and the four cut are counted", wide.neighborsDropped, 4);
+}
+
+check(
+  'the literal string "undefined" is not part of a name',
+  parseProfile(
+    {
+      publicIdentifier: "x",
+      moreProfiles: [
+        { firstName: "Datollski", lastName: "undefined", position: "CS @ Stanford", publicIdentifier: "d1" },
+      ],
+    },
+    VIA_SERP
+  )?.neighbors[0].name,
+  "Datollski"
+);
 check("provenance carried through", p.discoveredVia.kind, "serp");
 check("region taken from the structured parsed block", p.region, "TX");
 check("experience description kept for matching", Boolean(p.experience[0]), true);
@@ -261,6 +359,15 @@ check(
   ["ken-tanaka"]
 );
 check("hop carries seed attribution", nextHop([p], new Set())[0].seedName, "Ada Chen");
+// A hop row is what the reviewer reads before deciding to spend, so the
+// neighbour's own identity has to survive the projection, not just the seed's.
+check("hop carries the neighbour name", nextHop([p], new Set())[0].name, "Mira Okonkwo");
+check(
+  "hop carries the neighbour position",
+  nextHop([p], new Set())[0].position,
+  "Student, class of 2027"
+);
+check("hop carries the inferred year", nextHop([p], new Set())[0].year, "2027");
 check(
   "the seed itself is skipped when known",
   nextHop([p], new Set(["ada-chen-7a12", "mira-okonkwo", "ken-tanaka"])).length,
@@ -278,6 +385,33 @@ check(
     nextHopFrom([asPerson], new Set()).map((n) => n.slug),
     ["mira-okonkwo", "ken-tanaka"]
   );
+  check(
+    "hop from a Person keeps the neighbour name",
+    nextHopFrom([asPerson], new Set())[0].name,
+    "Mira Okonkwo"
+  );
+  check("one person's neighbours", neighborsFrom(asPerson, new Set()).length, 2);
+
+  // Depth is read off the surfacing person, so it is right regardless of which
+  // screen started the expansion. This replaces a hardcoded hop of 1.
+  check("a neighbour of a swept person is hop 1", hopAfter(asPerson), 1);
+  const atHopOne = withEnriched(
+    undefined,
+    parseProfile(
+      { ...RAW_PROFILE, publicIdentifier: "hop-one" },
+      { kind: "pav", seedSlug: "ada-chen-7a12", seedName: "Ada Chen", hop: 1 }
+    )!
+  );
+  check("a neighbour of a hop-1 person is hop 2", hopAfter(atHopOne), 2);
+  check("depth is capped at what the route accepts", hopAfter(
+    withEnriched(
+      undefined,
+      parseProfile(
+        { ...RAW_PROFILE, publicIdentifier: "deep" },
+        { kind: "pav", seedSlug: "x", seedName: "X", hop: 9 }
+      )!
+    )
+  ), 5);
 }
 
 console.log("\ncost");
@@ -310,6 +444,10 @@ const bare = (slug: string, honors: string[] = [], extra: Partial<Person> = {}):
     experience: [],
     volunteering: [],
     certifications: [],
+    // Cleared too, or the spread of the parsed fixture leaves TJHSST and a field
+    // of study on every person — both of which are now real scoring tags, so the
+    // worked examples below would stop being about the credential they name.
+    educations: [],
   },
   ...extra,
 });
@@ -452,23 +590,28 @@ console.log("\npromoting a term actually makes it score");
   const before = scoreOne(tagged, TAX);
   check("unpromoted, it carries no weight", before.signals.some((s) => s.label === "Davidson Fellow"), false);
 
+  // A tag IS the term now. There is no separate promoted list, no separate weights
+  // map and no separate clusters map — one registry entry carries all three, which
+  // is what makes two spellings of one award impossible.
   const promoted: TaxonomyPrefs = {
     ...TAX,
-    promoted: ["Davidson Fellow"],
-    weights: { "Davidson Fellow": 1.9 },
-    clusters: { "Davidson Fellow": "research" },
+    tags: {
+      ...TAX.tags,
+      "davidson": makeTag({
+        label: "Davidson Fellow",
+        facet: "award",
+        weight: 1.9,
+        cluster: "research",
+        promoted: true,
+      }),
+    },
   };
   const after = scoreOne(tagged, promoted);
   check("promoted, it scores", after.signals.some((s) => s.label === "Davidson Fellow"), true);
-  // Both endpoints are rounded to three places before subtracting, so the delta
-  // can sit up to two rounding units away from the exact figure. Assert that
-  // tolerance rather than pretending to an equality that does not hold.
-  const delta = after.z_score_normalized - before.z_score_normalized;
-  check(
-    "the score moves by the weight",
-    Math.abs(delta - 1.9 / CALIBRATION.sigma) < 0.002,
-    true
-  );
+  // Now the score IS the sum, so the delta is the weight exactly. It used to be
+  // the weight divided by sigma, and the assertion needed a tolerance.
+  const delta = round(after.score - before.score);
+  check("the score moves by exactly the weight", delta, 1.9);
   check("and it votes for its cluster", after.archetype, "research");
   check(
     "it leaves the review queue once promoted",
@@ -492,39 +635,65 @@ console.log("\npromoting a term actually makes it score");
 
 // ── Scoring: fixed calibration ───────────────────────────────────────────
 
-console.log("\nfixed calibration — the documented worked examples");
+console.log("\nthe score is a sum — the documented worked examples");
 {
-  const rawOf = (c: ReturnType<typeof scoreOne>) =>
-    Number(c.signals.reduce((s, x) => s + x.deviation, 0).toFixed(6)) * CALIBRATION.sigma;
+  // The score IS the raw total now, so these assert it directly. The three
+  // sigma figures that used to sit alongside them (−0.8σ, +1.3σ, +2.4σ) have no
+  // successor: there is no mean to be above.
+  const sumOf = (c: ReturnType<typeof scoreOne>) =>
+    round(c.signals.reduce((s, x) => s + x.points, 0));
 
   const hackClub = scoreOne(bare("hc", ["Hack Club"]), TAX);
-  check("Hack Club alone, raw", Number(rawOf(hackClub).toFixed(2)), 0.7);
-  check("Hack Club alone, z", Number(hackClub.z_score_normalized.toFixed(1)), -0.8);
+  check("Hack Club alone", hackClub.score, 0.7);
 
   const three = scoreOne(bare("three", ["RSI", "ISEF", "USAMO"]), TAX);
-  check("RSI + ISEF + USAMO, raw", Number(rawOf(three).toFixed(2)), 4.5);
-  check("RSI + ISEF + USAMO, z", Number(three.z_score_normalized.toFixed(1)), 1.3);
+  check("RSI + ISEF + USAMO", three.score, 4.5);
 
   const strong = bare("strong", ["IMO", "IOI", "RSI"]);
   strong.enriched!.publications = ["A paper"];
   const strongScored = scoreOne(strong, TAX);
-  check("IMO+IOI+RSI+1 pub, raw", Number(rawOf(strongScored).toFixed(2)), 6.6);
-  check("IMO+IOI+RSI+1 pub, z", Number(strongScored.z_score_normalized.toFixed(1)), 2.4);
+  check("IMO+IOI+RSI+1 pub", strongScored.score, 6.6);
+
+  // The breakdown on the detail screen must add up to the number above it. Under
+  // the old model the rows were weight/sigma and the total was (Σw−mu)/sigma, so
+  // they never did.
+  check("the breakdown sums to the total", sumOf(strongScored), strongScored.score);
+  check("and for a thin profile too", sumOf(hackClub), hackClub.score);
+}
+
+console.log("\ncapped counts");
+{
+  const many = bare("many", []);
+  many.enriched!.experience = Array.from({ length: 20 }, (_, i) => ({
+    title: `Role ${i}`,
+    company: `Company ${i}`,
+  }));
+  const scored = scoreOne(many, TAX);
+  const row = scored.signals.find((s) => s.label.includes("experience"))!;
+  // 20 experiences, cap 8, 0.2 each. Volume must not beat quality.
+  check("counting stops at the cap", row.points, 1.6);
+  check("and the row says what was dropped", row.label, "20 experiences, 8 counted");
+
+  const few = bare("few", []);
+  few.enriched!.projects = [{ title: "One" }, { title: "Two" }];
+  const f = scoreOne(few, TAX);
+  const prow = f.signals.find((s) => s.label.includes("project"))!;
+  check("under the cap, everything counts", prow.points, 0.8);
+  check("and the label is plain", prow.label, "2 projects");
 }
 
 console.log("\nthe score does not depend on who else is in the pool");
 {
-  // This is the whole reason the calibration is fixed. The old model
-  // standardised over the enriched population, so a person's number moved as the
+  // The invariant worth keeping from the standardised model. It used to
+  // standardise over the enriched population, so a person's number moved as the
   // queue grew and two teammates saw different values for the same kid.
   const target = bare("target", ["RSI", "ISEF"]);
   const crowd = Array.from({ length: 29 }, (_, i) => bare(`filler${i}`, ["Hack Club"]));
 
-  const alone = toCandidates([target], TAX)[0].z_score_normalized;
+  const alone = toCandidates([target], TAX)[0].score;
   const inThree = toCandidates([target, ...crowd.slice(0, 2)], TAX).find((c) => c.slug === "target")!
-    .z_score_normalized;
-  const inThirty = toCandidates([target, ...crowd], TAX).find((c) => c.slug === "target")!
-    .z_score_normalized;
+    .score;
+  const inThirty = toCandidates([target, ...crowd], TAX).find((c) => c.slug === "target")!.score;
 
   check("same score in a pool of one and a pool of three", alone, inThree);
   check("same score in a pool of thirty", alone, inThirty);
@@ -575,7 +744,12 @@ console.log("\ncluster assignment — highest weight wins");
 
   // Reweighting the taxonomy genuinely reassigns people, which is the point of
   // the sliders on that screen.
-  const flipped = scoreOne(bare("iorsi", ["IOI", "RSI"]), { ...TAX, weights: { RSI: 2.5 } });
+  // Retuning is a registry edit now, not a separate weights map.
+  const rsi = TAX.tags[Object.keys(TAX.tags).find((k) => TAX.tags[k].label === "RSI")!];
+  const flipped = scoreOne(bare("iorsi", ["IOI", "RSI"]), {
+    ...TAX,
+    tags: { ...TAX.tags, [rsi.id]: { ...rsi, weight: 2.5 } },
+  });
   check("raising RSI above IOI flips the primary cluster", flipped.archetype, "research");
 
   // A manual override always wins.
@@ -600,11 +774,17 @@ console.log("\npolymath badge");
     scoreOne(bare("two", ["IMO", "IOI", "RSI", "ISEF"]), TAX).polymath,
     true
   );
+  // The threshold is points now, from the taxonomy, not a sigma constant.
   const weak = scoreOne(bare("weak", ["TASP", "Mathcamp"]), TAX);
   check(
-    "clearing the threshold is required, not merely appearing in two",
+    "reaching the threshold is required, not merely appearing in two",
     weak.polymath,
-    Object.values(weak.cluster_scores).filter((z) => z >= POLYMATH_SIGMA).length >= 2
+    Object.values(weak.cluster_scores).filter((n) => n >= TAX.polymathPoints).length >= 2
+  );
+  check(
+    "raising the threshold takes the badge away",
+    scoreOne(bare("two2", ["IMO", "IOI", "RSI", "ISEF"]), { ...TAX, polymathPoints: 99 }).polymath,
+    false
   );
 }
 
@@ -645,7 +825,8 @@ console.log("\nupgrade in place");
   const upgraded = withEnriched(thin, p);
   check("the profile is attached", Boolean(upgraded.enriched), true);
   check("the fuller name wins", upgraded.name, "Ada Chen");
-  check("grad year arrives", upgraded.gradYear, 2027);
+  // A high-school leaver in 2027 is the college class of 2031.
+  check("grad year arrives as a college class", upgraded.gradYear, 2031);
   check("the school arrives", upgraded.school, "TJHSST");
   check("the state arrives", upgraded.state, "TX");
   check("the original discovery path is kept", upgraded.discoveredVia.kind, "serp");
@@ -658,11 +839,21 @@ console.log("\nupgrade in place");
 console.log("\ngraph — the rarity window is what keeps it readable");
 {
   // Twelve people all in the class of 2027, three of whom did RSI.
-  const crowd: Person[] = Array.from({ length: 12 }, (_, i) => ({
-    ...bare(`g${i}`, i < 3 ? ["RSI"] : []),
-    gradYear: 2027,
-    school: i < 6 ? "TJHSST" : "IMSA",
-  }));
+  //
+  // The school has to be set on the education record, not just on `Person.school`.
+  // The extractor reads `enriched.educations` directly now, and the fixture spreads
+  // one parsed profile into all twelve — so leaving the record alone gave every
+  // person the same school and the six-holder tag became a twelve-holder one.
+  const crowd: Person[] = Array.from({ length: 12 }, (_, i) => {
+    const base = bare(`g${i}`, i < 3 ? ["RSI"] : []);
+    const school = i < 6 ? "TJHSST" : "IMSA";
+    return {
+      ...base,
+      gradYear: 2027,
+      school,
+      enriched: { ...base.enriched!, educations: [{ school, endYear: 2027 }] },
+    };
+  });
   const roster = Object.fromEntries(crowd.map((x) => [x.slug, x]));
   const cands = toCandidates(crowd, TAX);
 
@@ -705,9 +896,18 @@ console.log("\ngraph — the rarity window is what keeps it readable");
     const keptZ = capped.nodes
       .filter((n): n is Extract<typeof n, { kind: "person" }> => n.kind === "person")
       .map((n) => n.z);
-    const allZ = cands.map((c) => c.z_score_normalized).sort((x, y) => y - x);
+    const allZ = cands.map((c) => c.score).sort((x, y) => y - x);
     check("the people kept are the highest scoring", [...keptZ].sort((x, y) => y - x), allZ.slice(0, 5));
-    check("everyone with RSI is kept", keptZ.filter((z) => z > -1).length, 3);
+    // Say what this means rather than encoding it as a score threshold. It used to
+    // be `z > -1`, which isolated the RSI holders only because a person with no
+    // terms happened to score −1.22 under the old standardisation — a coincidence
+    // of the calibration, not a statement about the graph.
+    const keptSlugs = new Set(
+      capped.nodes
+        .filter((n): n is Extract<typeof n, { kind: "person" }> => n.kind === "person")
+        .map((n) => n.slug)
+    );
+    check("everyone with RSI is kept", ["g0", "g1", "g2"].every((s) => keptSlugs.has(s)), true);
   }
 
   console.log("\ngraph — the layout is deterministic");

@@ -20,7 +20,7 @@ import { EmptyState, MarkControl, PolymathBadge, type MarkChange } from "@/compo
 const BATCH_SIZE = 10;
 
 export default function DigestPage() {
-  const { queue, marks, knownCount, state, patch, mark, loading, error } = useApp();
+  const { queue, marks, knownCount, state, team, patch, mark, loading, error } = useApp();
 
   // Capture the previous visit before overwriting it, or "new since" would
   // always be empty — the write lands before the render that reads it.
@@ -108,12 +108,12 @@ export default function DigestPage() {
                             {isNew(c.surfaced_at) && <span className="z-badge-new">new</span>}
                             <div
                               className="z-score"
-                              data-band={scoreBand(c.z_score_normalized)}
+                              data-band={scoreBand(c.score, team.taxonomy.bands)}
                               data-thin={!c.enriched || undefined}
                               style={{ marginTop: 6 }}
                             >
                               <span className="z-score-sigma">
-                                {formatSigma(c.z_score_normalized)}
+                                {formatSigma(c.score)}
                               </span>
                               <span className="z-score-class">{archetypeLabel(c.archetype)}</span>
                             </div>
@@ -134,7 +134,7 @@ export default function DigestPage() {
                                 >
                                   {s.label}{" "}
                                   <span className="z-num" style={{ color: "var(--z-ink-faint)" }}>
-                                    {formatSigma(s.deviation)}
+                                    {formatSigma(s.points)}
                                   </span>
                                 </div>
                               ))

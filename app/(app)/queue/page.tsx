@@ -6,16 +6,14 @@ import { useSearchParams } from "next/navigation";
 import { useApp } from "@/components/AppState";
 import { estimateCost, formatCost } from "@/lib/enrichment";
 import { allTags } from "@/lib/tags";
-import { emptyFilters, type QueueFilters } from "@/lib/state";
+import { emptyFilters, type BandThresholds, type QueueFilters } from "@/lib/state";
 import type { PersonStatus } from "@/lib/people";
 import {
   ARCHETYPES,
-  SCORE_BANDS,
   archetypeLabel,
-  scoreBand,
+  formatSigma,
   type Archetype,
   type Candidate,
-  type ScoreBand,
 } from "@/lib/zscore";
 import {
   ArchetypeTag,
@@ -97,6 +95,34 @@ function QueueInner() {
     [patch]
   );
 
+  /**
+   * Score filter options, built from the taxonomy rather than hardcoded.
+   *
+   * The thresholds used to be sigma constants baked into `scoreBand`, so the
+   * labels read "≥ +2.5σ" forever regardless of how the weights were tuned. Now a
+   * weight edit moves both the bands and the labels together.
+   */
+  const bands = team.taxonomy.bands;
+  const bandFloor: Record<string, number> = useMemo(
+    () => ({
+      exceptional: bands.exceptional,
+      strong: bands.strong,
+      above: bands.above,
+      mid: bands.mid,
+    }),
+    [bands]
+  );
+  const bandOptions = useMemo(
+    () => [
+      { id: "all", label: "All" },
+      { id: "exceptional", label: `≥ ${formatSigma(bands.exceptional)}` },
+      { id: "strong", label: `≥ ${formatSigma(bands.strong)}` },
+      { id: "above", label: `≥ ${formatSigma(bands.above)}` },
+      { id: "mid", label: `≥ ${formatSigma(bands.mid)}` },
+    ],
+    [bands]
+  );
+
   const activeCount =
     (filters.cluster !== "all" ? 1 : 0) +
     (filters.band !== "all" ? 1 : 0) +
@@ -113,8 +139,10 @@ function QueueInner() {
       if (status !== view) return false;
 
       if (filters.cluster !== "all" && c.archetype !== filters.cluster) return false;
-      if (filters.band !== "all" && scoreBand(c.z_score_normalized) !== (filters.band as ScoreBand))
-        return false;
+      // "At least this band" rather than "exactly this band". The old filter was
+      // exact, and its option list had no entry for the bottom band at all, so
+      // the lowest-scoring people could not be listed.
+      if (filters.band !== "all" && c.score < (bandFloor[filters.band] ?? -Infinity)) return false;
       if (filters.years.length && !filters.years.includes(c.graduation_year ?? "")) return false;
       if (filters.pinnedOnly && !marks[c.slug]?.pinned) return false;
       if (filters.enrichedOnly && !c.enriched) return false;
@@ -136,7 +164,7 @@ function QueueInner() {
       const pb = marks[b.slug]?.pinned ? 1 : 0;
       if (pa !== pb) return pb - pa;
       if (sort === "recent") return b.surfaced_at.localeCompare(a.surfaced_at);
-      return b.z_score_normalized - a.z_score_normalized;
+      return b.score - a.score;
     });
   }, [candidates, marks, view, filters, search, sort]);
 
@@ -207,7 +235,7 @@ function QueueInner() {
       ["name", "z_score", "cluster", "polymath", "class", "school", "state", "enriched", "url"],
       ...rows.map((c) => [
         c.name,
-        c.z_score_normalized.toFixed(2),
+        c.score.toFixed(2),
         archetypeLabel(c.archetype),
         c.polymath ? "yes" : "",
         c.graduation_year ?? "",
@@ -346,7 +374,7 @@ function QueueInner() {
               </FilterRow>
 
               <FilterRow label="Score">
-                {SCORE_BANDS.map((o) => (
+                {bandOptions.map((o) => (
                   <Pill
                     key={o.id}
                     as="button"
@@ -510,6 +538,7 @@ function QueueInner() {
                         enriching={job.phase === "running"}
                         tags={allTags(roster[c.slug], team.taxonomy).slice(0, 5)}
                         mark={marks[c.slug]}
+                        bands={bands}
                       />
                     ))}
                   </tbody>
@@ -521,7 +550,7 @@ function QueueInner() {
                   <div className="z-card" key={c.slug}>
                     <PersonCell candidate={c} />
                     <div className="z-row z-row-wrap" style={{ marginTop: "var(--z-space-4)", gap: "var(--z-space-2)" }}>
-                      <ZScoreBadge candidate={c} />
+                      <ZScoreBadge candidate={c} bands={bands} />
                       {c.polymath && <PolymathBadge clusters={c.secondary_archetypes} />}
                       <span className="z-spacer" />
                       <MarkControl
@@ -553,6 +582,7 @@ function Row({
   enriching,
   tags,
   mark,
+  bands,
 }: {
   candidate: Candidate;
   checked: boolean;
@@ -564,6 +594,7 @@ function Row({
   enriching: boolean;
   tags: ReturnType<typeof allTags>;
   mark?: Parameters<typeof MarkControl>[0]["mark"];
+  bands: BandThresholds;
 }) {
   const [editing, setEditing] = useState(false);
 
@@ -590,8 +621,8 @@ function Row({
       </td>
       <td>
         <span className="z-row" style={{ gap: "var(--z-space-4)" }}>
-          <ZScoreBadge candidate={c} showClass={false} />
-          <DeviationBar z={c.z_score_normalized} />
+          <ZScoreBadge candidate={c} bands={bands} showClass={false} />
+          <DeviationBar z={c.score} max={bands.exceptional} />
         </span>
         {/* Only offered while there is something to gain, so it disappears once
             this person is enriched rather than sitting there greyed out. */}

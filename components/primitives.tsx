@@ -12,6 +12,7 @@ import {
   type Signal,
 } from "@/lib/zscore";
 import type { PersonMark, PersonStatus } from "@/lib/people";
+import type { BandThresholds } from "@/lib/state";
 import type { Tag } from "@/lib/tags";
 
 /* ── Button ─ derives from zfellows .new-button ─────────────────────────── */
@@ -104,8 +105,8 @@ export function ArchetypeTag({ archetype, href }: { archetype: Archetype; href?:
  */
 export function PolymathBadge({ clusters }: { clusters?: Archetype[] }) {
   const title = clusters?.length
-    ? `Also clears +0.5σ in ${clusters.map(archetypeLabel).join(", ")}`
-    : "Clears +0.5σ in two or more clusters";
+    ? `Also scores in ${clusters.map(archetypeLabel).join(", ")}`
+    : "Scores in two or more clusters";
   return (
     <span className="z-badge-poly" title={title}>
       Polymath
@@ -147,57 +148,50 @@ export function SegmentedControl<T extends string>({
 
 export function ZScoreBadge({
   candidate,
+  bands,
   display,
   showClass = true,
 }: {
   candidate: Candidate;
+  bands: BandThresholds;
   display?: boolean;
   showClass?: boolean;
 }) {
-  const z = candidate.z_score_normalized;
+  const score = candidate.score;
   return (
     <span
       className={`z-score${display ? " is-display" : ""}`}
-      data-band={scoreBand(z)}
+      data-band={scoreBand(score, bands)}
       // Hollow while a person is known from search results alone. The score is
       // computed the same way with no discount; this says how much was read.
       data-thin={!candidate.enriched || undefined}
       title={candidate.enriched ? undefined : "Scored from search results only. Not enriched yet."}
     >
-      <span className="z-score-sigma">{formatSigma(z)}</span>
+      <span className="z-score-sigma">{formatSigma(score)}</span>
       {showClass && <span className="z-score-class">{archetypeLabel(candidate.archetype)}</span>}
     </span>
   );
 }
 
 /**
- * DeviationBar — the one wholly new visual form; no marketing-site analogue.
- * The mean sits at a fixed x-offset so a column of these reads as a histogram
- * turned on its side.
+ * ScoreBar — the one wholly new visual form; no marketing-site analogue.
+ *
+ * A total is now a sum with no negative range in practice, so the bar fills from
+ * the left rather than growing either side of a mean. `max` is the taxonomy's
+ * "exceptional" threshold, so a full bar means "clears the top band" instead of
+ * the old fixed 3.5σ, which would have pinned every profile at 100% once scores
+ * moved into the tens.
  */
-export function DeviationBar({ z, max = 3.5 }: { z: number; max?: number }) {
-  const MEAN = 28; // percent, matches .z-dev-axis left
-  const span = 100 - MEAN;
-  const pct = Math.min(Math.abs(z) / max, 1);
-  const negative = z < 0;
-  const width = negative ? pct * MEAN : pct * span;
+export function DeviationBar({ z, max }: { z: number; max: number }) {
+  const pct = Math.min(Math.max(z, 0) / Math.max(max, 0.1), 1);
   return (
     <span className="z-dev" aria-hidden="true">
-      <span className="z-dev-axis" />
-      <span
-        className="z-dev-bar"
-        data-negative={negative}
-        style={
-          negative
-            ? { right: `${100 - MEAN}%`, width: `${width}%` }
-            : { left: `${MEAN}%`, width: `${width}%` }
-        }
-      />
+      <span className="z-dev-bar" style={{ left: 0, width: `${pct * 100}%` }} />
     </span>
   );
 }
 
-/* ── Breakdown — deviations, never raw points ───────────────────────────── */
+/* ── Breakdown — the rows add up to the total ────────────────────────────── */
 
 export function ZScoreBreakdown({ candidate }: { candidate: Candidate }) {
   const [open, setOpen] = useState(false);
@@ -217,8 +211,8 @@ export function ZScoreBreakdown({ candidate }: { candidate: Candidate }) {
               </span>
             )}
           </span>
-          <span className="z-breakdown-dev" data-negative={s.deviation < 0}>
-            {formatSigma(s.deviation)}
+          <span className="z-breakdown-dev" data-negative={s.points < 0}>
+            {formatSigma(s.points)}
           </span>
         </div>
       ))}

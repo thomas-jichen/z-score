@@ -592,13 +592,15 @@ a.z-archetype:hover {
   vertical-align: middle;
 }
 
-.z-dev-axis {
+/* The mean axis is gone with the standardised score: a point total fills from
+   zero, so there is no centre for it to sit at. A quiet track shows the span the
+   bar is filling instead. */
+.z-dev::before {
+  content: "";
   position: absolute;
-  left: 28%;
-  top: 0;
-  bottom: 0;
-  width: 1px;
-  background: var(--z-divider);
+  inset: 8px 0 auto 0;
+  height: 2px;
+  background: var(--z-border-soft);
   display: block;
 }
 

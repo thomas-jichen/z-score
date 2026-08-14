@@ -25,7 +25,7 @@ import { get, hdel, set } from "@/lib/store";
 import { extractSlug } from "@/lib/search";
 import { toSlug } from "@/lib/enrichment";
 import type { ProfileId } from "@/lib/profiles";
-import { isBad, readJson, str, strList } from "@/lib/validate";
+import { bounded, isBad, readJson, str, strList } from "@/lib/validate";
 import { log } from "@/lib/log";
 
 /**
@@ -52,7 +52,15 @@ const MAX_MARK = 2000;
 
 type Body =
   | { op: "addHits"; hits?: unknown; query?: unknown; selection?: unknown }
-  | { op: "addSlugs"; slugs?: unknown; seedSlug?: unknown; seedName?: unknown }
+  | {
+      op: "addSlugs";
+      slugs?: unknown;
+      /** Neighbours, which arrive already knowing their own name and position. */
+      people?: unknown;
+      seedSlug?: unknown;
+      seedName?: unknown;
+      hop?: unknown;
+    }
   | { op: "mark"; slugs?: unknown; status?: unknown; pinned?: unknown; note?: unknown }
   | { op: "setCluster"; slug?: unknown; cluster?: unknown }
   | { op: "terms"; slug?: unknown; add?: unknown; remove?: unknown }
@@ -211,38 +219,98 @@ async function addHits(profile: ProfileId, body: Extract<Body, { op: "addHits" }
   return NextResponse.json({ ok: true, added: fresh.length, queued: slugs.length, marks });
 }
 
-/** Seeds and neighbours, known only by slug until enrichment fills them in. */
+/**
+ * Seeds and neighbours.
+ *
+ * A seed is known only by slug until enrichment fills it in. A neighbour is not:
+ * People Also Viewed hands back a name and a position for free, so `people[]`
+ * carries those through and the roster records a real person rather than a bare
+ * username that every teammate then sees.
+ *
+ * `slugs[]` remains the seed path and any caller with nothing but slugs.
+ */
+type IncomingPerson = {
+  slug: string;
+  name: string;
+  headline: string;
+  seedSlug: string;
+  seedName: string;
+};
+
+function cleanIncoming(raw: unknown, fallback: { seedSlug: string; seedName: string }): IncomingPerson[] {
+  if (!Array.isArray(raw)) return [];
+  const out: IncomingPerson[] = [];
+  const seen = new Set<string>();
+
+  for (const item of raw.slice(0, MAX_ADD)) {
+    const o = (item ?? {}) as Record<string, unknown>;
+    const slug = toSlug(str(o.slug, 200));
+    if (!slug || seen.has(slug)) continue;
+    seen.add(slug);
+    out.push({
+      slug,
+      name: str(o.name, 200).trim(),
+      // The vendor calls it `position`; ours is `headline`. Accept either.
+      headline: (str(o.headline, 300) || str(o.position, 300)).trim(),
+      seedSlug: toSlug(str(o.seedSlug, 200)) ?? fallback.seedSlug,
+      seedName: str(o.seedName, 200).trim() || fallback.seedName,
+    });
+  }
+  return out;
+}
+
 async function addSlugs(profile: ProfileId, body: Extract<Body, { op: "addSlugs" }>) {
-  const list = [
+  const fallbackSeedSlug = toSlug(str(body.seedSlug, 200)) ?? "";
+  const fallbackSeedName = str(body.seedName, 200).trim();
+
+  // Each hop is one depth, so it is a property of the batch. This used to be
+  // hardcoded to 1, which recorded a hop-2 neighbour as a hop-1 one.
+  const hop = bounded(body.hop, 1, 5) ?? 1;
+
+  const incoming = cleanIncoming(body.people, {
+    seedSlug: fallbackSeedSlug,
+    seedName: fallbackSeedName,
+  });
+
+  const bare = [
     ...new Set(
       strList(body.slugs, MAX_ADD, 200)
         .map((s) => toSlug(s))
         .filter((s): s is string => Boolean(s))
     ),
-  ];
-  if (list.length === 0) {
+  ]
+    .filter((slug) => !incoming.some((p) => p.slug === slug))
+    .map((slug) => ({
+      slug,
+      name: "",
+      headline: "",
+      seedSlug: fallbackSeedSlug,
+      seedName: fallbackSeedName,
+    }));
+
+  const all = [...incoming, ...bare].slice(0, MAX_ADD);
+  if (all.length === 0) {
     return NextResponse.json({ ok: false, error: "No valid profiles." }, { status: 400 });
   }
-
-  const seedSlug = toSlug(str(body.seedSlug, 200));
-  const seedName = str(body.seedName, 200);
+  const list = all.map((p) => p.slug);
 
   const roster = await readRoster();
-  const fresh = list
-    .filter((slug) => !roster[slug])
-    .map((slug) =>
+  const fresh = all
+    .filter((p) => !roster[p.slug])
+    .map((p) =>
       personFromSlug(
-        slug,
-        seedSlug
-          ? { kind: "pav", seedSlug, seedName: seedName || seedSlug, hop: 1 }
-          : { kind: "seed" }
+        p.slug,
+        p.seedSlug
+          ? { kind: "pav", seedSlug: p.seedSlug, seedName: p.seedName || p.seedSlug, hop }
+          : { kind: "seed" },
+        { name: p.name, headline: p.headline }
       )
     );
 
   const marks = await patchMarks(profile, (m) => queued(m, list));
   await addPeople(fresh, marks);
 
-  log.info("people.added", { source: "slug", added: fresh.length, queued: list.length });
+  log.info("people.added", { source: "slug", added: fresh.length, queued: list.length, hop });
   return NextResponse.json({ ok: true, added: fresh.length, queued: list.length, marks });
 }
 

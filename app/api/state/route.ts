@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { resolveProfile } from "@/lib/auth";
 import { get, set, storeKind, storeIsEphemeral } from "@/lib/store";
 import {
+  MAX_RECENT_SLUGS,
   MAX_SAVED_SWEEPS,
   emptyFilters,
   hydrate,
@@ -106,6 +107,9 @@ function cleanPatch(raw: Partial<ProfileState>): Partial<ProfileState> {
   if (raw.seeds !== undefined) out.seeds = strList(raw.seeds, 250, 300);
   if (typeof raw.activeJobId === "string" || raw.activeJobId === null) {
     out.activeJobId = raw.activeJobId ? str(raw.activeJobId, 80) : null;
+  }
+  if (raw.recentSlugs !== undefined) {
+    out.recentSlugs = strList(raw.recentSlugs, MAX_RECENT_SLUGS, 200);
   }
 
   return out;

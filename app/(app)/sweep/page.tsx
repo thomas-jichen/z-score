@@ -10,22 +10,35 @@ import {
 } from "@/lib/searchTaxonomy";
 import { buildQuery, COST_PER_QUERY, selectionCount, type Selection } from "@/lib/query";
 import type { Hit, ShardResult } from "@/lib/types";
-import type { CustomTerms, SavedSweep, SweepMode } from "@/lib/state";
-import { estimateCost, formatCost, parseSeedInput } from "@/lib/enrichment";
-import { isSuppressed, nextHopFrom, suppressionReason, topHonorOf } from "@/lib/people";
+import { MAX_RECENT_SLUGS, type CustomTerms, type SavedSweep, type SweepMode } from "@/lib/state";
+import type { TagFacet } from "@/lib/tagRegistry";
+import { estimateCost, formatCost, parseSeedInput, usableNeighbors } from "@/lib/enrichment";
+import { hopAfter, isSuppressed, nextHopFrom, suppressionReason, topHonorOf } from "@/lib/people";
 import { Button, EmptyState, Pill, SegmentedControl } from "@/components/primitives";
 import { useApp } from "@/components/AppState";
 
 /** Sidebar order, top to bottom. */
+/**
+ * The sweep menus are the tag registry.
+ *
+ * Each category maps to a facet, so what you can search for and what the score is
+ * made of are the same vocabulary. Adding a tag on the taxonomy screen puts it in
+ * these menus, and a term found by the tagger becomes searchable the moment it is
+ * promoted — neither of which was true when the menus were separate hardcoded
+ * lists.
+ *
+ * Class years stay a fixed list: they are generated, not curated.
+ */
 const CATEGORIES: {
   key: keyof Selection & keyof CustomTerms;
   label: string;
+  facet?: TagFacet;
   builtIn: string[];
 }[] = [
-  { key: "programs", label: "Programs", builtIn: PROGRAMS },
-  { key: "titles", label: "Title keywords", builtIn: TITLE_KEYWORDS },
-  { key: "colleges", label: "Colleges", builtIn: COLLEGES },
-  { key: "highSchools", label: "High schools", builtIn: HIGH_SCHOOLS },
+  { key: "programs", label: "Programs", facet: "program", builtIn: [] },
+  { key: "titles", label: "Title keywords", facet: "title", builtIn: [] },
+  { key: "colleges", label: "Colleges", facet: "college", builtIn: [] },
+  { key: "highSchools", label: "High schools", facet: "highschool", builtIn: [] },
   { key: "years", label: "Class of", builtIn: GRAD_YEARS },
 ];
 
@@ -48,6 +61,7 @@ export default function SweepPage() {
     setError,
     addHits,
     addSlugs,
+    addNeighbors,
     enrich,
     job,
     lastBatch,
@@ -71,16 +85,23 @@ export default function SweepPage() {
   const touched = useRef(false);
 
   const [seedText, setSeedText] = useState("");
-  const [maxHops, setMaxHops] = useState(1);
   /** Slugs ticked for the next action, across both paths. */
   const [picked, setPicked] = useState<Set<string>>(new Set());
-  /** Neighbours found but not yet enriched, with their seed attribution. */
-  const [pendingHop, setPendingHop] = useState<
-    { slug: string; seedSlug: string; seedName: string }[]
-  >([]);
-  const [hopDepth, setHopDepth] = useState(0);
-  /** What this visit added, so the results table is about this session. */
+  /**
+   * What the recent runs added, so the results table and the sidebar offer are
+   * about work just done rather than the whole roster. Persisted, because a
+   * reload used to lose the offer entirely even though the neighbours it is built
+   * from were saved all along.
+   */
   const [sessionSlugs, setSessionSlugs] = useState<string[]>([]);
+
+  /**
+   * People Also Viewed is offered, never taken. It stays shut until asked for,
+   * and `pavFocus` narrows it to one person's neighbours when a row asks for it.
+   */
+  const [pavOpen, setPavOpen] = useState(false);
+  const [pavFocus, setPavFocus] = useState<string | null>(null);
+  const pavRef = useRef<HTMLDetailsElement | null>(null);
 
   const busy = job.phase === "running";
 
@@ -95,6 +116,16 @@ export default function SweepPage() {
     [marks]
   );
 
+  /**
+   * Record who was just added, in state and in the stored document together, so
+   * the offer built from them is still there after a reload.
+   */
+  function rememberAdded(slugs: string[]) {
+    const next = [...new Set([...sessionSlugs, ...slugs])].slice(-MAX_RECENT_SLUGS);
+    setSessionSlugs(next);
+    patch({ recentSlugs: next });
+  }
+
   // Resume where this teammate left off, once, after the document loads.
   useEffect(() => {
     if (loading || restored) return;
@@ -103,29 +134,42 @@ export default function SweepPage() {
       setSel(state.lastSelection);
     }
     if (state.seeds.length > 0 && !seedText) setSeedText(state.seeds.join("\n"));
+    if (state.recentSlugs.length > 0) setSessionSlugs(state.recentSlugs);
     setRestored(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loading, restored]);
 
-  // A completed batch offers the next hop rather than taking it. The user
-  // confirms every spend.
+  // A completed batch only records who was added. What it co-viewed with is
+  // derived below, so nothing is pre-ticked and no spend is implied.
   const seenBatch = useRef<number>(0);
   useEffect(() => {
     if (!lastBatch || lastBatch.at === seenBatch.current) return;
     seenBatch.current = lastBatch.at;
-
-    setSessionSlugs((prev) => [...new Set([...prev, ...lastBatch.people.map((p) => p.slug)])]);
-
-    if (hopDepth < maxHops) {
-      const known = new Set(Object.keys(roster));
-      const found = nextHopFrom(lastBatch.people, known);
-      if (found.length > 0) {
-        setPendingHop(found);
-        setPicked(new Set(tickable(found.slice(0, MAX_PER_RUN).map((f) => f.slug))));
-      }
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    rememberAdded(lastBatch.people.map((p) => p.slug));
   }, [lastBatch]);
+
+  /**
+   * Registry labels grouped by facet, for the menus.
+   *
+   * Promoted first, then alphabetical: the tags that actually score are the ones
+   * worth searching for, and a menu of two hundred alphabetical entries buries
+   * them.
+   */
+  const menuByFacet = useMemo(() => {
+    const m = new Map<TagFacet, string[]>();
+    const defs = Object.values(team.taxonomy.tags).sort(
+      (a, b) =>
+        Number(b.promoted) - Number(a.promoted) ||
+        b.weight - a.weight ||
+        a.label.localeCompare(b.label)
+    );
+    for (const d of defs) {
+      const list = m.get(d.facet) ?? [];
+      list.push(d.label);
+      m.set(d.facet, list);
+    }
+    return m;
+  }, [team.taxonomy.tags]);
 
   const query = useMemo(() => buildQuery(sel), [sel]);
   const chosen = selectionCount(sel);
@@ -150,7 +194,14 @@ export default function SweepPage() {
   function addTerm(key: keyof CustomTerms, raw: string) {
     const term = raw.trim();
     if (!term) return;
-    const all = [...CATEGORIES.find((c) => c.key === key)!.builtIn, ...team.customTerms[key]];
+    const cat = CATEGORIES.find((c) => c.key === key)!;
+    // Check against what the menu actually offers, which is now the registry.
+    // Checking `builtIn` alone would let a tag already in the registry be added a
+    // second time as a custom term.
+    const all = [
+      ...(cat.facet ? (menuByFacet.get(cat.facet) ?? []) : cat.builtIn),
+      ...team.customTerms[key],
+    ];
     if (all.some((t) => t.toLowerCase() === term.toLowerCase())) return;
     // Menu options are team-wide, like the taxonomy they feed.
     patchTeam({ customTerms: { ...team.customTerms, [key]: [...team.customTerms[key], term] } });
@@ -245,7 +296,7 @@ export default function SweepPage() {
     setBusyAction("queue");
     const ok = await addHits(chosenHits, query, sel);
     if (ok) {
-      setSessionSlugs((prev) => [...new Set([...prev, ...chosenHits.map((h) => h.slug)])]);
+      rememberAdded(chosenHits.map((h) => h.slug));
       setNotice(`Added ${chosenHits.length} to the queue on search data. Enrich them any time.`);
     }
     setBusyAction(null);
@@ -255,8 +306,6 @@ export default function SweepPage() {
     const slugs = hits.filter((h) => picked.has(h.slug)).map((h) => h.slug);
     if (slugs.length === 0) return;
     setBusyAction("enrich");
-    setPendingHop([]);
-    setHopDepth(0);
     await enrich(slugs, { kind: "serp", hop: 0, query });
     setBusyAction(null);
   }
@@ -273,10 +322,11 @@ export default function SweepPage() {
       );
     }
     setBusyAction("enrich");
-    patch({ seeds: slugs });
-    setPendingHop([]);
+    // A fresh seed list starts a fresh run, so the previous run's offer goes.
+    patch({ seeds: slugs, recentSlugs: [] });
     setSessionSlugs([]);
-    setHopDepth(0);
+    setPavFocus(null);
+    setPavOpen(false);
     await enrich(slugs, { kind: "seed", hop: 0 });
     setBusyAction(null);
   }
@@ -294,36 +344,38 @@ export default function SweepPage() {
     setBusyAction(null);
   }
 
-  async function enrichHop() {
-    const chosenHop = pendingHop.filter((n) => picked.has(n.slug));
-    if (chosenHop.length === 0) return;
+  /** One past whoever surfaced the neighbour, from that person's provenance. */
+  const hopOf = (seedSlug: string) => hopAfter(roster[seedSlug]);
+
+  async function enrichPav() {
+    if (pavPicked.length === 0) return;
 
     const via: Record<string, { seedSlug: string; seedName: string }> = {};
-    for (const n of chosenHop) via[n.slug] = { seedSlug: n.seedSlug, seedName: n.seedName };
+    for (const n of pavPicked) via[n.slug] = { seedSlug: n.seedSlug, seedName: n.seedName };
 
     setBusyAction("enrich");
-    const depth = hopDepth + 1;
-    setPendingHop([]);
-    setHopDepth(depth);
-    await enrich(chosenHop.map((n) => n.slug), { kind: "seed", hop: depth, via });
+    setPicked(new Set());
+    await enrich(pavPicked.map((n) => n.slug), {
+      kind: "seed",
+      hop: Math.max(...pavPicked.map((n) => hopOf(n.seedSlug))),
+      via,
+    });
     setBusyAction(null);
   }
 
-  async function queueHop() {
-    const chosenHop = pendingHop.filter((n) => picked.has(n.slug));
-    if (chosenHop.length === 0) return;
+  async function queuePav() {
+    if (pavPicked.length === 0) return;
     setBusyAction("queue");
-    // Attribution is per seed, so group before sending.
-    const bySeed = new Map<string, { seedName: string; slugs: string[] }>();
-    for (const n of chosenHop) {
-      const entry = bySeed.get(n.seedSlug) ?? { seedName: n.seedName, slugs: [] };
-      entry.slugs.push(n.slug);
-      bySeed.set(n.seedSlug, entry);
+    // One call, with each neighbour's own name, position and attribution. The
+    // grouped per-seed loop this replaces threw all three away.
+    const ok = await addNeighbors(pavPicked, Math.max(...pavPicked.map((n) => hopOf(n.seedSlug))));
+    if (ok) {
+      rememberAdded(pavPicked.map((n) => n.slug));
+      setNotice(
+        `Added ${pavPicked.length} to the queue on sidebar data. Enrich them any time.`
+      );
+      setPicked(new Set());
     }
-    for (const [seedSlug, entry] of bySeed) {
-      await addSlugs(entry.slugs, { seedSlug, seedName: entry.seedName });
-    }
-    setPendingHop([]);
     setBusyAction(null);
   }
 
@@ -360,12 +412,85 @@ export default function SweepPage() {
   }
 
   const recent = state.sweeps.slice(0, 8);
-  const added = sessionSlugs.map((s) => roster[s]).filter(Boolean);
+  const added = useMemo(
+    () => sessionSlugs.map((s) => roster[s]).filter(Boolean),
+    [sessionSlugs, roster]
+  );
+
+  /**
+   * The People Also Viewed offer, derived from the roster rather than held in
+   * state.
+   *
+   * Every enrichment returns the sidebar and `writePeople` persists it, so the
+   * offer can be recomputed at any time. That is what makes it survive a reload,
+   * and it closes the case where a re-poll short-circuits with `alreadyApplied`
+   * and no batch is delivered — the neighbours were saved regardless.
+   *
+   * Because it recomputes, enriching a neighbour folds that person's own sidebar
+   * into the next offer. Depth is whatever the user keeps clicking, and anyone
+   * already in the roster is filtered out, so it converges rather than looping.
+   */
+  const known = useMemo(() => new Set(Object.keys(roster)), [roster]);
+  const pavAll = useMemo(() => nextHopFrom(added, known), [added, known]);
+  const pavRows = useMemo(
+    () => (pavFocus ? pavAll.filter((n) => n.seedSlug === pavFocus) : pavAll),
+    [pavAll, pavFocus]
+  );
+  const pavShown = pavRows.slice(0, MAX_PER_RUN);
+  /** How many neighbours each added person still has on offer. */
+  const pavCountBySeed = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const n of pavAll) m.set(n.seedSlug, (m.get(n.seedSlug) ?? 0) + 1);
+    return m;
+  }, [pavAll]);
+
+  /**
+   * How many the sidebar returned with no headline. Named on screen rather than
+   * letting the list just arrive shorter than the vendor's array was.
+   */
+  const pavDropped = useMemo(() => {
+    const source = pavFocus ? added.filter((p) => p.slug === pavFocus) : added;
+    return source.reduce((n, p) => {
+      const e = p.enriched;
+      if (!e) return n;
+      // Older records have no count stored, so recompute from what survives.
+      return n + (e.neighborsDropped ?? e.neighbors.length - usableNeighbors(e.neighbors).length);
+    }, 0);
+  }, [added, pavFocus]);
 
   const hitPickCount = hits.filter((h) => picked.has(h.slug)).length;
-  const hopPickCount = pendingHop.filter((n) => picked.has(n.slug)).length;
+  const pavPicked = pavShown.filter((n) => picked.has(n.slug));
   const seedCount = parseSeedInput(seedText).slugs.length;
   const working = busy || busyAction !== null;
+
+  /**
+   * Ticking is scoped to the table it happens in. A shared set with a global
+   * clear meant "Clear" under the search results also silently emptied the
+   * neighbour selection sitting below it.
+   */
+  function pickAll(slugs: string[]) {
+    setPicked((prev) => new Set([...prev, ...tickable(slugs)]));
+  }
+
+  function pickNone(slugs: string[]) {
+    setPicked((prev) => {
+      const next = new Set(prev);
+      for (const s of slugs) next.delete(s);
+      return next;
+    });
+  }
+
+  /** Open the neighbours of one person, from their row in the added table. */
+  function focusPav(slug: string) {
+    const same = pavFocus === slug && pavOpen;
+    setPavFocus(same ? null : slug);
+    setPavOpen(!same);
+    if (!same) {
+      requestAnimationFrame(() =>
+        pavRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" })
+      );
+    }
+  }
 
   return (
     <div className="z-page">
@@ -418,7 +543,7 @@ export default function SweepPage() {
               <Category
                 key={c.key}
                 label={c.label}
-                builtIn={c.builtIn}
+                builtIn={c.facet ? (menuByFacet.get(c.facet) ?? []) : c.builtIn}
                 custom={team.customTerms[c.key]}
                 selected={sel[c.key]}
                 onToggle={(o) => toggle(c.key, o)}
@@ -434,7 +559,7 @@ export default function SweepPage() {
               />
             ))
           ) : (
-            <SeedPanel text={seedText} onChange={setSeedText} maxHops={maxHops} onHops={setMaxHops} />
+            <SeedPanel text={seedText} onChange={setSeedText} />
           )}
         </aside>
 
@@ -505,8 +630,8 @@ export default function SweepPage() {
               }))}
               picked={picked}
               onToggle={togglePick}
-              onAll={() => setPicked(new Set(tickable(hits.map((h) => h.slug))))}
-              onNone={() => setPicked(new Set())}
+              onAll={() => pickAll(hits.map((h) => h.slug))}
+              onNone={() => pickNone(hits.map((h) => h.slug))}
               action={
                 <>
                   <Button onClick={enrichHits} disabled={hitPickCount === 0 || working}>
@@ -534,46 +659,80 @@ export default function SweepPage() {
             <EmptyState title="Nothing swept yet." hint="Build a query on the left, then run it." />
           )}
 
-          {/* Neighbours discovered from the last batch, awaiting the same decision. */}
-          {pendingHop.length > 0 && (
-            <ReviewTable
-              title={`People also viewed, hop ${hopDepth + 1}`}
-              hint="Found on the profiles just enriched. People Also Viewed reflects who browsers looked at together, so expect some drift."
-              rows={pendingHop.slice(0, MAX_PER_RUN).map((n) => ({
-                slug: n.slug,
-                name: n.slug,
-                sub: `via ${n.seedName}`,
-                aside: "",
-                url: `https://www.linkedin.com/in/${n.slug}`,
-                status: rosterStatus(n.slug),
-                skip: skipReason(n.slug),
-              }))}
-              picked={picked}
-              onToggle={togglePick}
-              onAll={() =>
-                setPicked(new Set(tickable(pendingHop.slice(0, MAX_PER_RUN).map((n) => n.slug))))
-              }
-              onNone={() => setPicked(new Set())}
-              action={
-                <>
-                  <Button onClick={enrichHop} disabled={hopPickCount === 0 || working}>
-                    Enrich {hopPickCount}, about {formatCost(estimateCost(hopPickCount))}
-                  </Button>
-                  <Button
-                    variant="secondary"
-                    onClick={queueHop}
-                    disabled={hopPickCount === 0 || working}
-                  >
-                    Add {hopPickCount} to queue
-                  </Button>
-                </>
-              }
-              footnote={
-                pendingHop.length > MAX_PER_RUN
-                  ? `${pendingHop.length} found, showing the first ${MAX_PER_RUN}.`
-                  : undefined
-              }
-            />
+          {/* Who the added people were co-viewed with. Shut until asked for, and
+              it costs nothing to look, because the sidebar arrived with the
+              enrichment already paid for. */}
+          {pavAll.length > 0 && (
+            <details
+              ref={pavRef}
+              className="z-disclosure z-section-gap"
+              open={pavOpen}
+              onToggle={(e) => setPavOpen((e.currentTarget as HTMLDetailsElement).open)}
+            >
+              <summary>
+                People also viewed
+                <span className="z-count">
+                  {pavFocus
+                    ? `${pavRows.length} via ${roster[pavFocus]?.name || pavFocus}`
+                    : `${pavAll.length} found`}
+                </span>
+              </summary>
+              <div className="z-disclosure-body">
+                <ReviewTable
+                  nested
+                  title={pavFocus ? "Co-viewed with this person" : "Co-viewed with who you added"}
+                  hint="People Also Viewed reflects who browsers looked at together, not who is similar, so expect some drift. Nothing here has been paid for yet."
+                  rows={pavShown.map((n) => ({
+                    slug: n.slug,
+                    name: n.name || n.slug,
+                    sub: n.position,
+                    aside: n.year ?? "",
+                    url: n.url,
+                    via: n.seedName,
+                    status: rosterStatus(n.slug),
+                    skip: skipReason(n.slug),
+                  }))}
+                  picked={picked}
+                  onToggle={togglePick}
+                  onAll={() => pickAll(pavShown.map((n) => n.slug))}
+                  onNone={() => pickNone(pavShown.map((n) => n.slug))}
+                  extra={
+                    pavFocus ? (
+                      <button className="z-linkish" onClick={() => setPavFocus(null)}>
+                        Show all
+                      </button>
+                    ) : undefined
+                  }
+                  action={
+                    <>
+                      <Button onClick={enrichPav} disabled={pavPicked.length === 0 || working}>
+                        Enrich {pavPicked.length}, about{" "}
+                        {formatCost(estimateCost(pavPicked.length))}
+                      </Button>
+                      <Button
+                        variant="secondary"
+                        onClick={queuePav}
+                        disabled={pavPicked.length === 0 || working}
+                      >
+                        Add {pavPicked.length} to queue
+                      </Button>
+                    </>
+                  }
+                  footnote={
+                    [
+                      pavRows.length > MAX_PER_RUN
+                        ? `${pavRows.length} found, showing the first ${MAX_PER_RUN}.`
+                        : "",
+                      pavDropped > 0
+                        ? `${pavDropped} more came back outside the co-view block and were left out.`
+                        : "",
+                    ]
+                      .filter(Boolean)
+                      .join(" ") || undefined
+                  }
+                />
+              </div>
+            </details>
           )}
 
           {/* Everything this visit put into the roster. */}
@@ -590,6 +749,7 @@ export default function SweepPage() {
                       <th style={{ width: 80 }}>Class</th>
                       <th style={{ width: 200 }}>Top honor</th>
                       <th style={{ width: 130 }}>State</th>
+                      <th style={{ width: 150 }} aria-label="Also viewed" />
                     </tr>
                   </thead>
                   <tbody>
@@ -613,6 +773,20 @@ export default function SweepPage() {
                           {topHonorOf(p) ?? (p.enriched ? "" : "not enriched")}
                         </td>
                         <td className="z-micro">{p.state ?? ""}</td>
+                        {/* Quiet until the row is hovered or focused, because it is
+                            an aside on every row and a column of links is noise. */}
+                        <td>
+                          {(pavCountBySeed.get(p.slug) ?? 0) > 0 && (
+                            <button
+                              className="z-linkish z-quiet-action"
+                              onClick={() => focusPav(p.slug)}
+                              aria-expanded={pavFocus === p.slug && pavOpen}
+                              style={{ whiteSpace: "nowrap" }}
+                            >
+                              {pavCountBySeed.get(p.slug)} also viewed
+                            </button>
+                          )}
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -674,23 +848,20 @@ export default function SweepPage() {
 
 /* ── Seed input ─────────────────────────────────────────────────────────── */
 
-function SeedPanel({
-  text,
-  onChange,
-  maxHops,
-  onHops,
-}: {
-  text: string;
-  onChange: (v: string) => void;
-  maxHops: number;
-  onHops: (n: number) => void;
-}) {
+/**
+ * The hop-count control is gone. It set a ceiling in seed mode while the gate it
+ * fed applied to both modes, and a numeric limit was never the real guardrail:
+ * every expansion is now offered one enrichment at a time, with the person who
+ * surfaced each neighbour named in the table.
+ */
+function SeedPanel({ text, onChange }: { text: string; onChange: (v: string) => void }) {
   return (
     <div className="z-stack" style={{ gap: "var(--z-space-5)" }}>
       <div>
         <p className="z-label is-quiet">Seed profiles</p>
         <p className="z-small" style={{ margin: "var(--z-space-2) 0 var(--z-space-3)" }}>
-          People you already know are strong. One LinkedIn URL per line.
+          People you already know are strong. One LinkedIn URL per line. After
+          enriching, who they were co-viewed with is offered below.
         </p>
         <textarea
           className="z-input"
@@ -700,20 +871,6 @@ function SeedPanel({
           placeholder={"https://www.linkedin.com/in/ada-chen\nhttps://www.linkedin.com/in/mira-okonkwo"}
           style={{ resize: "vertical", fontSize: "var(--z-fs-small)", lineHeight: 1.6 }}
         />
-      </div>
-
-      <div>
-        <p className="z-label is-quiet">Expansion</p>
-        <p className="z-small" style={{ margin: "var(--z-space-2) 0 var(--z-space-3)" }}>
-          How many rounds of People Also Viewed to offer. Each round is reviewed before it runs.
-        </p>
-        <div className="z-row" style={{ gap: "var(--z-space-2)" }}>
-          {[1, 2].map((n) => (
-            <Pill key={n} as="button" active={maxHops === n} onClick={() => onHops(n)}>
-              {n} hop{n === 1 ? "" : "s"}
-            </Pill>
-          ))}
-        </div>
       </div>
     </div>
   );
@@ -727,6 +884,8 @@ type ReviewRow = {
   sub: string;
   aside: string;
   url: string;
+  /** Who surfaced this person. Only the sidebar rows have one. */
+  via?: string;
   status: string;
   skip: string | null;
 };
@@ -740,6 +899,8 @@ function ReviewTable({
   onAll,
   onNone,
   action,
+  extra,
+  nested,
   footnote,
 }: {
   title: string;
@@ -750,16 +911,29 @@ function ReviewTable({
   onAll: () => void;
   onNone: () => void;
   action: React.ReactNode;
+  /** An extra control in the header, left of Clear. */
+  extra?: React.ReactNode;
+  /** Inside a disclosure the section rhythm is already spent on the summary. */
+  nested?: boolean;
   footnote?: string;
 }) {
+  // The header box judges "all selected" against the rows `onAll` would actually
+  // tick. Suppressed rows are not among them, so counting every row instead
+  // would leave the box permanently unchecked whenever one person was triaged
+  // out earlier.
+  const tickable = rows.filter((r) => !r.skip);
+  const pickedCount = tickable.filter((r) => picked.has(r.slug)).length;
+  const allPicked = tickable.length > 0 && pickedCount === tickable.length;
+  // Only the sidebar rows carry attribution, so the column appears with them
+  // rather than sitting empty above the search results.
+  const showVia = rows.some((r) => r.via);
+
   return (
-    <div className="z-section-gap">
+    <div className={nested ? undefined : "z-section-gap"}>
       <div className="z-col-head">
         <p className="z-label is-quiet">{title}</p>
         <span className="z-spacer" />
-        <button className="z-linkish" onClick={onAll}>
-          Select all
-        </button>
+        {extra}
         <button className="z-linkish" onClick={onNone}>
           Clear
         </button>
@@ -772,9 +946,27 @@ function ReviewTable({
         <table className="z-table">
           <thead>
             <tr>
-              <th style={{ width: 44 }} aria-label="Include" />
+              {/* Sits directly above the row boxes and toggles both ways, so the
+                  same control that ticks everyone unticks them again. */}
+              <th style={{ width: 44 }}>
+                <input
+                  type="checkbox"
+                  checked={allPicked}
+                  // React has no `indeterminate` prop, so a partial selection has
+                  // to be written onto the node.
+                  ref={(el) => {
+                    if (el) el.indeterminate = pickedCount > 0 && !allPicked;
+                  }}
+                  onChange={() => (allPicked ? onNone() : onAll())}
+                  disabled={tickable.length === 0}
+                  aria-label={allPicked ? "Unselect all" : "Select all"}
+                  title={allPicked ? "Unselect all" : "Select all"}
+                  style={{ accentColor: "var(--z-blue)", width: 15, height: 15 }}
+                />
+              </th>
               <th>Person</th>
               <th style={{ width: 80 }}>Class</th>
+              {showVia && <th style={{ width: 140 }}>Via</th>}
               <th style={{ width: 150 }}>Status</th>
             </tr>
           </thead>
@@ -797,6 +989,7 @@ function ReviewTable({
                   <span className="z-person-sub">{r.sub}</span>
                 </td>
                 <td className="z-num">{r.aside}</td>
+                {showVia && <td className="z-micro">{r.via ?? ""}</td>}
                 <td className="z-micro">
                   {/* A person triaged out earlier says so, so a rejection is not
                       quietly paid for a second time. */}

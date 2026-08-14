@@ -13,6 +13,7 @@ import type { Archetype, Candidate } from "@/lib/zscore";
 import type { Hit } from "@/lib/types";
 import type { Selection } from "@/lib/query";
 import type { Marks, Person, PersonStatus, Roster } from "@/lib/people";
+import type { HopCandidate } from "@/lib/enrichment";
 import { emptyState, emptyTeam, type ProfileState, type TeamState } from "@/lib/state";
 import { scoreOne } from "@/lib/candidates";
 import { useEnrichJob, type JobResult } from "@/components/useEnrichJob";
@@ -56,6 +57,8 @@ type AppStateValue = {
 
   addHits: (hits: Hit[], query: string, selection: Selection) => Promise<boolean>;
   addSlugs: (slugs: string[], via?: { seedSlug: string; seedName: string }) => Promise<boolean>;
+  /** Queue People Also Viewed neighbours, keeping the name and position they came with. */
+  addNeighbors: (people: HopCandidate[], hop: number) => Promise<boolean>;
   mark: (slugs: string[], change: MarkChange) => Promise<boolean>;
   setCluster: (slug: string, cluster: Archetype | null) => Promise<boolean>;
   editTerms: (slug: string, change: { add?: string[]; remove?: string[] }) => Promise<boolean>;
@@ -286,6 +289,33 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
   );
 
   /**
+   * Queue neighbours rather than bare slugs.
+   *
+   * People Also Viewed already told us each neighbour's name and position, and
+   * each one may have come from a different profile, so attribution is per person
+   * instead of one value shared across the batch.
+   */
+  const addNeighbors = useCallback(
+    async (people: HopCandidate[], hop: number) => {
+      if (people.length === 0) return true;
+      const r = await op({
+        op: "addSlugs",
+        people: people.map((n) => ({
+          slug: n.slug,
+          name: n.name,
+          position: n.position,
+          seedSlug: n.seedSlug,
+          seedName: n.seedName,
+        })),
+        hop,
+      });
+      if (r) await refreshRoster();
+      return Boolean(r);
+    },
+    [op, refreshRoster]
+  );
+
+  /**
    * Optimistic: a star has to feel instant. The previous marks are held so a
    * failed write puts the row back rather than leaving the UI lying.
    */
@@ -466,7 +496,7 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
       const pa = marks[a.slug]?.pinned ? 1 : 0;
       const pb = marks[b.slug]?.pinned ? 1 : 0;
       if (pa !== pb) return pb - pa;
-      return b.z_score_normalized - a.z_score_normalized;
+      return b.score - a.score;
     });
   }, [candidates, marks]);
 
@@ -493,6 +523,7 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
     patchTeam,
     addHits,
     addSlugs,
+    addNeighbors,
     mark,
     setCluster,
     editTerms,

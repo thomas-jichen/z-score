@@ -6,6 +6,20 @@ import { useApp } from "@/components/AppState";
 import { PROGRAMS } from "@/lib/searchTaxonomy";
 import { ARCHETYPES, archetypeLabel, type Archetype } from "@/lib/zscore";
 import { DEFAULT_WEIGHT, START_WEIGHT, TERM_CLUSTER } from "@/lib/clusters";
+import { COUNT_KINDS, extractTags, type CountKind } from "@/lib/extract";
+import type { TaxonomyPrefs } from "@/lib/state";
+import {
+  MAX_WEIGHT,
+  TAG_FACETS,
+  addAlias,
+  indexRegistry,
+  makeTag,
+  resolveAny,
+  resolveTag,
+  type TagDef,
+  type TagFacet,
+  type TagRegistry,
+} from "@/lib/tagRegistry";
 import { termCounts, unmatchedTerms } from "@/lib/tags";
 import { Button, Card, EmptyState, Pill } from "@/components/primitives";
 
@@ -24,11 +38,11 @@ import { Button, Card, EmptyState, Pill } from "@/components/primitives";
  * them.
  */
 
-type Weighted = { label: string; weight: number; cluster: Archetype | null; count: number };
-
 /** A term being promoted, with the suggestion to edit before it lands. */
 type Promoting = {
   term: string;
+  /** Which facet the new tag belongs to. Prose findings are awards by default. */
+  facet: TagFacet;
   weight: number;
   cluster: Archetype | null;
   why: string;
@@ -53,6 +67,28 @@ export default function TaxonomyPage() {
   const people = useMemo(() => Object.values(roster), [roster]);
   const counts = useMemo(() => termCounts(people, t), [people, t]);
 
+  /**
+   * How many people hold each registry tag.
+   *
+   * The same number the legacy table shows for a term, and it matters for the same
+   * reason: a weight slider is about to move everyone counted here, and promoting
+   * a tag nobody holds is wasted effort. Counted over the whole roster in one pass.
+   */
+  const tagHolders = useMemo(() => {
+    const index = indexRegistry(t.tags);
+    const tally = new Map<string, number>();
+    for (const p of people) {
+      const seen = new Set<string>();
+      for (const cand of extractTags(p).tags) {
+        const res = resolveTag(index, cand);
+        if (res.kind !== "exact" || seen.has(res.def.id)) continue;
+        seen.add(res.def.id);
+        tally.set(res.def.id, (tally.get(res.def.id) ?? 0) + 1);
+      }
+    }
+    return tally;
+  }, [people, t.tags]);
+
   const weightOf = useCallback(
     (label: string) => draft[label] ?? t.weights[label] ?? START_WEIGHT[label] ?? DEFAULT_WEIGHT,
     [draft, t.weights]
@@ -64,49 +100,7 @@ export default function TaxonomyPage() {
     [t.clusters]
   );
 
-  const rows: Weighted[] = useMemo(() => {
-    const built = [...new Set([...PROGRAMS, ...t.promoted])].map((label) => ({
-      label,
-      weight: weightOf(label),
-      cluster: clusterFor(label),
-      count: counts[label] ?? 0,
-    }));
-
-    if (frozen) {
-      const rank = new Map(frozen.map((l, i) => [l, i]));
-      return built.sort((a, b) => (rank.get(a.label) ?? 0) - (rank.get(b.label) ?? 0));
-    }
-    return built.sort((a, b) => b.weight - a.weight || a.label.localeCompare(b.label));
-  }, [t.promoted, weightOf, clusterFor, counts, frozen]);
-
   const pending = useMemo(() => unmatchedTerms(people, t), [people, t]);
-
-  /* ── Weights ────────────────────────────────────────────────────────────── */
-
-  function beginDrag() {
-    if (!frozen) setFrozen(rows.map((r) => r.label));
-  }
-
-  /** Continuous while dragging: local only, no write, no reorder. */
-  function dragWeight(label: string, weight: number) {
-    beginDrag();
-    setDraft((d) => ({ ...d, [label]: weight }));
-  }
-
-  /** On release: persist, then let the list re-sort. */
-  function commitWeight(label: string) {
-    const weight = draft[label];
-    setFrozen(null);
-    setDraft({});
-    if (weight === undefined) return;
-    if (weight === (t.weights[label] ?? START_WEIGHT[label] ?? DEFAULT_WEIGHT)) return;
-    patchTeam({ taxonomy: { ...t, weights: { ...t.weights, [label]: weight } } });
-  }
-
-  function setCluster(label: string, value: string) {
-    const cluster = value === "none" ? null : (value as Archetype);
-    patchTeam({ taxonomy: { ...t, clusters: { ...t.clusters, [label]: cluster } } });
-  }
 
   /* ── Promote and dismiss ────────────────────────────────────────────────── */
 
@@ -115,7 +109,16 @@ export default function TaxonomyPage() {
    * once per person. The answer is a starting point you edit before it lands.
    */
   async function beginPromote(term: string) {
-    setPromoting({ term, weight: DEFAULT_WEIGHT, cluster: null, why: "", asking: Boolean(taggerEnabled) });
+    setPromoting({
+      term,
+      // The review queue is fed by the tagger reading prose, and what it finds
+      // there is a credential. Editable before it lands.
+      facet: "award",
+      weight: DEFAULT_WEIGHT,
+      cluster: null,
+      why: "",
+      asking: Boolean(taggerEnabled),
+    });
     if (!taggerEnabled) return;
 
     try {
@@ -142,17 +145,28 @@ export default function TaxonomyPage() {
     }
   }
 
+  /**
+   * Promoting writes one registry entry.
+   *
+   * It used to write three parallel structures — `promoted`, `weights` and
+   * `clusters`, all keyed by the raw string — which is what allowed two spellings
+   * of one award to exist with two independent weights. A registry entry carries
+   * its own weight, cluster and aliases, so there is one row to edit and one place
+   * a duplicate can be caught.
+   */
   function commitPromote() {
     if (!promoting) return;
-    const { term, weight, cluster } = promoting;
-    patchTeam({
-      taxonomy: {
-        ...t,
-        promoted: [...new Set([...t.promoted, term])],
-        weights: { ...t.weights, [term]: weight },
-        clusters: { ...t.clusters, [term]: cluster },
-      },
-    });
+    const { term, weight, cluster, facet } = promoting;
+    const def = makeTag({ label: term, facet, weight, cluster, promoted: true });
+
+    // A label that already resolves is the same thing under another name, so it
+    // becomes an alias rather than a second entry.
+    const existing = resolveAny(indexRegistry(t.tags), term);
+    const tags = existing
+      ? addAlias(t.tags, existing.id, term)
+      : { ...t.tags, [def.id]: def };
+
+    patchTeam({ taxonomy: { ...t, tags } });
     setPromoting(null);
   }
 
@@ -160,15 +174,11 @@ export default function TaxonomyPage() {
     patchTeam({ taxonomy: { ...t, dismissed: [...new Set([...t.dismissed, term])] } });
   }
 
-  /** Take a term back out of the taxonomy. It stops scoring immediately. */
+  /** Stop a tag scoring. The entry stays, so its aliases are not lost. */
   function unpromote(term: string) {
-    const weights = { ...t.weights };
-    const clusters = { ...t.clusters };
-    delete weights[term];
-    delete clusters[term];
-    patchTeam({
-      taxonomy: { ...t, promoted: t.promoted.filter((x) => x !== term), weights, clusters },
-    });
+    const def = resolveAny(indexRegistry(t.tags), term);
+    if (!def) return;
+    patchTeam({ taxonomy: { ...t, tags: { ...t.tags, [def.id]: { ...def, promoted: false } } } });
   }
 
   function addByHand() {
@@ -176,8 +186,9 @@ export default function TaxonomyPage() {
     setNewTerm("");
     setAdding(false);
     if (!term) return;
-    const exists = [...PROGRAMS, ...t.promoted].some((x) => x.toLowerCase() === term.toLowerCase());
-    if (exists) return;
+    // Normalised, so "Coca-Cola Scholarship Recipient" is recognised as the
+    // Coca-Cola Scholar tag that already exists rather than added again.
+    if (resolveAny(indexRegistry(t.tags), term)) return;
     void beginPromote(term);
   }
 
@@ -187,7 +198,8 @@ export default function TaxonomyPage() {
     <div className="z-page">
       <div className="z-page-head">
         <p className="z-label">
-          {rows.length} terms weighted{people.length > 0 ? `, over ${people.length} people` : ""}
+          {Object.values(t.tags).filter((d) => d.promoted).length} tags scoring
+          {people.length > 0 ? `, over ${people.length} people` : ""}
         </p>
         <h1 className="z-h1">Taxonomy</h1>
       </div>
@@ -205,14 +217,13 @@ export default function TaxonomyPage() {
       >
         <div>
           <div className="z-col-head">
-            <p className="z-label is-quiet">Term weights</p>
+            <p className="z-label is-quiet">Tag weights</p>
             <span className="z-spacer" />
             {loading && <span className="z-micro">Loading</span>}
             <button className="z-linkish" onClick={() => setAdding(true)}>
-              Add a term
+              Add a tag
             </button>
           </div>
-
           {adding && (
             <div className="z-row" style={{ gap: "var(--z-space-2)", marginBottom: "var(--z-space-4)" }}>
               <input
@@ -244,91 +255,15 @@ export default function TaxonomyPage() {
               </button>
             </div>
           )}
-
-          <div className="z-table-wrap">
-            <table className="z-table">
-              <thead>
-                <tr>
-                  <th>Term</th>
-                  <th style={{ width: 150 }}>Cluster</th>
-                  <th style={{ width: 140 }}>Weight</th>
-                  <th style={{ width: 48 }}>σ</th>
-                  <th style={{ width: 70 }}>People</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((r) => {
-                  const isPromoted = t.promoted.includes(r.label);
-                  return (
-                    <tr key={r.label}>
-                      <td style={{ fontWeight: 500, color: "var(--z-ink)" }}>
-                        {r.label}
-                        {isPromoted && (
-                          <button
-                            className="z-linkish z-quiet-action"
-                            onClick={() => unpromote(r.label)}
-                            title="Remove this term from the taxonomy"
-                          >
-                            remove
-                          </button>
-                        )}
-                      </td>
-                      <td>
-                        <select
-                          className="z-input"
-                          style={{ padding: "6px 8px", fontSize: "var(--z-fs-micro)" }}
-                          value={r.cluster ?? "none"}
-                          onChange={(e) => setCluster(r.label, e.target.value)}
-                          aria-label={`${r.label} cluster`}
-                        >
-                          {ARCHETYPES.map((a) => (
-                            <option key={a.id} value={a.id}>
-                              {a.label}
-                            </option>
-                          ))}
-                          {/* Some credentials are real signal without implying a
-                              talent type. QuestBridge is socioeconomic context,
-                              not an archetype. */}
-                          <option value="none">None</option>
-                        </select>
-                      </td>
-                      <td>
-                        <input
-                          type="range"
-                          min={0}
-                          max={2}
-                          step={0.1}
-                          value={r.weight}
-                          onChange={(e) => dragWeight(r.label, Number(e.target.value))}
-                          onPointerDown={beginDrag}
-                          onPointerUp={() => commitWeight(r.label)}
-                          onKeyUp={() => commitWeight(r.label)}
-                          onBlur={() => commitWeight(r.label)}
-                          style={{ width: "100%", accentColor: "var(--z-blue)" }}
-                          aria-label={`${r.label} weight`}
-                        />
-                      </td>
-                      <td className="z-num" style={{ fontWeight: 600 }}>
-                        {r.weight.toFixed(1)}
-                      </td>
-                      <td className="z-num">
-                        {r.count > 0 ? (
-                          <Link href={`/queue?archetype=${r.cluster ?? "all"}`} className="z-linkish">
-                            {r.count}
-                          </Link>
-                        ) : (
-                          <span style={{ color: "var(--z-ink-faint)" }}>0</span>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+          <TagRegistryEditor
+            registry={t.tags}
+            holders={tagHolders}
+            onPatch={(tags) => patchTeam({ taxonomy: { ...t, tags } })}
+          />
         </div>
 
         <div className="z-stack" style={{ gap: "var(--z-space-6)" }}>
+          <Calibration taxonomy={t} onPatch={(next) => patchTeam({ taxonomy: { ...t, ...next } })} />
           <div>
             <div className="z-col-head">
               <p className="z-label is-quiet">Unmatched, but notable</p>
@@ -554,6 +489,360 @@ function PromoteForm({
           Cancel
         </button>
       </div>
+    </div>
+  );
+}
+
+/* ── The tag registry ───────────────────────────────────────────────────── */
+
+/**
+ * One row per real-world thing, grouped by facet.
+ *
+ * This is where the bulk of a modern score is tuned. The table above it covers
+ * the older text-matched programme vocabulary; everything read off a structured
+ * field — companies, schools, majors, titles, flags — lives here.
+ *
+ * Nothing scores until its switch is on. That gate is deliberate, and the
+ * bulk control is what keeps it usable: promoting thirty companies one at a time
+ * would be the reason to abandon the gate rather than a reason to keep it.
+ */
+function TagRegistryEditor({
+  registry,
+  holders,
+  onPatch,
+}: {
+  registry: TagRegistry;
+  holders: Map<string, number>;
+  onPatch: (tags: TagRegistry) => void;
+}) {
+  const [open, setOpen] = useState<TagFacet | null>("company");
+  const [draft, setDraft] = useState<Record<string, number>>({});
+
+  const byFacet = useMemo(() => {
+    const m = new Map<TagFacet, TagDef[]>();
+    for (const def of Object.values(registry)) {
+      const list = m.get(def.facet) ?? [];
+      list.push(def);
+      m.set(def.facet, list);
+    }
+    // Held by the most people first: those are the sliders that move the most.
+    for (const list of m.values()) {
+      list.sort(
+        (a, b) =>
+          (holders.get(b.id) ?? 0) - (holders.get(a.id) ?? 0) ||
+          b.weight - a.weight ||
+          a.label.localeCompare(b.label)
+      );
+    }
+    return m;
+  }, [registry, holders]);
+
+  function write(id: string, change: Partial<TagDef>) {
+    const def = registry[id];
+    if (!def) return;
+    onPatch({ ...registry, [id]: { ...def, ...change } });
+  }
+
+  function promoteFacet(facet: TagFacet, on: boolean) {
+    const next = { ...registry };
+    for (const def of byFacet.get(facet) ?? []) {
+      // Only tags anyone actually holds, so a bulk click does not switch on
+      // hundreds of seeded entries nobody has matched yet.
+      if ((holders.get(def.id) ?? 0) > 0) next[def.id] = { ...def, promoted: on };
+    }
+    onPatch(next);
+  }
+
+  return (
+    <div className="z-section-gap">
+      <div className="z-col-head">
+        <p className="z-label is-quiet">Tags</p>
+        <span className="z-spacer" />
+        <span className="z-micro">{Object.keys(registry).length} in the registry</span>
+      </div>
+      <p className="z-small" style={{ marginBottom: "var(--z-space-4)", maxWidth: "62ch" }}>
+        Read off structured profile fields, so these are exact rather than inferred. A tag scores
+        only once it is switched on.
+      </p>
+
+      <div className="z-stack" style={{ gap: "var(--z-space-3)" }}>
+        {TAG_FACETS.map((facet) => {
+          const list = byFacet.get(facet) ?? [];
+          if (list.length === 0) return null;
+          const held = list.filter((d) => (holders.get(d.id) ?? 0) > 0);
+          const on = held.filter((d) => d.promoted).length;
+          const isOpen = open === facet;
+
+          return (
+            <div key={facet} className="z-disclosure">
+              <summary
+                style={{
+                  listStyle: "none",
+                  cursor: "pointer",
+                  padding: "var(--z-space-3) var(--z-space-5)",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "var(--z-space-3)",
+                  fontSize: "var(--z-fs-small)",
+                }}
+                onClick={() => setOpen(isOpen ? null : facet)}
+              >
+                {FACET_LABEL[facet]}
+                <span className="z-count">
+                  {held.length > 0 ? `${on} of ${held.length} on` : `${list.length}`}
+                </span>
+              </summary>
+
+              {isOpen && (
+                <div className="z-disclosure-body">
+                  {held.length > 1 && (
+                    <div className="z-row" style={{ marginBottom: "var(--z-space-4)" }}>
+                      <button className="z-linkish" onClick={() => promoteFacet(facet, true)}>
+                        Switch on all {held.length} held
+                      </button>
+                      <button className="z-linkish" onClick={() => promoteFacet(facet, false)}>
+                        Switch all off
+                      </button>
+                    </div>
+                  )}
+
+                  {list.length === 0 ? (
+                    <p className="z-small">Nothing here yet.</p>
+                  ) : (
+                    <div className="z-table-wrap">
+                      <table className="z-table">
+                        <thead>
+                          <tr>
+                            <th>Tag</th>
+                            <th style={{ width: 140 }}>Weight</th>
+                            <th style={{ width: 48 }}>σ</th>
+                            <th style={{ width: 70 }}>People</th>
+                            <th style={{ width: 60 }}>Scores</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {list.slice(0, 60).map((def) => {
+                            const n = holders.get(def.id) ?? 0;
+                            const weight = draft[def.id] ?? def.weight;
+                            return (
+                              <tr key={def.id} data-dimmed={n === 0 || undefined}>
+                                <td>
+                                  <span className="z-person-name" style={{ fontWeight: 500 }}>
+                                    {def.label}
+                                  </span>
+                                  {def.aliases.length > 0 && (
+                                    <span className="z-person-sub">
+                                      also {def.aliases.slice(0, 3).join(", ")}
+                                    </span>
+                                  )}
+                                </td>
+                                <td>
+                                  <input
+                                    type="range"
+                                    min={0}
+                                    max={MAX_WEIGHT}
+                                    step={0.1}
+                                    value={weight}
+                                    onChange={(e) =>
+                                      setDraft((d) => ({ ...d, [def.id]: Number(e.target.value) }))
+                                    }
+                                    // Same reason as the table above: write on
+                                    // release, not per pixel.
+                                    onPointerUp={() => {
+                                      setDraft((d) => {
+                                        const { [def.id]: v, ...rest } = d;
+                                        if (v !== undefined && v !== def.weight) {
+                                          write(def.id, { weight: v });
+                                        }
+                                        return rest;
+                                      });
+                                    }}
+                                    style={{ width: "100%", accentColor: "var(--z-blue)" }}
+                                    aria-label={`Weight for ${def.label}`}
+                                  />
+                                </td>
+                                <td className="z-num">{weight.toFixed(1)}</td>
+                                <td className="z-num">{n}</td>
+                                <td>
+                                  <input
+                                    type="checkbox"
+                                    checked={def.promoted}
+                                    onChange={(e) => write(def.id, { promoted: e.target.checked })}
+                                    aria-label={`${def.label} scores`}
+                                    style={{ accentColor: "var(--z-blue)", width: 15, height: 15 }}
+                                  />
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                      {list.length > 60 && (
+                        <p className="z-micro" style={{ padding: "var(--z-space-3)" }}>
+                          {list.length} tags, showing the 60 held by the most people.
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+const FACET_LABEL: Record<TagFacet, string> = {
+  program: "Programs",
+  award: "Awards",
+  company: "Companies",
+  org: "Organisations",
+  college: "Colleges",
+  highschool: "High schools",
+  major: "Majors",
+  title: "Titles",
+  flag: "Flags",
+  count: "Counts",
+  year: "Class years",
+  state: "States",
+};
+
+/* ── Calibration ────────────────────────────────────────────────────────── */
+
+const COUNT_LABEL: Record<CountKind, string> = {
+  experience: "Each experience",
+  project: "Each project",
+  publication: "Each publication",
+  patent: "Each patent",
+  honor: "Each honor",
+};
+
+/**
+ * Everything the score depends on that is not a tag weight.
+ *
+ * These used to be constants in three different files: the count bonuses were
+ * hardcoded in lib/candidates.ts, the band cutoffs were sigma thresholds in
+ * lib/clusters.ts, and the polymath rule was a sigma constant. On a sum, the right
+ * value for each depends on how the weights were tuned, so they belong next to them.
+ */
+function Calibration({
+  taxonomy,
+  onPatch,
+}: {
+  taxonomy: TaxonomyPrefs;
+  onPatch: (next: Partial<TaxonomyPrefs>) => void;
+}) {
+  const num = (v: string, fallback: number) => {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : fallback;
+  };
+
+  return (
+    <div>
+      <div className="z-col-head">
+        <p className="z-label is-quiet">Calibration</p>
+      </div>
+      <Card size="lg">
+        <p className="z-small" style={{ marginBottom: "var(--z-space-5)" }}>
+          The score is the sum of every tag switched on, plus the counts below. Nothing else.
+        </p>
+
+        <p className="z-label is-quiet">Counts</p>
+        {COUNT_KINDS.map((kind) => {
+          const rule = taxonomy.counts[kind];
+          return (
+            <div className="z-breakdown-row" key={kind}>
+              <span className="z-small">{COUNT_LABEL[kind]}</span>
+              <span className="z-row" style={{ gap: "var(--z-space-2)" }}>
+                <input
+                  className="z-input"
+                  type="number"
+                  min={0}
+                  max={MAX_WEIGHT}
+                  step={0.1}
+                  value={rule.points}
+                  onChange={(e) =>
+                    onPatch({
+                      counts: {
+                        ...taxonomy.counts,
+                        [kind]: { ...rule, points: num(e.target.value, rule.points) },
+                      },
+                    })
+                  }
+                  aria-label={`Points per ${kind}`}
+                  style={{ width: 68, padding: "4px 6px", fontSize: "var(--z-fs-micro)" }}
+                />
+                <span className="z-micro">up to</span>
+                <input
+                  className="z-input"
+                  type="number"
+                  min={1}
+                  max={50}
+                  step={1}
+                  value={rule.cap}
+                  onChange={(e) =>
+                    onPatch({
+                      counts: {
+                        ...taxonomy.counts,
+                        [kind]: { ...rule, cap: Math.round(num(e.target.value, rule.cap)) },
+                      },
+                    })
+                  }
+                  aria-label={`Cap for ${kind}`}
+                  style={{ width: 60, padding: "4px 6px", fontSize: "var(--z-fs-micro)" }}
+                />
+              </span>
+            </div>
+          );
+        })}
+        <p className="z-micro" style={{ marginTop: "var(--z-space-3)" }}>
+          The cap is what stops a padded profile out-scoring a strong one. Set the points to zero to
+          stop counting a category entirely.
+        </p>
+
+        <p className="z-label is-quiet" style={{ marginTop: "var(--z-space-6)" }}>
+          Colour bands
+        </p>
+        {(["exceptional", "strong", "above", "mid"] as const).map((band) => (
+          <div className="z-breakdown-row" key={band}>
+            <span className="z-small" style={{ textTransform: "capitalize" }}>
+              {band}
+            </span>
+            <input
+              className="z-input"
+              type="number"
+              min={0}
+              step={0.5}
+              value={taxonomy.bands[band]}
+              onChange={(e) =>
+                onPatch({
+                  bands: { ...taxonomy.bands, [band]: num(e.target.value, taxonomy.bands[band]) },
+                })
+              }
+              aria-label={`${band} threshold`}
+              style={{ width: 74, padding: "4px 6px", fontSize: "var(--z-fs-micro)" }}
+            />
+          </div>
+        ))}
+
+        <div className="z-breakdown-row" style={{ marginTop: "var(--z-space-5)" }}>
+          <span className="z-small">Polymath, points in two clusters</span>
+          <input
+            className="z-input"
+            type="number"
+            min={0}
+            step={0.1}
+            value={taxonomy.polymathPoints}
+            onChange={(e) =>
+              onPatch({ polymathPoints: num(e.target.value, taxonomy.polymathPoints) })
+            }
+            aria-label="Polymath threshold"
+            style={{ width: 74, padding: "4px 6px", fontSize: "var(--z-fs-micro)" }}
+          />
+        </div>
+      </Card>
     </div>
   );
 }

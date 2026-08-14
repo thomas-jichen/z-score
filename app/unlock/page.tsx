@@ -36,7 +36,7 @@ export default function Unlock() {
       <form className="z-unlock-card" onSubmit={submit}>
         <h1 className="z-h2">Z-Score</h1>
         <p className="z-body" style={{ marginTop: "var(--z-space-3)" }}>
-          Standard deviations above the mean, within archetype.
+          Every credential weighted by hand, and added up.
         </p>
 
         <input

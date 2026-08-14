@@ -1,20 +1,22 @@
 /**
- * Z-Score display model.
+ * Score display model.
  *
- * The product name is the metric: a candidate's score is a true z-score,
- * standard deviations from a fixed reference point. `z_score_normalized` is the
- * whole-profile figure and the one every ranked list sorts on;
- * `z_score_archetype` is the same person measured against their own cluster,
- * which is what a breakdown wants.
+ * `score` is a point total: the sum of the weights of the tags a person holds
+ * plus the priced counts, and nothing else. It is what every ranked list sorts
+ * on. `archetype_score` is the same sum restricted to the terms voting for their
+ * primary cluster, which is what a breakdown wants.
  *
- * The model itself — clusters, weights, calibration — lives in lib/clusters.ts.
- * This file is the shape the screens read plus the formatting they need.
+ * The figures are written with a σ throughout. That is house style carried over
+ * from when this really was a z-score; it is not a standard deviation and no copy
+ * in the product claims it is.
+ *
+ * The model itself — clusters, weights, counts — lives in lib/clusters.ts and
+ * lib/candidates.ts. This file is the shape the screens read.
  */
 
 export type { Archetype, ScoreBand } from "./clusters";
 export {
   ARCHETYPES,
-  SCORE_BANDS,
   archetypeLabel,
   formatSigma,
   isArchetype,
@@ -23,7 +25,13 @@ export {
 
 import type { Archetype } from "./clusters";
 
-/** One contributing term in a breakdown, expressed as a deviation, never points. */
+/**
+ * One contributing term in a breakdown.
+ *
+ * `points` is the weight itself, so the breakdown sums to the displayed total
+ * exactly. It used to be `deviation`, the weight divided by sigma, which meant the
+ * rows on the detail screen never added up to the number above them.
+ */
 export type Signal = {
   id: string;
   /** What it is, as it should read to a human: "IMO Silver 2025" */
@@ -38,8 +46,8 @@ export type Signal = {
     | "snippet"
     | "extracted"
     | "roster";
-  /** Contribution in sigma. Can be negative. */
-  deviation: number;
+  /** Contribution to the total, in points. */
+  points: number;
   /** Which cluster this term votes for, if any. */
   cluster?: Archetype | null;
   /** Present when a public roster corroborates the claim. */
@@ -66,16 +74,16 @@ export type Candidate = {
 
   /** Primary cluster: the single highest-weighted matched term wins. */
   archetype: Archetype;
-  /** Clearing +0.5σ in two or more clusters. A badge, not a cluster. */
+  /** Reaching `taxonomy.polymathPoints` in two or more clusters. A badge. */
   polymath: boolean;
   /** The other clusters they clear, for the badge's detail. */
   secondary_archetypes: Archetype[];
 
-  /** Measured against their own cluster. */
-  z_score_archetype: number;
-  /** Whole-profile figure. This is what ranked lists sort on. */
-  z_score_normalized: number;
-  /** Per-cluster z, for the breakdown and the polymath badge. */
+  /** Points from the terms voting for their primary cluster. */
+  archetype_score: number;
+  /** The whole-profile total. This is what ranked lists sort on. */
+  score: number;
+  /** Points per cluster, for the breakdown and the polymath badge. */
   cluster_scores: Partial<Record<Archetype, number>>;
 
   signals: Signal[];
@@ -86,15 +94,7 @@ export type Candidate = {
   surfaced_at: string;
 };
 
-/**
- * `z_score` is the value shown to the user: the whole-profile figure. The
- * cluster-relative intermediate is available separately for breakdowns.
- */
-export function z_score(c: Candidate): number {
-  return c.z_score_normalized;
-}
-
-/** The two or three terms that dominate the score, largest absolute first. */
+/** The two or three terms that dominate the score, largest first. */
 export function dominantSignals(c: Candidate, n = 3): Signal[] {
-  return [...c.signals].sort((a, b) => Math.abs(b.deviation) - Math.abs(a.deviation)).slice(0, n);
+  return [...c.signals].sort((a, b) => b.points - a.points).slice(0, n);
 }

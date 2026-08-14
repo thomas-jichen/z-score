@@ -51,11 +51,14 @@ export function parseTitle(rawTitle: string): { name: string; headline: string }
  */
 export function inferYear(text: string): string | undefined {
   const qualified = text.match(
-    /(?:class of|c\/o|expected|graduating)\s*'?(20[2-3]\d)\b/i
+    /(?:class of|c\/o|expected|graduating)\s*['’‘ʼ]?(20[2-3]\d)\b/i
   );
   if (qualified) return qualified[1];
 
-  const apostrophe = text.match(/'(\d{2})\b/);
+  // LinkedIn writes a curly apostrophe (U+2019), not the ASCII one: real
+  // headlines are "Stanford ’30", so matching only ' meant this branch never
+  // fired on live data and the class column stayed empty.
+  const apostrophe = text.match(/['’‘ʼ](\d{2})\b/);
   if (apostrophe) {
     const yy = Number(apostrophe[1]);
     if (yy >= 24 && yy <= 35) return `20${apostrophe[1]}`;

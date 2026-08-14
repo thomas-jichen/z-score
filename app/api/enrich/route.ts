@@ -15,6 +15,7 @@ import { withEnriched, type Marks, type Person, type PersonStatus } from "@/lib/
 import {
   hydrate,
   mergeState,
+  rawKey,
   stateKey,
   type ProfileState,
 } from "@/lib/state";
@@ -178,13 +179,17 @@ export async function GET(req: Request) {
   if (!data.ok) return await fail(job, data.error);
 
   const profiles: EnrichedProfile[] = [];
+  const raw: { slug: string; item: unknown }[] = [];
   for (const item of data.items) {
     // Provenance is keyed by the slug we asked for. The actor echoes it back,
     // but fall through to the first requested slug's provenance if it does not.
     const guess = toSlug(String((item as Record<string, unknown>)?.publicIdentifier ?? ""));
     const attribution = (guess && job.provenance[guess]) || job.provenance[job.slugs[0]];
     const parsed = parseProfile(item, attribution);
-    if (parsed) profiles.push(parsed);
+    if (parsed) {
+      profiles.push(parsed);
+      raw.push({ slug: parsed.slug, item });
+    }
   }
 
   try {
@@ -195,6 +200,26 @@ export async function GET(req: Request) {
     // discovery trace and their addedAt, and simply gains the profile data.
     const people: Person[] = profiles.map((p) => withEnriched(roster[p.slug], p));
     await writePeople(people);
+
+    /**
+     * Archive the vendor's own payload, one key per person.
+     *
+     * Deliberately not on the roster: it is large and never needed to render a
+     * screen, and the roster hash is read on every page load. Kept because
+     * without it every field we did not think to parse costs a paid re-enrich of
+     * the whole roster to recover. A write failure here must not lose the
+     * enrichment that was already paid for, so it is best-effort.
+     */
+    await Promise.all(
+      raw.map((r) =>
+        set(rawKey(r.slug), r.item).catch((e) =>
+          log.warn("enrich.raw.failed", {
+            slug: r.slug,
+            error: e instanceof Error ? e.message : "unknown",
+          })
+        )
+      )
+    );
 
     // Enriching is an implicit "I want this person", so anyone not already
     // triaged joins the queue. An existing known or rejected mark is left alone.

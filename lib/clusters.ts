@@ -1,39 +1,52 @@
 /**
  * ═══════════════════════════════════════════════════════════════════════════
- * The scoring model. Six clusters, fixed calibration, no measured population.
+ * The scoring model. Six clusters, and addition.
  * ═══════════════════════════════════════════════════════════════════════════
  *
- * ── Why the calibration is fixed ──────────────────────────────────────────
- * The score used to standardise over whoever happened to be enriched. That has
- * three consequences, all bad: a person's number moves as the pool grows, a
- * lone candidate always scores exactly 0, and two teammates see different
- * values for the same person. So mu and sigma are constants here. Same person,
- * same score, forever, until someone deliberately retunes a weight or a
- * constant on the taxonomy screen.
+ * ── The whole formula ─────────────────────────────────────────────────────
  *
- *     raw = Σ weight(matched term) + bonuses
- *     z   = (raw − mu) / sigma
+ *     score = Σ weight(tag)               for promoted tags the person holds
+ *           + Σ points(kind) × min(n, cap)  for countable things
  *
- * Worked examples against START_WEIGHT below, which are also asserted in
+ * That is it. No mean, no standard deviation, no division, no population. Every
+ * term is a number someone set on the taxonomy screen, so any total can be
+ * explained by pointing at the rows that produced it.
+ *
+ * This replaced a standardised model whose figure was `(raw − 2.2) / 1.8`. The
+ * property worth keeping from it was never the statistics — it was that the
+ * calibration is fixed, so the same person scores the same regardless of who else
+ * has been enriched. Addition keeps that for free, and `toCandidates` remains a
+ * plain map with no reduce over the pool.
+ *
+ * Worked examples against START_WEIGHT below, asserted in
  * scripts/check-parsing.ts so a weight edit cannot silently move the scale:
  *
- *     Hack Club alone              raw 0.7   −0.8σ
- *     RSI + ISEF + USAMO           raw 4.5   +1.3σ
- *     IMO + IOI + RSI + 1 pub      raw 6.6   +2.4σ
+ *     Hack Club alone              0.7
+ *     RSI + ISEF + USAMO           4.5
+ *     IMO + IOI + RSI + 1 pub      6.6
+ *
+ * The UI still writes these with a σ. It is a house mark, not a claim.
  *
  * ── Why six clusters, and why polymath is not one ─────────────────────────
- * A cluster is a reference class: you judge an olympiad kid against olympiad
- * kids. Polymath is not a population, it is the union of overlaps, so a mean
- * polymath does not exist. It was also absorbing everything unclassifiable —
- * Jane Street, Coca-Cola Scholar, QuestBridge, TASP and SPARC were all
- * polymaths — which is how you could tell two clusters were missing.
- *
- * Polymath is now a badge: awarded for clearing POLYMATH_SIGMA in two or more
- * clusters. That keeps the multi-cluster fact visible without pretending it is
- * a population you can take a mean of.
+ * A cluster is a reference class. Polymath is not a population, it is the union
+ * of overlaps, so it was made a badge instead: awarded for reaching
+ * `taxonomy.polymathPoints` in two or more clusters. Same fact, no pretence that
+ * you could take a mean of it.
  */
 
 export type Archetype = "olympiad" | "research" | "builder" | "founder" | "quant" | "scholar";
+
+/**
+ * Colour thresholds for a score. Declared here rather than in lib/state.ts so
+ * that state can import the weights and the seed vocabulary from this file
+ * without the two forming a cycle. Re-exported from state for callers.
+ */
+export type BandThresholds = {
+  exceptional: number;
+  strong: number;
+  above: number;
+  mid: number;
+};
 
 export const ARCHETYPES: { id: Archetype; label: string; blurb: string }[] = [
   { id: "olympiad", label: "Olympiad", blurb: "Competition math, informatics, physics, bio" },
@@ -137,27 +150,22 @@ export const START_WEIGHT: Record<string, number> = {
 /** Anything promoted from the review queue without an explicit weight. */
 export const DEFAULT_WEIGHT = 0.5;
 
-/** Global calibration. See the worked examples in the header. */
-export const CALIBRATION = { mu: 2.2, sigma: 1.8 };
-
 /**
- * Per-cluster calibration, used only for the badge and the "in Olympiad"
- * figure on the detail screen. A single cluster's raw is smaller than the
- * whole-profile raw, so mu is lower. Each mu is roughly one typical
- * credential in that cluster.
+ * The score is a sum, and nothing else.
+ *
+ * There used to be a global `CALIBRATION = { mu: 2.2, sigma: 1.8 }` and a
+ * per-cluster equivalent, and every figure on every screen was
+ * `(raw − mu) / sigma`. Both are gone, along with `zFrom` and `POLYMATH_SIGMA`.
+ *
+ * What survives is the part that was already doing the work: a weight per tag, a
+ * points-per-item price for countable things, and addition. Every input is
+ * editable on the taxonomy screen, so a number can always be explained by
+ * pointing at the rows that produced it.
+ *
+ * The σ glyph is kept in the UI as a house style. It no longer denotes a standard
+ * deviation, and the prose that claimed it did has been rewritten rather than
+ * left to mislead.
  */
-export const CLUSTER_CALIBRATION: Record<Archetype, { mu: number; sigma: number }> = {
-  olympiad: { mu: 1.2, sigma: 1.2 },
-  research: { mu: 1.2, sigma: 1.2 },
-  builder: { mu: 0.7, sigma: 0.9 },
-  founder: { mu: 1.0, sigma: 1.1 },
-  quant: { mu: 0.9, sigma: 0.9 },
-  scholar: { mu: 0.8, sigma: 0.8 },
-};
-
-/** Clear this in two or more clusters and you get the Polymath badge. */
-export const POLYMATH_SIGMA = 0.5;
-
 export function weightOf(label: string, overrides: Record<string, number>): number {
   return overrides[label] ?? START_WEIGHT[label] ?? DEFAULT_WEIGHT;
 }
@@ -168,10 +176,6 @@ export function clusterOf(
 ): Archetype | null {
   if (label in overrides) return overrides[label];
   return TERM_CLUSTER[label] ?? null;
-}
-
-export function zFrom(raw: number, cal: { mu: number; sigma: number }): number {
-  return round((raw - cal.mu) / cal.sigma);
 }
 
 /** Keep values identical across server and client renders. */
@@ -233,25 +237,29 @@ export function clusterFromText(text: string, hasProjects: boolean): Archetype |
 export const SCORE_BANDS_ORDER = ["exceptional", "strong", "above", "mid", "below"] as const;
 export type ScoreBand = (typeof SCORE_BANDS_ORDER)[number];
 
-/** Blue is reserved for genuine outliers so a column of these reads as a distribution. */
-export function scoreBand(z: number): ScoreBand {
-  if (z >= 2.5) return "exceptional";
-  if (z >= 1.5) return "strong";
-  if (z >= 0.5) return "above";
-  if (z >= -0.5) return "mid";
+/**
+ * Colour only. Blue is reserved for genuine outliers so a column of these reads
+ * as a distribution rather than a wall of accent.
+ *
+ * The thresholds are no longer constants: on a sum, the right cutoffs depend on
+ * how the weights were tuned, so they come from the taxonomy and move with it.
+ */
+export function scoreBand(score: number, bands: BandThresholds): ScoreBand {
+  if (score >= bands.exceptional) return "exceptional";
+  if (score >= bands.strong) return "strong";
+  if (score >= bands.above) return "above";
+  if (score >= bands.mid) return "mid";
   return "below";
 }
 
-export const SCORE_BANDS: { id: ScoreBand | "all"; label: string }[] = [
-  { id: "all", label: "All" },
-  { id: "exceptional", label: "≥ +2.5σ" },
-  { id: "strong", label: "+1.5 – 2.5σ" },
-  { id: "above", label: "+0.5 – 1.5σ" },
-  { id: "mid", label: "±0.5σ" },
-];
-
-/** Always rendered with an explicit sign. "+2.4σ", "−0.3σ". */
-export function formatSigma(z: number): string {
-  const sign = z < 0 ? "−" : "+";
-  return `${sign}${Math.abs(z).toFixed(1)}σ`;
+/**
+ * Always rendered with an explicit sign.
+ *
+ * The σ is a house mark, not a claim: this is a point total, not a deviation.
+ * Kept because the product is called Z-Score and the notation is what the team
+ * reads fluently.
+ */
+export function formatSigma(score: number): string {
+  const sign = score < 0 ? "−" : "+";
+  return `${sign}${Math.abs(score).toFixed(1)}σ`;
 }

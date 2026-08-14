@@ -112,6 +112,7 @@ async function runMigration(): Promise<void> {
       const legacy = doc.taxonomy;
       team = mergeTeam(team, {
         taxonomy: {
+          ...team.taxonomy,
           weights: { ...legacy.weights, ...team.taxonomy.weights },
           // Old ids are still valid apart from "polymath", which became a badge.
           // Anything unrecognised is dropped rather than written back.

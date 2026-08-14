@@ -1,32 +1,68 @@
 import type { Archetype } from "./clusters";
 import { clusterOf, weightOf } from "./clusters";
+import { extractTags } from "./extract";
 import type { Person } from "./people";
 import type { TaxonomyPrefs } from "./state";
 import type { Selection } from "./query";
+import {
+  indexRegistry,
+  resolveAny,
+  resolveTag,
+  type TagDef,
+  type TagFacet,
+} from "./tagRegistry";
 import type { Signal } from "./zscore";
 import { PROGRAMS } from "./searchTaxonomy";
 
 /**
  * Everything that turns a record into labels.
  *
- * Three sources, and they are deliberately not equal:
+ * Four sources, and they are deliberately not equal:
  *
+ *   structured a company, school, major, title or count read straight off the
+ *              vendor's own fields. Exact, free, and the bulk of a profile
  *   query      the chips that built the search. A hypothesis, see below
  *   text       taxonomy terms found in the record's own words. Deterministic
- *   extracted  what the LLM read off the profile. Zero weight until promoted
+ *   extracted  what the LLM read off free text. Zero weight until promoted
  *
- * Plus attributes — school, class year, state — which are facts about a person
- * rather than credentials, and are used to group the graph rather than to score.
+ * Every one of them lands at zero weight until someone promotes it, so being
+ * generous about what counts as a tag costs a queue row, never a wrong score.
  */
 
 export type TagKind = "program" | "school" | "year" | "state" | "extracted";
 
+/**
+ * Facets map onto the older, coarser `TagKind` because the graph groups and
+ * filters on kind, and eleven filter buttons where there were four is a worse
+ * screen. The precise facet rides along for display.
+ */
+const FACET_KIND: Record<TagFacet, TagKind> = {
+  program: "program",
+  award: "program",
+  company: "extracted",
+  org: "extracted",
+  college: "school",
+  highschool: "school",
+  major: "extracted",
+  title: "extracted",
+  flag: "extracted",
+  count: "extracted",
+  year: "year",
+  state: "state",
+};
+
 export type Tag = {
   label: string;
   kind: TagKind;
+  /** The precise facet, when this came from the registry. */
+  facet?: TagFacet;
   origin: "query" | "text" | "llm" | "attribute";
   /** False means "the query implies this but the text does not show it". */
   confirmed: boolean;
+  /** True when deduced rather than stated, e.g. a home state. */
+  inferred?: boolean;
+  /** True when this tag is promoted and actually contributing to the score. */
+  weighted?: boolean;
   cluster?: Archetype | null;
 };
 
@@ -117,10 +153,23 @@ function fieldedText(p: Person): { text: string; source: Signal["source"] }[] {
   ];
 }
 
-/** The taxonomy vocabulary in force: built-ins plus anything promoted. */
+/**
+ * The scoring vocabulary: every tag switched on, by display label.
+ *
+ * One list, from one place. There used to be two parallel systems — a flat
+ * `promoted` string list weighted by `taxonomy.weights`, and the tag registry —
+ * which meant two screens for editing weights, two ways for the same credential
+ * to exist, and no shared alias table between them. The registry is now the only
+ * source, so a term and a tag are the same thing.
+ */
 export function vocabulary(tax: TaxonomyPrefs): string[] {
-  return [...new Set([...PROGRAMS, ...tax.promoted])];
+  return Object.values(tax.tags)
+    .filter((d) => d.promoted)
+    .map((d) => d.label);
 }
+
+/** Facets whose evidence is prose rather than a structured field. */
+const TEXT_FACETS = new Set<TagFacet>(["program", "award"]);
 
 /**
  * Which taxonomy terms this record evidences, and where each was found.
@@ -131,68 +180,87 @@ export function vocabulary(tax: TaxonomyPrefs): string[] {
  * applied on top of it.
  */
 export function matchedTerms(p: Person, tax: TaxonomyPrefs): MatchedTerm[] {
-  const fields = fieldedText(p);
+  const index = indexRegistry(tax.tags);
   const out: MatchedTerm[] = [];
   const seen = new Set<string>();
 
-  for (const term of vocabulary(tax)) {
-    const hit = fields.find((f) => mentions(f.text, term));
-    if (!hit || seen.has(term)) continue;
-    seen.add(term);
-    out.push({
-      label: term,
-      weight: weightOf(term, tax.weights),
-      cluster: clusterOf(term, tax.clusters),
-      source: hit.source,
-    });
-  }
+  /** Every path funnels through here, so nothing can be counted twice. */
+  const take = (def: TagDef, source: Signal["source"]) => {
+    if (!def.promoted || def.weight <= 0 || seen.has(def.id)) return;
+    seen.add(def.id);
+    out.push({ label: def.label, weight: def.weight, cluster: def.cluster, source });
+  };
 
-  // A confirmed chip that the record's own sections did not surface still
-  // counts: the SERP title is text about this person. Unconfirmed chips never
-  // count, because nothing substantiates them.
-  for (const l of p.searchLabels) {
-    if (!l.confirmed || seen.has(l.label)) continue;
-    if (!vocabulary(tax).includes(l.label)) continue;
-    seen.add(l.label);
-    out.push({
-      label: l.label,
-      weight: weightOf(l.label, tax.weights),
-      cluster: clusterOf(l.label, tax.clusters),
-      source: "snippet",
-    });
+  /**
+   * 1. Structured facts, read straight off the vendor's fields.
+   *
+   * Companies, schools, majors, titles, flags and geography. Exact, free, and the
+   * bulk of a populated profile.
+   */
+  for (const cand of extractTags(p).tags) {
+    const res = resolveTag(index, cand);
+    if (res.kind === "exact") take(res.def, SOURCE_FOR_FACET[res.def.facet]);
   }
 
   /**
-   * Extracted and hand-added terms, once they are in the vocabulary.
+   * 2. Credentials named in the record's own words.
    *
-   * This case is easy to miss and it breaks the whole taxonomy loop without it.
-   * The tagger returns *normalised* names — "Regeneron Science Talent Search"
-   * comes back as "STS" — so a promoted term frequently does not appear verbatim
-   * anywhere in the profile text. Matching on text alone would mean you promote a
-   * term, watch nothing happen, and have no way to tell why.
-   *
-   * So a term the tagger attributed to this person counts as evidence for that
-   * person, but only once someone has promoted it and given it a weight. Before
-   * promotion it stays at zero, which is what keeps the model auditable.
+   * Only programmes and awards are text-matched. A company or a school is already
+   * known exactly from a structured field, and string-matching those as well would
+   * fire on any passing mention — "interned at a Google-backed startup" is not a
+   * Google role.
    */
-  const attributed = [...(p.extractedTerms ?? []), ...(p.manualTerms ?? [])];
-  if (attributed.length > 0) {
-    const vocab = new Map(vocabulary(tax).map((t) => [t.toLowerCase(), t]));
-    for (const raw of attributed) {
-      const canonical = vocab.get(raw.trim().toLowerCase());
-      if (!canonical || seen.has(canonical)) continue;
-      seen.add(canonical);
-      out.push({
-        label: canonical,
-        weight: weightOf(canonical, tax.weights),
-        cluster: clusterOf(canonical, tax.clusters),
-        source: "extracted",
-      });
-    }
+  const fields = fieldedText(p);
+  for (const def of Object.values(tax.tags)) {
+    if (!TEXT_FACETS.has(def.facet) || seen.has(def.id)) continue;
+    const hit = fields.find((f) => mentions(f.text, def.label));
+    if (hit) take(def, hit.source);
+  }
+
+  /**
+   * 3. What the tagger read out of prose, resolved through the alias table.
+   *
+   * This case is easy to miss and the taxonomy loop does not work without it. The
+   * tagger returns *normalised* names — "Regeneron Science Talent Search" comes
+   * back as "STS" — so a credential frequently appears nowhere verbatim in the
+   * text. Matching on text alone would mean switching a tag on, watching nothing
+   * happen, and having no way to tell why.
+   */
+  for (const label of [...(p.extractedTerms ?? []), ...(p.manualTerms ?? [])]) {
+    const def = resolveAny(index, label);
+    if (def) take(def, "extracted");
+  }
+
+  /**
+   * 4. A confirmed search chip the record's own sections did not surface.
+   *
+   * The SERP title is text about this person. Unconfirmed chips never count,
+   * because nothing substantiates them.
+   */
+  for (const l of p.searchLabels) {
+    if (!l.confirmed) continue;
+    const def = resolveAny(index, l.label);
+    if (def) take(def, "snippet");
   }
 
   return out.sort((a, b) => b.weight - a.weight);
 }
+
+/** Which part of a record a facet is understood to have come from. */
+const SOURCE_FOR_FACET: Record<TagFacet, MatchedTerm["source"]> = {
+  program: "honors",
+  award: "honors",
+  company: "experience",
+  org: "volunteering",
+  college: "education",
+  highschool: "education",
+  major: "education",
+  title: "experience",
+  flag: "projects",
+  count: "projects",
+  year: "education",
+  state: "education",
+};
 
 /** Facts about a person rather than credentials. Used to group, not to score. */
 export function attributeTags(p: Person): Tag[] {
@@ -218,32 +286,67 @@ export function allTags(p: Person, tax: TaxonomyPrefs): Tag[] {
     cluster: t.cluster,
   }));
 
-  const have = new Set(out.map((t) => t.label.toLowerCase()));
+  /**
+   * Deduped on kind AND label.
+   *
+   * It used to key on the label alone, so a school named the same as a program
+   * silently lost one of them — and the graph keyed on `kind:label` correctly, so
+   * the two screens disagreed about how many tags a person had.
+   */
+  const key = (kind: TagKind, label: string) => `${kind}:${label.toLowerCase()}`;
+  const have = new Set(out.map((t) => key(t.kind, t.label)));
 
-  for (const t of attributeTags(p)) {
-    if (have.has(t.label.toLowerCase())) continue;
-    have.add(t.label.toLowerCase());
+  const take = (t: Tag) => {
+    if (have.has(key(t.kind, t.label))) return;
+    have.add(key(t.kind, t.label));
     out.push(t);
+  };
+
+  /**
+   * Everything the extractor found, whether or not it scores.
+   *
+   * Unpromoted tags appear here deliberately: the point of showing a profile is
+   * to show what is on it, and holding a tag at zero weight is a statement about
+   * scoring, not about whether the fact is real. `weighted` marks which ones are
+   * actually contributing so the UI can tell them apart.
+   */
+  const index = indexRegistry(tax.tags);
+  for (const cand of extractTags(p).tags) {
+    const res = resolveTag(index, cand);
+    const def = res.kind === "exact" ? res.def : null;
+    take({
+      label: def?.label ?? cand.label,
+      kind: FACET_KIND[cand.facet],
+      facet: cand.facet,
+      origin: cand.selfReported ? "query" : "attribute",
+      confirmed: true,
+      inferred: cand.inferred,
+      weighted: Boolean(def?.promoted && def.weight > 0),
+      cluster: def?.cluster ?? null,
+    });
   }
+
+  for (const t of attributeTags(p)) take(t);
 
   for (const label of p.manualTerms ?? []) {
-    if (have.has(label.toLowerCase())) continue;
-    have.add(label.toLowerCase());
-    out.push({ label, kind: "extracted", origin: "attribute", confirmed: true });
+    take({ label, kind: "extracted", origin: "attribute", confirmed: true });
   }
 
+  // `dismissed` is compared case-insensitively here to match `unmatchedTerms`.
+  // It used to be an exact-string check, so a term dismissed as "Coke Scholar"
+  // and extracted as "coke scholar" vanished from the promote queue while still
+  // rendering as a chip.
+  const dismissed = new Set(tax.dismissed.map((d) => d.toLowerCase()));
   for (const label of p.extractedTerms ?? []) {
-    if (have.has(label.toLowerCase()) || tax.dismissed.includes(label)) continue;
-    have.add(label.toLowerCase());
-    out.push({ label, kind: "extracted", origin: "llm", confirmed: true });
+    if (dismissed.has(label.trim().toLowerCase())) continue;
+    take({ label, kind: "extracted", origin: "llm", confirmed: true });
   }
 
   // Unconfirmed chips, last and marked, so the sweep screen can show why this
   // person was looked at without implying the claim is established.
   for (const l of p.searchLabels) {
-    if (l.confirmed || have.has(l.label.toLowerCase())) continue;
-    have.add(l.label.toLowerCase());
-    out.push({ label: l.label, kind: "program", origin: "query", confirmed: false });
+    if (l.confirmed) continue;
+    take({ label: l.label, kind: "program", origin: "query", confirmed: false });
   }
 
   return out;

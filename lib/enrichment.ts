@@ -9,16 +9,78 @@ import { extractSlug } from "./search";
  * mean rewriting one parse function, not touching the UI.
  */
 
-/** A neighbour from the People Also Viewed sidebar. Cheap: no scrape needed. */
+/**
+ * A neighbour from the People Also Viewed sidebar. Cheap: no scrape needed.
+ *
+ * `position` is the vendor's headline equivalent and `year` is inferred from it
+ * at parse time. Both are enough to triage a neighbour without opening LinkedIn,
+ * which matters because the decision they inform is whether to spend money.
+ */
 export type Neighbor = {
   slug: string;
   name: string;
   position: string;
+  year?: string;
   url: string;
 };
 
+/** A neighbour plus which profile surfaced it. What a hop offer is made of. */
+export type HopCandidate = Neighbor & { seedSlug: string; seedName: string };
+
+/**
+ * How much of `moreProfiles` is the People Also Viewed sidebar.
+ *
+ * Measured against five real profiles, 90 neighbours: the array comes back at 10
+ * or 20 entries, and the quality cliff is at exactly index 10 every time. The
+ * first ten are genuine co-views — for a Stanford CS student, other Stanford and
+ * MIT students with STS, RSI and USAPhO in their headlines. Entries 11 to 20 are
+ * a different population with no overlap: on one profile ten Italian names with
+ * no headline at all, on another ten accounts reading "Student at Stanford
+ * University", which is LinkedIn's auto-generated headline for someone who never
+ * wrote one, plus a cash-for-gold business.
+ *
+ * Scored across those five profiles: 0 of the first 50 were junk, and 35 of the
+ * next 40 were. In four of four profiles that returned twenty, the second block
+ * was worthless.
+ *
+ * So the cut is positional. A headline test alone let one profile's entire tail
+ * through, because that tail happened to have headlines.
+ */
+export const MAX_NEIGHBORS = 10;
+
+/**
+ * Whether a neighbour is worth showing at all.
+ *
+ * Secondary to the positional cut, for a blank inside the first ten. The vendor
+ * writes a literal "--" into `position` when it has no headline, and such a row
+ * is unactionable on its own terms: nothing to triage on, and $0.004 to find out.
+ * One arrived named "Datollski undefined", the scraper stringifying a missing
+ * `lastName` — these records are degraded at the source, not merely sparse.
+ */
+const NO_HEADLINE = /^\s*-{1,2}\s*$/;
+
+export function isUsableNeighbor(n: Neighbor): boolean {
+  return n.position.length > 0 && !NO_HEADLINE.test(n.position);
+}
+
+/**
+ * The neighbours worth offering: the sidebar block, minus anything blank in it.
+ *
+ * One policy, applied at parse time and again on read, so records enriched
+ * before the tail was understood are cleaned up without paying to re-enrich.
+ */
+export function usableNeighbors(neighbors: Neighbor[]): Neighbor[] {
+  return neighbors.slice(0, MAX_NEIGHBORS).filter(isUsableNeighbor);
+}
+
 export type Education = {
   school: string;
+  /**
+   * LinkedIn's own school id. The canonical identity: "Stanford", "Stanford
+   * University" and "Stanford U" all carry the same one, so school tags dedupe
+   * exactly instead of by string comparison.
+   */
+  schoolId?: string;
   degree?: string;
   field?: string;
   startYear?: number;
@@ -54,10 +116,16 @@ export type Volunteering = {
 export type Experience = {
   title: string;
   company?: string;
+  /** Same role as `Education.schoolId`: exact company identity, not a string. */
+  companyId?: string;
   /** Long-form and often the richest text on a profile. Worth matching against. */
   description?: string;
+  /** Where the role was, which is often the home state on an early job. */
+  location?: string;
   startYear?: number;
   endYear?: number;
+  /** No end date means it is current. Needed to tell a current role from a past one. */
+  current?: boolean;
 };
 
 /**
@@ -100,12 +168,42 @@ export type EnrichedProfile = {
   languages: string[];
   publications: string[];
   patents: string[];
+  /**
+   * The three below are optional because records enriched before they were
+   * captured simply do not have them. Read through `?? []` rather than
+   * pretending every stored profile predates nothing.
+   */
+
+  /** Coursework. Documented as returned and previously not stored at all. */
+  courses?: string[];
+  /**
+   * Pinned links: personal site, GitHub, press. The vendor doc names this as the
+   * builder signal, and it was being dropped in full.
+   */
+  featured?: string[];
+  /** Prose written about the person by someone else. */
+  recommendations?: string[];
+  /** The vendor's own current-role summary, rather than us re-deriving it. */
+  currentPosition?: string;
   followerCount?: number;
   connectionsCount?: number;
+  /** Country, so a domestic/international split does not need the display string. */
+  countryCode?: string;
+  /**
+   * Per-item scrape status. Without it a failed scrape and a genuinely sparse
+   * profile are indistinguishable, and we would tag the first as if it were the
+   * second.
+   */
+  status?: string;
   /** When the account was created. Joining at 14 is itself a signal. */
   registeredAt?: string;
   /** People Also Viewed. The expansion primitive for the seed path. */
   neighbors: Neighbor[];
+  /**
+   * How many the sidebar returned with no headline. Kept so the UI can say the
+   * list was trimmed instead of quietly showing a shorter one.
+   */
+  neighborsDropped?: number;
   discoveredVia: Provenance;
   enrichedAt: string;
 };
@@ -181,21 +279,43 @@ export function neighborsOf(profile: EnrichedProfile): string[] {
  * `known` covers both already-enriched candidates and the seeds themselves, so
  * a hop never re-pays for someone already in the store.
  */
-export function nextHop(
-  profiles: EnrichedProfile[],
-  known: Set<string>
-): { slug: string; seedSlug: string; seedName: string }[] {
-  const out: { slug: string; seedSlug: string; seedName: string }[] = [];
+export function nextHop(profiles: EnrichedProfile[], known: Set<string>): HopCandidate[] {
+  const out: HopCandidate[] = [];
   const picked = new Set<string>();
 
   for (const p of profiles) {
     for (const n of p.neighbors) {
       if (!n.slug || known.has(n.slug) || picked.has(n.slug)) continue;
       picked.add(n.slug);
-      out.push({ slug: n.slug, seedSlug: p.slug, seedName: p.name });
+      // Spread the neighbour rather than projecting a slug out of it: the name
+      // and position are the whole point of showing this row.
+      out.push({ ...n, seedSlug: p.slug, seedName: p.name });
     }
   }
   return out;
+}
+
+/**
+ * Years between leaving school and finishing college. Used to state a class year
+ * for someone who has only listed a high school, which is most of this population.
+ */
+export const HIGH_SCHOOL_TO_COLLEGE = 4;
+
+/**
+ * Whether an education record is secondary rather than tertiary.
+ *
+ * Needed because "class of" throughout the app means the **college** graduating
+ * class: a 2026 high-school leaver is the class of 2030. Reads the degree first,
+ * which is explicit when present, and falls back to the school's name.
+ */
+export function isHighSchool(e: Education): boolean {
+  const degree = (e.degree ?? "").toLowerCase();
+  if (/high school|secondary|hs diploma|ged/.test(degree)) return true;
+  if (/bachelor|bs\b|ba\b|master|phd|associate|undergrad|doctor/.test(degree)) return false;
+
+  const school = (e.school ?? "").toLowerCase();
+  if (/university|college|institute of technology|\bpolytechnic\b/.test(school)) return false;
+  return /high school|\bhs\b|academy|preparatory|\bprep\b|secondary|magnet|gymnasium/.test(school);
 }
 
 /** Highest-signal award first, for the one-line summary in list views. */
@@ -203,8 +323,17 @@ export function topHonor(profile: EnrichedProfile): string | undefined {
   return profile.honors[0]?.title;
 }
 
-/** Most recent school, which for a student is the one that matters. */
+/**
+ * Most recent school, which for a student is the one that matters.
+ *
+ * An absent end date means still enrolled, so it sorts *first*, not last. The
+ * previous `?? 0` put an in-progress university behind a graduated high school,
+ * which is exactly backwards for this population.
+ */
 export function currentSchool(profile: EnrichedProfile): string | undefined {
-  const sorted = [...profile.educations].sort((a, b) => (b.endYear ?? 0) - (a.endYear ?? 0));
+  const rank = (e: Education) => e.endYear ?? Infinity;
+  const sorted = [...profile.educations]
+    .filter((e) => e.school)
+    .sort((a, b) => rank(b) - rank(a) || (b.startYear ?? 0) - (a.startYear ?? 0));
   return sorted[0]?.school;
 }

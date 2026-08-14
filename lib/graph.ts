@@ -146,7 +146,7 @@ export function buildGraph(
 ): Graph {
   // Highest-scoring first, so the cap drops the least interesting people rather
   // than an arbitrary slice.
-  const ranked = [...candidates].sort((a, b) => b.z_score_normalized - a.z_score_normalized);
+  const ranked = [...candidates].sort((a, b) => b.score - a.score);
   const shown = ranked.slice(0, Math.max(1, opts.cap));
   const droppedPeople = ranked.length - shown.length;
 
@@ -202,10 +202,11 @@ export function buildGraph(
     slug: c.slug,
     label: c.name,
     initials: initialsOf(c.name),
-    // Node size is the z-score, as before. Floored so a below-average person is
-    // still clickable rather than a dot.
-    r: round(7 + Math.min(Math.max(c.z_score_normalized, -1), 3.5) * 2.6),
-    z: c.z_score_normalized,
+    // Node size is the score, scaled against the top band rather than a fixed
+    // sigma range. The old clamp to [-1, 3.5] was built for a standardised
+    // figure: on a point total every node would have pinned at maximum radius.
+    r: round(7 + Math.min(Math.max(c.score, 0) / Math.max(tax.bands.exceptional, 1), 1) * 11),
+    z: c.score,
     cluster: c.archetype,
     polymath: c.polymath,
     enriched: c.enriched,
