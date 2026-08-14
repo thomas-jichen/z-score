@@ -1,0 +1,24 @@
+{
+  "name": "z-score",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev -p 3737",
+    "build": "next build",
+    "build:check": "NEXT_DIST_DIR=.next-check next build",
+    "start": "next start -p 3737",
+    "check": "tsx scripts/check-parsing.ts"
+  },
+  "dependencies": {
+    "next": "15.5.4",
+    "react": "19.1.1",
+    "react-dom": "19.1.1"
+  },
+  "devDependencies": {
+    "@types/node": "^24.3.0",
+    "@types/react": "^19.1.10",
+    "@types/react-dom": "^19.1.7",
+    "tsx": "^4.23.12",
+    "typescript": "^5.9.2"
+  }
+}

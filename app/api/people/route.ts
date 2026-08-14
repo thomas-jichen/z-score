@@ -1,0 +1,386 @@
+import { NextResponse } from "next/server";
+import { resolveProfile } from "@/lib/auth";
+import { isArchetype } from "@/lib/clusters";
+import type { Hit } from "@/lib/types";
+import type { Selection } from "@/lib/query";
+import {
+  MAX_PEOPLE,
+  capRoster,
+  personFromHit,
+  personFromSlug,
+  type Marks,
+  type Person,
+  type PersonStatus,
+} from "@/lib/people";
+import {
+  ROSTER_KEY,
+  hydrate,
+  mergeState,
+  stateKey,
+  type ProfileState,
+} from "@/lib/state";
+import { migrateIfNeeded, readRoster, readTeam, writePeople } from "@/lib/serverState";
+import { buildSearchLabels } from "@/lib/tags";
+import { get, hdel, set } from "@/lib/store";
+import { extractSlug } from "@/lib/search";
+import { toSlug } from "@/lib/enrichment";
+import type { ProfileId } from "@/lib/profiles";
+import { isBad, readJson, str, strList } from "@/lib/validate";
+import { log } from "@/lib/log";
+
+/**
+ * Operations on the roster.
+ *
+ * Op-based rather than "here is the new state", for two reasons. Pinning one
+ * person should cost a few bytes, not a copy of the whole roster — which is what
+ * the old single-document PATCH forced, and it got worse with every profile
+ * enriched. And the server owns the merge, so two teammates acting at the same
+ * time cannot overwrite each other.
+ *
+ * Roster writes go to the shared hash. Mark writes go to the caller's own
+ * document, and nothing here lets one teammate change another's marks.
+ */
+
+export const maxDuration = 60;
+
+const STATUSES: readonly PersonStatus[] = ["queued", "known", "rejected"];
+
+/** One add call is at most one sweep's results. */
+const MAX_ADD = 250;
+/** A bulk action from the queue. Generous, but not unbounded. */
+const MAX_MARK = 2000;
+
+type Body =
+  | { op: "addHits"; hits?: unknown; query?: unknown; selection?: unknown }
+  | { op: "addSlugs"; slugs?: unknown; seedSlug?: unknown; seedName?: unknown }
+  | { op: "mark"; slugs?: unknown; status?: unknown; pinned?: unknown; note?: unknown }
+  | { op: "setCluster"; slug?: unknown; cluster?: unknown }
+  | { op: "terms"; slug?: unknown; add?: unknown; remove?: unknown }
+  | { op: "delete"; slugs?: unknown }
+  | { op: "reset" };
+
+export async function GET() {
+  const r = await resolveProfile();
+  if ("error" in r) return NextResponse.json({ ok: false, error: r.error }, { status: r.status });
+
+  try {
+    await migrateIfNeeded();
+    const [roster, team, stored] = await Promise.all([
+      readRoster(),
+      readTeam(),
+      get<Partial<ProfileState>>(stateKey(r.profile)),
+    ]);
+    return NextResponse.json({ ok: true, roster, team, marks: hydrate(stored).marks });
+  } catch (e) {
+    return NextResponse.json(
+      { ok: false, error: e instanceof Error ? e.message : "Store read failed." },
+      { status: 500 }
+    );
+  }
+}
+
+export async function POST(req: Request) {
+  const r = await resolveProfile();
+  if ("error" in r) return NextResponse.json({ ok: false, error: r.error }, { status: r.status });
+
+  const body = await readJson<Body>(req);
+  if (isBad(body)) return NextResponse.json({ ok: false, error: body.error }, { status: body.status });
+
+  const op = String((body as { op?: string }).op ?? "");
+
+  try {
+    await migrateIfNeeded();
+
+    switch (body.op) {
+      case "addHits":
+        return await addHits(r.profile, body);
+      case "addSlugs":
+        return await addSlugs(r.profile, body);
+      case "mark":
+        return await mark(r.profile, body);
+      case "setCluster":
+        return await setCluster(body);
+      case "terms":
+        return await editTerms(body);
+      case "delete":
+        return await remove(r.profile, body);
+      case "reset":
+        return await resetEverything(r.profile);
+      default:
+        return NextResponse.json({ ok: false, error: "Unknown operation." }, { status: 400 });
+    }
+  } catch (e) {
+    log.error("people.failed", { op, error: e instanceof Error ? e.message : "unknown" });
+    return NextResponse.json(
+      { ok: false, error: e instanceof Error ? e.message : "Store write failed." },
+      { status: 500 }
+    );
+  }
+}
+
+/* ── Marks live in the caller's own document ─────────────────────────────── */
+
+async function patchMarks(profile: ProfileId, fn: (marks: Marks) => Marks): Promise<Marks> {
+  const key = stateKey(profile);
+  const current = hydrate(await get<Partial<ProfileState>>(key));
+  const next = mergeState(current, { marks: fn({ ...current.marks }) });
+  await set(key, next);
+  return next.marks;
+}
+
+const queued = (marks: Marks, slugs: string[]): Marks => {
+  const at = new Date().toISOString();
+  for (const slug of slugs) {
+    // Re-adding someone previously rejected puts them back, which is what
+    // clicking add again plainly means.
+    marks[slug] = { ...(marks[slug] ?? { at }), status: "queued", at };
+  }
+  return marks;
+};
+
+/**
+ * Write new people, then evict if the roster has outgrown its cap.
+ *
+ * Capping on write rather than on read means the store never accumulates past
+ * the bound. Without it a write eventually exceeds what the backend accepts,
+ * which fails every save at once instead of degrading.
+ */
+async function addPeople(fresh: Person[], marks: Marks): Promise<void> {
+  await writePeople(fresh);
+  if (fresh.length === 0) return;
+
+  const roster = await readRoster();
+  if (Object.keys(roster).length <= MAX_PEOPLE) return;
+
+  const kept = capRoster(roster, marks);
+  const evicted = Object.keys(roster).filter((slug) => !(slug in kept));
+  if (evicted.length > 0) {
+    await hdel(ROSTER_KEY, evicted);
+    log.warn("people.evicted", { count: evicted.length, cap: MAX_PEOPLE });
+  }
+}
+
+/* ── Add ────────────────────────────────────────────────────────────────── */
+
+/**
+ * Queue search results on SERP data alone. Nothing is spent, and anyone added
+ * this way is upgraded in place if they are enriched later.
+ */
+async function addHits(profile: ProfileId, body: Extract<Body, { op: "addHits" }>) {
+  const raw = Array.isArray(body.hits) ? body.hits.slice(0, MAX_ADD) : [];
+  const query = str(body.query, 500);
+  const selection = normaliseSelection(body.selection);
+
+  const roster = await readRoster();
+  const fresh: Person[] = [];
+  const slugs: string[] = [];
+
+  for (const item of raw) {
+    const h = (item ?? {}) as Partial<Hit>;
+    const slug = toSlug(str(h.slug, 200)) ?? extractSlug(str(h.url, 500));
+    if (!slug || slugs.includes(slug)) continue;
+    slugs.push(slug);
+
+    // Already in the roster? Keep the richer record; only marks change below.
+    if (roster[slug]) continue;
+
+    const hit: Hit = {
+      slug,
+      name: str(h.name, 200),
+      headline: str(h.headline, 500),
+      url: str(h.url, 500),
+      snippet: str(h.snippet, 1000),
+      matchedShards: [],
+      inferredYear: str(h.inferredYear, 8) || undefined,
+    };
+
+    // Chips are cross-checked against this hit's own text, so an OR group never
+    // silently asserts a credential the snippet does not actually show.
+    const labels = buildSearchLabels(`${hit.name} ${hit.headline} ${hit.snippet}`, selection);
+    fresh.push(personFromHit(hit, { query, labels }));
+  }
+
+  if (slugs.length === 0) {
+    return NextResponse.json({ ok: false, error: "No valid people in that list." }, { status: 400 });
+  }
+
+  const marks = await patchMarks(profile, (m) => queued(m, slugs));
+  await addPeople(fresh, marks);
+
+  log.info("people.added", { source: "serp", added: fresh.length, queued: slugs.length });
+  return NextResponse.json({ ok: true, added: fresh.length, queued: slugs.length, marks });
+}
+
+/** Seeds and neighbours, known only by slug until enrichment fills them in. */
+async function addSlugs(profile: ProfileId, body: Extract<Body, { op: "addSlugs" }>) {
+  const list = [
+    ...new Set(
+      strList(body.slugs, MAX_ADD, 200)
+        .map((s) => toSlug(s))
+        .filter((s): s is string => Boolean(s))
+    ),
+  ];
+  if (list.length === 0) {
+    return NextResponse.json({ ok: false, error: "No valid profiles." }, { status: 400 });
+  }
+
+  const seedSlug = toSlug(str(body.seedSlug, 200));
+  const seedName = str(body.seedName, 200);
+
+  const roster = await readRoster();
+  const fresh = list
+    .filter((slug) => !roster[slug])
+    .map((slug) =>
+      personFromSlug(
+        slug,
+        seedSlug
+          ? { kind: "pav", seedSlug, seedName: seedName || seedSlug, hop: 1 }
+          : { kind: "seed" }
+      )
+    );
+
+  const marks = await patchMarks(profile, (m) => queued(m, list));
+  await addPeople(fresh, marks);
+
+  log.info("people.added", { source: "slug", added: fresh.length, queued: list.length });
+  return NextResponse.json({ ok: true, added: fresh.length, queued: list.length, marks });
+}
+
+/* ── Mark ───────────────────────────────────────────────────────────────── */
+
+async function mark(profile: ProfileId, body: Extract<Body, { op: "mark" }>) {
+  const list = strList(body.slugs, MAX_MARK, 200)
+    .map((s) => toSlug(s))
+    .filter((s): s is string => Boolean(s));
+  if (list.length === 0) {
+    return NextResponse.json({ ok: false, error: "No profiles given." }, { status: 400 });
+  }
+
+  const status = STATUSES.includes(body.status as PersonStatus)
+    ? (body.status as PersonStatus)
+    : undefined;
+  const pinned = typeof body.pinned === "boolean" ? body.pinned : undefined;
+  const note = typeof body.note === "string" ? str(body.note, 2000) : undefined;
+
+  if (status === undefined && pinned === undefined && note === undefined) {
+    return NextResponse.json({ ok: false, error: "Nothing to change." }, { status: 400 });
+  }
+
+  const marks = await patchMarks(profile, (m) => {
+    const at = new Date().toISOString();
+    for (const slug of list) {
+      const prev = m[slug] ?? { status: "queued" as PersonStatus, at };
+      m[slug] = {
+        ...prev,
+        ...(status !== undefined ? { status } : {}),
+        ...(pinned !== undefined ? { pinned } : {}),
+        ...(note !== undefined ? { note: note || undefined } : {}),
+        at,
+      };
+    }
+    return m;
+  });
+
+  return NextResponse.json({ ok: true, marks });
+}
+
+/* ── Roster edits, shared across the team ───────────────────────────────── */
+
+async function setCluster(body: Extract<Body, { op: "setCluster" }>) {
+  const slug = toSlug(str(body.slug, 200));
+  if (!slug) return NextResponse.json({ ok: false, error: "No profile." }, { status: 400 });
+
+  const roster = await readRoster();
+  const person = roster[slug];
+  if (!person) return NextResponse.json({ ok: false, error: "Not in the roster." }, { status: 404 });
+
+  // null clears the override and returns the person to the computed label.
+  const cluster = isArchetype(body.cluster) ? body.cluster : null;
+  const next: Person = { ...person, clusterOverride: cluster, updatedAt: new Date().toISOString() };
+  await writePeople([next]);
+
+  return NextResponse.json({ ok: true, person: next });
+}
+
+async function editTerms(body: Extract<Body, { op: "terms" }>) {
+  const slug = toSlug(str(body.slug, 200));
+  if (!slug) return NextResponse.json({ ok: false, error: "No profile." }, { status: 400 });
+
+  const roster = await readRoster();
+  const person = roster[slug];
+  if (!person) return NextResponse.json({ ok: false, error: "Not in the roster." }, { status: 404 });
+
+  const add = strList(body.add, 20, 60);
+  const drop = new Set(strList(body.remove, 20, 60).map((t) => t.toLowerCase()));
+
+  const manual = [...(person.manualTerms ?? []), ...add].filter(
+    (t, i, all) =>
+      !drop.has(t.toLowerCase()) && all.findIndex((x) => x.toLowerCase() === t.toLowerCase()) === i
+  );
+  // Removing a term the model proposed has to stick, or it reappears on the next
+  // tagger run and the removal reads as broken.
+  const extracted = (person.extractedTerms ?? []).filter((t) => !drop.has(t.toLowerCase()));
+
+  const next: Person = {
+    ...person,
+    manualTerms: manual.length ? manual : undefined,
+    extractedTerms: extracted.length ? extracted : undefined,
+    updatedAt: new Date().toISOString(),
+  };
+  await writePeople([next]);
+
+  return NextResponse.json({ ok: true, person: next });
+}
+
+/**
+ * Hard delete from the shared roster, as opposed to rejecting, which is
+ * personal and reversible. This is the control that answers "erase this
+ * person's data".
+ */
+async function remove(profile: ProfileId, body: Extract<Body, { op: "delete" }>) {
+  const list = strList(body.slugs, MAX_MARK, 200)
+    .map((s) => toSlug(s))
+    .filter((s): s is string => Boolean(s));
+  if (list.length === 0) {
+    return NextResponse.json({ ok: false, error: "No profiles given." }, { status: 400 });
+  }
+
+  await hdel(ROSTER_KEY, list);
+  const marks = await patchMarks(profile, (m) => {
+    for (const slug of list) delete m[slug];
+    return m;
+  });
+
+  log.info("people.deleted", { count: list.length });
+  return NextResponse.json({ ok: true, deleted: list.length, marks });
+}
+
+/**
+ * Delete every person the team holds.
+ *
+ * The population is minors, so a one-click way to erase the corpus is a
+ * requirement rather than a nicety. Taxonomy weights survive, because those are
+ * the team's tuning rather than anybody's personal data.
+ */
+async function resetEverything(profile: ProfileId) {
+  const roster = await readRoster();
+  const slugs = Object.keys(roster);
+  if (slugs.length > 0) await hdel(ROSTER_KEY, slugs);
+  const marks = await patchMarks(profile, () => ({}));
+
+  log.warn("people.reset", { deleted: slugs.length });
+  return NextResponse.json({ ok: true, deleted: slugs.length, marks });
+}
+
+/* ── Helpers ────────────────────────────────────────────────────────────── */
+
+function normaliseSelection(raw: unknown): Selection {
+  const o = (raw ?? {}) as Record<string, unknown>;
+  return {
+    programs: strList(o.programs, 60, 80),
+    titles: strList(o.titles, 60, 80),
+    colleges: strList(o.colleges, 60, 80),
+    highSchools: strList(o.highSchools, 60, 80),
+    years: strList(o.years, 20, 8),
+  };
+}

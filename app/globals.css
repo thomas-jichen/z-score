@@ -1,0 +1,1497 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   Z-Score design system
+
+   Every value below is sourced from zfellows.com. See DESIGN_TOKENS.md for the
+   citation table (which selector, which file) and for the four UNKNOWNs where a
+   value could not be determined and a decision was made explicitly instead.
+
+   Light theme only — zfellows.com is light, and a computed scan found dark used
+   there only as a card treatment, never a section.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+:root {
+  /* ── Colour ─ zfellows :root block ───────────────────────────────────── */
+  --z-bg: #ffffff;
+  --z-blue: #2067ff;
+  --z-blue-light: #4aaeff;
+  --z-blue-glow: #75a9ff;
+  --z-navy: #000b1c;
+
+  --z-surface: #f6f6fa;
+  --z-surface-blue: #eaf1fb;
+  --z-surface-dark: #33363b;
+
+  /* Cluster ramp. Shades of the sourced #2067ff rather than six unrelated hues,
+     so the app stays inside the Z Fellows scheme. Polymath is absent on purpose:
+     it is a badge, not a cluster. */
+  --z-arch-olympiad: #0b3fd4;
+  --z-arch-research: #2067ff;
+  --z-arch-builder: #4aaeff;
+  --z-arch-founder: #75a9ff;
+  --z-arch-quant: #1a2f7a;
+  --z-arch-scholar: #8fa8d8;
+
+  /* Graph nodes sit on a light surface, where the top of the ramp above washes
+     out — #a8c8ff on #f6f6fa is invisible. These are the same hues held to a
+     legible contrast against a near-white canvas. Kept separate so the tags,
+     which sit on white with a border, are unaffected. */
+  --z-node-olympiad: #0b3fd4;
+  --z-node-research: #2067ff;
+  --z-node-builder: #1f8fd0;
+  --z-node-founder: #4f6fd8;
+  --z-node-quant: #16255c;
+  --z-node-scholar: #6d84b4;
+
+  --z-border: #e1e4ea;
+  --z-border-soft: #ebebeb;
+  --z-divider: #d4d4d4;
+
+  --z-ink: #000000;
+  --z-ink-nav: #222222;
+  --z-ink-body: #363636;
+  --z-ink-mid: #585858;
+  --z-ink-faint: #706e6e;
+
+  /* ── Type ─ system stack; SF Pro on macOS/iOS, Inter fallback ────────── */
+  --z-font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display",
+    system-ui, "Inter", "Helvetica Neue", Arial, sans-serif;
+
+  /* Display tracking ≈ -0.04em, agreed independently by both references. */
+  --z-fs-display: 3rem;
+  --z-fs-h1: 2.5rem;
+  --z-fs-h2: 2rem;
+  --z-fs-h3: 1.5rem;
+  --z-fs-h4: 1.25rem;
+  --z-fs-body: 1rem;
+  --z-fs-small: 0.875rem;
+  --z-fs-micro: 0.8125rem;
+
+  --z-ls-display: -0.12rem;
+  --z-ls-h1: -0.08rem;
+  --z-ls-h2: -0.06rem;
+  --z-ls-h3: -0.045rem;
+  --z-ls-h4: -0.0375rem;
+  --z-ls-body: -0.02rem;
+
+  /* ── Radius ──────────────────────────────────────────────────────────── */
+  --z-r-pill: 999rem;
+  --z-r-tag: 1.1875rem;
+  --z-r-card: 0.75rem;
+  --z-r-card-lg: 1.25rem;
+  --z-r-sm: 0.5rem;
+  --z-r-circle: 100%;
+  --z-r-email: 4px; /* digest only — Outlook drops pill radius */
+
+  /* ── Shadow ──────────────────────────────────────────────────────────── */
+  --z-shadow-btn: inset 0 4px 8px #75a9ff66, inset 0 -4px 8px #75a9ff33;
+  --z-shadow-btn-neutral: inset 0 4px 8px #e5e7ea80, inset 0 -4px 8px #efefef;
+  --z-shadow-card: 0 2px 12px #00000014;
+  --z-shadow-lift: 0 2px 20px #0000001a;
+  --z-shadow-float: 4px 8px 20px #72727233;
+
+  /* ── Motion ─ no custom bezier appears in source ─────────────────────── */
+  --z-t-fast: 0.2s ease;
+  --z-t-base: 0.3s ease;
+  --z-t-slow: 0.4s ease;
+
+  /* ── Spacing ─ 0.25rem grid kept; section rhythm halved for density ──── */
+  --z-space-1: 0.25rem;
+  --z-space-2: 0.5rem;
+  --z-space-3: 0.75rem;
+  --z-space-4: 1rem;
+  --z-space-5: 1.25rem;
+  --z-space-6: 1.5rem;
+  --z-space-8: 2rem;
+  --z-space-10: 2.5rem;
+  --z-space-12: 3rem;
+  --z-section: 1.5rem;
+  --z-section-lg: 3rem;
+
+  --z-maxw: 1240px;
+  --z-maxw-email: 640px;
+}
+
+/* ── Reset ─────────────────────────────────────────────────────────────── */
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background: var(--z-bg);
+  color: var(--z-ink);
+  font-family: var(--z-font);
+  font-size: var(--z-fs-body);
+  line-height: 1.5;
+  letter-spacing: var(--z-ls-body);
+  -webkit-font-smoothing: antialiased;
+}
+
+a {
+  color: inherit;
+}
+
+button {
+  font-family: inherit;
+}
+
+/* Focus — derived from the .2s motion tokens, flagged in DESIGN_TOKENS.md */
+:focus-visible {
+  outline: 2px solid var(--z-blue);
+  outline-offset: 2px;
+  border-radius: var(--z-r-sm);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ── Type scale ────────────────────────────────────────────────────────── */
+
+.z-display,
+.z-h1,
+.z-h2,
+.z-h3,
+.z-h4 {
+  margin: 0;
+  color: var(--z-ink);
+}
+
+.z-display {
+  font-size: var(--z-fs-display);
+  letter-spacing: var(--z-ls-display);
+  line-height: 1;
+  font-weight: 700;
+}
+.z-h1 {
+  font-size: var(--z-fs-h1);
+  letter-spacing: var(--z-ls-h1);
+  line-height: 1.1;
+  font-weight: 700;
+}
+.z-h2 {
+  font-size: var(--z-fs-h2);
+  letter-spacing: var(--z-ls-h2);
+  line-height: 1.2;
+  font-weight: 700;
+}
+.z-h3 {
+  font-size: var(--z-fs-h3);
+  letter-spacing: var(--z-ls-h3);
+  line-height: 1.2;
+  font-weight: 600;
+}
+.z-h4 {
+  font-size: var(--z-fs-h4);
+  letter-spacing: var(--z-ls-h4);
+  line-height: 1.3;
+  font-weight: 600;
+}
+
+.z-body {
+  font-size: var(--z-fs-body);
+  line-height: 1.5;
+  color: var(--z-ink-body);
+  margin: 0;
+}
+.z-small {
+  font-size: var(--z-fs-small);
+  line-height: 1.4;
+  color: var(--z-ink-mid);
+  margin: 0;
+}
+.z-micro {
+  font-size: var(--z-fs-micro);
+  line-height: 1.15;
+  letter-spacing: 0.01rem;
+  font-weight: 500;
+  color: var(--z-ink-faint);
+  margin: 0;
+}
+
+/* Quiet section label. Sentence case, normal tracking — tracked-out all-caps
+   reads as generated. Used sparingly, and never stacked above a title that
+   already has a subtext (two text levels per block, never three). */
+.z-label {
+  font-size: var(--z-fs-small);
+  font-weight: 600;
+  letter-spacing: var(--z-ls-body);
+  line-height: 1.4;
+  color: var(--z-blue);
+  margin: 0 0 var(--z-space-2);
+}
+
+/* Muted variant for in-page section labels, where blue would be noise. */
+.z-label.is-quiet {
+  color: var(--z-ink-faint);
+  font-weight: 500;
+}
+
+.z-num {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Shell + nav ───────────────────────────────────────────────────────── */
+
+.z-nav {
+  position: sticky; /* app decision, not sourced — see DESIGN_TOKENS.md */
+  top: 0;
+  z-index: 50;
+  background: var(--z-bg);
+  border-bottom: 1px solid var(--z-border-soft);
+}
+
+.z-nav-inner {
+  max-width: var(--z-maxw);
+  margin: 0 auto;
+  padding: 0 var(--z-space-6);
+  height: 64px;
+  display: flex;
+  align-items: center;
+  gap: var(--z-space-4);
+}
+
+.z-wordmark {
+  font-size: var(--z-fs-h4);
+  font-weight: 800;
+  letter-spacing: -0.05rem;
+  color: var(--z-blue);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.z-nav-links {
+  display: flex;
+  align-items: center;
+  gap: var(--z-space-1);
+  margin: 0 auto;
+}
+
+.z-nav-link {
+  font-size: var(--z-fs-body);
+  font-weight: 500;
+  letter-spacing: -0.05rem;
+  color: var(--z-ink-nav);
+  text-decoration: none;
+  padding: var(--z-space-2) var(--z-space-4);
+  border-radius: var(--z-r-pill);
+  transition: background-color var(--z-t-fast), color var(--z-t-fast);
+}
+
+.z-nav-link:hover {
+  background: var(--z-surface);
+}
+
+.z-nav-link[aria-current="page"] {
+  background: var(--z-surface);
+  color: var(--z-ink);
+  font-weight: 600;
+}
+
+.z-page {
+  max-width: var(--z-maxw);
+  margin: 0 auto;
+  padding: var(--z-section) var(--z-space-6) var(--z-section-lg);
+}
+
+.z-page-head {
+  margin-bottom: var(--z-section);
+}
+
+@media (max-width: 720px) {
+  .z-nav-inner {
+    padding: 0 var(--z-space-4);
+    height: 56px;
+  }
+  .z-nav-links {
+    gap: 0;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .z-nav-links::-webkit-scrollbar {
+    display: none;
+  }
+  .z-nav-link {
+    padding: var(--z-space-2) var(--z-space-3);
+    font-size: var(--z-fs-small);
+  }
+  .z-page {
+    padding: var(--z-space-4) var(--z-space-4) var(--z-space-12);
+  }
+  .z-display {
+    font-size: var(--z-fs-h1);
+    letter-spacing: var(--z-ls-h1);
+  }
+  .z-h1 {
+    font-size: var(--z-fs-h2);
+    letter-spacing: var(--z-ls-h2);
+  }
+  .z-h2 {
+    font-size: var(--z-fs-h3);
+    letter-spacing: var(--z-ls-h3);
+  }
+}
+
+/* ── Button ─ .new-button ──────────────────────────────────────────────── */
+
+.z-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--z-space-2);
+  white-space: nowrap;
+  cursor: pointer;
+  border: 1px solid transparent;
+  border-radius: var(--z-r-pill);
+  background: var(--z-blue);
+  color: var(--z-bg);
+  box-shadow: var(--z-shadow-btn);
+  padding: var(--z-space-3) var(--z-space-8);
+  font-size: var(--z-fs-body);
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: -0.045rem;
+  text-decoration: none;
+  transition: filter var(--z-t-fast), background-color var(--z-t-fast);
+}
+
+.z-btn:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+
+.z-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+.z-btn.is-secondary {
+  background: #ffffff;
+  color: var(--z-ink);
+  box-shadow: var(--z-shadow-btn-neutral);
+  border-color: var(--z-border);
+}
+
+.z-btn.is-ghost {
+  background: transparent;
+  color: var(--z-ink-body);
+  box-shadow: none;
+  border-color: var(--z-border);
+}
+
+.z-btn.is-ghost:hover:not(:disabled) {
+  background: var(--z-surface);
+  filter: none;
+}
+
+.z-btn.is-sm {
+  padding: var(--z-space-2) var(--z-space-4);
+  font-size: var(--z-fs-small);
+}
+
+.z-linkish {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  font-size: var(--z-fs-micro);
+  color: var(--z-ink-faint);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  transition: color var(--z-t-fast);
+}
+
+.z-linkish:hover {
+  color: var(--z-blue);
+}
+
+/* ── Card ─ .faqs_wrapper / .investors_logo-wrapper ────────────────────── */
+
+.z-card {
+  background: var(--z-surface);
+  border-radius: var(--z-r-card);
+  padding: var(--z-space-5);
+}
+
+.z-card.is-lg {
+  border-radius: var(--z-r-card-lg);
+  padding: var(--z-space-6);
+}
+
+.z-card.is-plain {
+  background: #ffffff;
+  border: 1px solid var(--z-border);
+}
+
+.z-card.is-blue {
+  background: var(--z-surface-blue);
+}
+
+/* ── Pill ─ .blog-publish-wrap ─────────────────────────────────────────── */
+
+.z-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--z-space-1);
+  border-radius: var(--z-r-tag);
+  padding: 0.43rem 0.93rem;
+  font-size: var(--z-fs-micro);
+  font-weight: 500;
+  line-height: 1.15;
+  background: #44416117;
+  color: var(--z-navy);
+  border: none;
+  cursor: default;
+  white-space: nowrap;
+  transition: background-color var(--z-t-fast), color var(--z-t-fast);
+}
+
+button.z-pill,
+a.z-pill {
+  cursor: pointer;
+  text-decoration: none;
+}
+
+button.z-pill:hover,
+a.z-pill:hover {
+  background: var(--z-surface-blue);
+  color: var(--z-blue);
+}
+
+.z-pill.is-active {
+  background: var(--z-blue);
+  color: var(--z-bg);
+}
+
+/* Archetype tag. Deliberately undecorated — an attached rule before the word
+   reads as generated, and the word already carries the meaning. */
+.z-archetype {
+  background: transparent;
+  color: var(--z-ink-mid);
+  border: 1px solid var(--z-border);
+  font-weight: 500;
+}
+
+a.z-archetype:hover {
+  border-color: var(--z-blue);
+  color: var(--z-blue);
+  background: transparent;
+}
+
+/* ── Segmented control ─ .content-tab-link ─────────────────────────────── */
+
+.z-segmented {
+  display: inline-flex;
+  background: var(--z-surface);
+  border-radius: var(--z-r-pill);
+  padding: var(--z-space-1);
+  gap: var(--z-space-1);
+  flex-wrap: wrap;
+}
+
+.z-segment {
+  border: none;
+  background: transparent;
+  border-radius: var(--z-r-pill);
+  padding: var(--z-space-2) var(--z-space-4);
+  font-size: var(--z-fs-small);
+  font-weight: 500;
+  line-height: 1.3;
+  color: var(--z-ink-body);
+  opacity: 0.7;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background-color var(--z-t-fast), opacity var(--z-t-fast),
+    color var(--z-t-fast);
+}
+
+.z-segment:hover {
+  opacity: 1;
+}
+
+.z-segment[aria-pressed="true"] {
+  background: #ffffff;
+  opacity: 1;
+  font-weight: 600;
+  color: var(--z-ink);
+  box-shadow: var(--z-shadow-card);
+}
+
+/* ── Z-Score badge — sigma notation + magnitude ramp ───────────────────── */
+
+.z-score {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.4em;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.z-score-sigma {
+  font-weight: 600;
+  letter-spacing: -0.02rem;
+}
+
+.z-score-class {
+  font-size: 0.85em;
+  color: var(--z-ink-faint);
+  font-weight: 500;
+}
+
+/* Blue is reserved for genuine outliers so the distribution reads at a glance */
+.z-score[data-band="exceptional"] .z-score-sigma {
+  color: var(--z-blue);
+  font-weight: 700;
+}
+.z-score[data-band="strong"] .z-score-sigma {
+  color: var(--z-blue);
+  font-weight: 600;
+}
+.z-score[data-band="above"] .z-score-sigma {
+  color: var(--z-ink-body);
+  font-weight: 600;
+}
+.z-score[data-band="mid"] .z-score-sigma {
+  color: var(--z-ink-mid);
+  font-weight: 500;
+}
+.z-score[data-band="below"] .z-score-sigma {
+  color: var(--z-ink-faint);
+  font-weight: 400;
+}
+
+.z-score.is-display .z-score-sigma {
+  font-size: var(--z-fs-display);
+  letter-spacing: var(--z-ls-display);
+  line-height: 1;
+}
+.z-score.is-display .z-score-class {
+  font-size: var(--z-fs-h4);
+}
+
+/* Deviation bar — the one wholly new visual form. Built from tokens only.
+   Mean sits at a fixed x-offset so a column of these reads as a histogram. */
+.z-dev {
+  position: relative;
+  display: inline-block; /* inline boxes ignore width/height */
+  width: 84px;
+  height: 18px;
+  flex: none;
+  vertical-align: middle;
+}
+
+.z-dev-axis {
+  position: absolute;
+  left: 28%;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--z-divider);
+  display: block;
+}
+
+.z-dev-bar {
+  position: absolute;
+  top: 5px;
+  height: 8px;
+  min-width: 2px;
+  background: var(--z-blue);
+  border-radius: 1px;
+  display: block;
+  transition: width var(--z-t-base);
+}
+
+.z-dev-bar[data-negative="true"] {
+  background: var(--z-divider);
+}
+
+/* ── Breakdown ─────────────────────────────────────────────────────────── */
+
+.z-breakdown-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--z-space-4);
+  padding: var(--z-space-2) 0;
+  border-bottom: 1px solid var(--z-border);
+}
+
+.z-breakdown-row:last-child {
+  border-bottom: none;
+}
+
+.z-breakdown-term {
+  font-size: var(--z-fs-small);
+  color: var(--z-ink-body);
+}
+
+.z-breakdown-dev {
+  font-size: var(--z-fs-small);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--z-ink);
+}
+
+.z-breakdown-dev[data-negative="true"] {
+  color: var(--z-ink-faint);
+}
+
+/* ── Marks ─ .pagination-no-item ───────────────────────────────────────── */
+
+.z-mark {
+  display: inline-flex;
+  gap: var(--z-space-2);
+}
+
+.z-mark.is-compact {
+  gap: var(--z-space-1);
+}
+
+.z-mark-btn {
+  width: 2rem;
+  height: 2rem;
+  border-radius: var(--z-r-circle);
+  border: 1px solid var(--z-border);
+  background: #ffffff;
+  color: var(--z-ink-mid);
+  font-size: var(--z-fs-small);
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex: none;
+  transition: all var(--z-t-base);
+}
+
+.z-mark.is-compact .z-mark-btn {
+  width: 1.75rem;
+  height: 1.75rem;
+}
+
+.z-mark-btn:hover {
+  border-color: var(--z-blue);
+  color: var(--z-blue);
+}
+
+/* Pin is the one that means "keep this", so it gets the accent. */
+.z-mark-btn[aria-pressed="true"][data-mark="pin"] {
+  background: var(--z-blue);
+  border-color: var(--z-blue);
+  color: var(--z-bg);
+}
+
+.z-mark-btn[aria-pressed="true"][data-mark="known"] {
+  background: var(--z-navy);
+  border-color: var(--z-navy);
+  color: var(--z-bg);
+}
+
+.z-mark-btn[aria-pressed="true"][data-mark="reject"] {
+  background: var(--z-divider);
+  border-color: var(--z-divider);
+  color: var(--z-ink);
+}
+
+/* ── Table ─ .new-mentor_content-wrapper divider + card surface ────────── */
+
+.z-table-wrap {
+  border: 1px solid var(--z-border);
+  border-radius: var(--z-r-card);
+  /* Scrolls inside itself rather than pushing the page sideways. `hidden`
+     here used to clip the right-hand columns off a narrow screen with no way
+     to reach them. */
+  overflow-x: auto;
+  background: #ffffff;
+}
+
+.z-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--z-fs-small);
+}
+
+/* Sentence case, no tracking. A flat tone shift instead of a border. */
+.z-table thead th {
+  text-align: left;
+  background: transparent;
+  color: var(--z-ink-faint);
+  font-size: var(--z-fs-small);
+  font-weight: 500;
+  letter-spacing: var(--z-ls-body);
+  padding: var(--z-space-3) var(--z-space-5);
+  border-bottom: 1px solid var(--z-border);
+  white-space: nowrap;
+}
+
+.z-table tbody td {
+  padding: var(--z-space-4) var(--z-space-5);
+  border-bottom: 1px solid var(--z-border-soft);
+  vertical-align: middle;
+  color: var(--z-ink-body);
+}
+
+.z-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+/* No zebra striping — no precedent on the reference, and it reads as
+   dashboard default. Hover carries row affordance instead. */
+.z-table tbody tr {
+  transition: background-color var(--z-t-fast);
+}
+
+.z-table tbody tr:hover {
+  background: var(--z-surface-blue);
+}
+
+.z-avatar {
+  width: 34px;
+  height: 34px;
+  border-radius: 0; /* square + grayscale, per zfellows image treatment */
+  filter: grayscale(1);
+  object-fit: cover;
+  background: var(--z-border-soft);
+  flex: none;
+}
+
+.z-avatar.is-lg {
+  width: 72px;
+  height: 72px;
+}
+
+.z-person {
+  display: flex;
+  align-items: center;
+  gap: var(--z-space-3);
+  min-width: 0;
+}
+
+.z-person-name {
+  font-weight: 600;
+  color: var(--z-ink);
+  text-decoration: none;
+  display: block;
+}
+
+.z-person-name:hover {
+  color: var(--z-blue);
+}
+
+.z-person-sub {
+  display: block;
+  font-size: var(--z-fs-micro);
+  color: var(--z-ink-faint);
+  max-width: 34ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── States ────────────────────────────────────────────────────────────── */
+
+.z-empty {
+  padding: var(--z-space-12) var(--z-space-6);
+  text-align: center;
+  border: 1px dashed var(--z-border);
+  border-radius: var(--z-r-card);
+  background: var(--z-surface);
+}
+
+.z-empty p {
+  margin: 0 0 var(--z-space-1);
+}
+
+.z-banner {
+  padding: var(--z-space-3) var(--z-space-4);
+  border-radius: var(--z-r-sm);
+  font-size: var(--z-fs-small);
+  margin-bottom: var(--z-space-4);
+  border: 1px solid var(--z-blue);
+  color: var(--z-blue);
+  background: var(--z-surface-blue);
+}
+
+.z-banner.is-error {
+  border-color: var(--z-navy);
+  color: var(--z-navy);
+  background: var(--z-surface);
+}
+
+.z-input {
+  width: 100%;
+  font: inherit;
+  padding: var(--z-space-3) var(--z-space-4);
+  border: 1px solid var(--z-border);
+  border-radius: var(--z-r-sm);
+  background: #ffffff;
+  color: var(--z-ink);
+}
+
+/* ── Utilities ─────────────────────────────────────────────────────────── */
+
+.z-row {
+  display: flex;
+  align-items: center;
+  gap: var(--z-space-3);
+}
+.z-row-wrap {
+  flex-wrap: wrap;
+}
+.z-spacer {
+  margin-left: auto;
+}
+.z-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--z-space-3);
+}
+/* `display: initial` resolves to `inline` on a div, which silently destroys
+   block layout. These utilities therefore only ever set `none`, leaving the
+   element's natural display intact the rest of the time. */
+.z-show-mobile {
+  display: none;
+}
+
+@media (max-width: 720px) {
+  .z-hide-mobile {
+    display: none !important;
+  }
+  .z-show-mobile {
+    display: revert;
+  }
+  /* Explicit, because `revert` would otherwise cancel the component's display */
+  .z-show-mobile.z-stack {
+    display: flex;
+  }
+  .z-show-mobile.z-row {
+    display: flex;
+  }
+}
+
+/* ── Responsive collapse for the two-column screens ─────────────────────── */
+
+@media (max-width: 900px) {
+  .z-sweep-grid,
+  .z-detail-grid,
+  .z-taxonomy-grid {
+    grid-template-columns: minmax(0, 1fr) !important;
+    gap: var(--z-space-6);
+  }
+}
+
+/* ── Unlock ─────────────────────────────────────────────────────────────── */
+
+.z-unlock-wrap {
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  padding: var(--z-space-6);
+}
+
+.z-unlock-card {
+  width: 100%;
+  max-width: 380px;
+  background: var(--z-surface);
+  border-radius: var(--z-r-card-lg);
+  padding: var(--z-space-8);
+}
+
+/* ── Disclosure — the main tool for keeping dense controls off the page ──── */
+
+.z-disclosure {
+  border: 1px solid var(--z-border);
+  border-radius: var(--z-r-card);
+  background: transparent;
+}
+
+.z-disclosure > summary {
+  list-style: none;
+  cursor: pointer;
+  padding: var(--z-space-3) var(--z-space-5);
+  display: flex;
+  align-items: center;
+  gap: var(--z-space-3);
+  font-size: var(--z-fs-small);
+  color: var(--z-ink-body);
+  border-radius: var(--z-r-card);
+  transition: background-color var(--z-t-fast);
+}
+
+.z-disclosure > summary::-webkit-details-marker { display: none; }
+.z-disclosure > summary:hover { background: var(--z-surface); }
+
+.z-disclosure > summary::after {
+  content: "";
+  margin-left: auto;
+  width: 7px;
+  height: 7px;
+  border-right: 1.5px solid var(--z-ink-faint);
+  border-bottom: 1.5px solid var(--z-ink-faint);
+  transform: rotate(45deg) translate(-2px, -2px);
+  transition: transform var(--z-t-fast);
+}
+
+.z-disclosure[open] > summary::after {
+  transform: rotate(-135deg) translate(-2px, -2px);
+}
+
+.z-disclosure-body {
+  padding: var(--z-space-2) var(--z-space-5) var(--z-space-5);
+}
+
+.z-count {
+  color: var(--z-ink-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Generous page rhythm. Whitespace carries hierarchy here, not rules. */
+.z-page { padding-top: var(--z-space-12); }
+.z-page-head { margin-bottom: var(--z-space-10); }
+.z-section-gap { margin-top: var(--z-space-12); }
+
+@media (max-width: 720px) {
+  .z-page { padding-top: var(--z-space-8); }
+  .z-page-head { margin-bottom: var(--z-space-8); }
+  .z-section-gap { margin-top: var(--z-space-10); }
+}
+
+/* Column header. Fixed height so a header containing a control lines up with
+   a plain text one across a multi-column layout. */
+.z-col-head {
+  display: flex;
+  align-items: center;
+  gap: var(--z-space-3);
+  min-height: 34px;
+  margin-bottom: var(--z-space-4);
+}
+
+.z-col-head > p {
+  margin: 0;
+}
+
+
+/* ── Live query preview: the hero of the sweep screen ───────────────────── */
+
+.z-query {
+  border: 1px solid var(--z-border);
+  border-radius: var(--z-r-card);
+  background: var(--z-surface);
+  padding: var(--z-space-5);
+}
+
+.z-query-text {
+  font-size: var(--z-fs-body);
+  line-height: 1.6;
+  color: var(--z-ink);
+  word-break: break-word;
+  min-height: 2.6em;
+}
+
+.z-sweep-grid {
+  display: grid;
+  grid-template-columns: 300px minmax(0, 1fr);
+  gap: var(--z-space-8);
+  align-items: start;
+}
+
+/* ── Profile picker ─────────────────────────────────────────────────────── */
+
+.z-picker-wrap {
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  padding: var(--z-space-6);
+}
+
+.z-picker {
+  display: flex;
+  flex-direction: column;
+  gap: var(--z-space-12);
+  align-items: center;
+}
+
+.z-picker-row {
+  display: flex;
+  gap: var(--z-space-8);
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.z-profile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--z-space-4);
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  font: inherit;
+}
+
+.z-profile-avatar {
+  width: 132px;
+  height: 132px;
+  border-radius: var(--z-r-card-lg);
+  background: var(--z-surface);
+  border: 2px solid transparent;
+  color: var(--z-ink-faint);
+  font-size: 3.25rem;
+  font-weight: 700;
+  letter-spacing: -0.08rem;
+  display: grid;
+  place-items: center;
+  transition: background-color var(--z-t-fast), color var(--z-t-fast),
+    border-color var(--z-t-fast), transform var(--z-t-fast);
+}
+
+.z-profile-name {
+  font-size: var(--z-fs-h4);
+  font-weight: 500;
+  letter-spacing: var(--z-ls-h4);
+  color: var(--z-ink-faint);
+  transition: color var(--z-t-fast);
+}
+
+.z-profile:hover:not(:disabled) .z-profile-avatar,
+.z-profile:focus-visible .z-profile-avatar {
+  background: var(--z-blue);
+  color: #ffffff;
+  transform: translateY(-3px);
+}
+
+.z-profile:hover:not(:disabled) .z-profile-name,
+.z-profile:focus-visible .z-profile-name {
+  color: var(--z-ink);
+}
+
+.z-profile:focus-visible {
+  outline: none;
+}
+
+.z-profile:focus-visible .z-profile-avatar {
+  border-color: var(--z-ink);
+}
+
+.z-profile:disabled {
+  cursor: default;
+}
+
+.z-profile[aria-busy="true"] .z-profile-avatar {
+  background: var(--z-blue);
+  color: #ffffff;
+}
+
+@media (max-width: 720px) {
+  .z-picker-row {
+    gap: var(--z-space-6);
+  }
+  .z-profile-avatar {
+    width: 92px;
+    height: 92px;
+    font-size: 2.25rem;
+  }
+  .z-profile-name {
+    font-size: var(--z-fs-body);
+  }
+}
+
+/* Current profile in the nav */
+
+.z-whoami {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--z-space-2);
+  background: none;
+  border: none;
+  padding: var(--z-space-1) var(--z-space-2);
+  border-radius: var(--z-r-pill);
+  cursor: pointer;
+  font: inherit;
+  color: var(--z-ink-nav);
+  transition: background-color var(--z-t-fast);
+}
+
+.z-whoami:hover {
+  background: var(--z-surface);
+}
+
+.z-whoami-avatar {
+  width: 26px;
+  height: 26px;
+  border-radius: var(--z-r-sm);
+  background: var(--z-blue);
+  color: #ffffff;
+  font-size: var(--z-fs-micro);
+  font-weight: 700;
+  display: grid;
+  place-items: center;
+  flex: none;
+}
+
+/* Terms a profile added themselves, removable inline. */
+
+.z-custom-term {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.z-custom-remove {
+  border: none;
+  background: none;
+  cursor: pointer;
+  color: var(--z-ink-faint);
+  font-size: 15px;
+  line-height: 1;
+  padding: 2px 4px;
+  border-radius: var(--z-r-sm);
+  transition: color var(--z-t-fast), background-color var(--z-t-fast);
+}
+
+.z-custom-remove:hover {
+  color: var(--z-navy);
+  background: var(--z-surface);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Pipeline UI — the parts added when the screens became operational
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ── Badges ────────────────────────────────────────────────────────────── */
+
+/* Polymath annotates the primary cluster rather than replacing it, so it reads
+   quieter than the cluster tag next to it. */
+.z-badge-poly {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 8px;
+  border-radius: var(--z-r-pill);
+  border: 1px solid var(--z-blue);
+  color: var(--z-blue);
+  background: transparent;
+  font-size: var(--z-fs-micro);
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.z-badge-new {
+  margin-left: var(--z-space-2);
+  font-size: var(--z-fs-micro);
+  color: var(--z-blue);
+  font-weight: 500;
+}
+
+/* A hollow score says the record is search-only. The number itself is computed
+   the same way with no discount; this reports how much was read to get it. */
+.z-score[data-thin] .z-score-sigma {
+  color: var(--z-ink-mid);
+}
+
+.z-score[data-thin] .z-score-class::after {
+  content: " from search";
+  color: var(--z-ink-faint);
+}
+
+/* ── Tags ──────────────────────────────────────────────────────────────── */
+
+.z-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 7px;
+  border-radius: var(--z-r-pill);
+  border: 1px solid var(--z-border-soft);
+  background: var(--z-surface);
+  color: var(--z-ink-mid);
+  font-size: var(--z-fs-micro);
+  line-height: 1.5;
+  white-space: nowrap;
+  max-width: 18ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Read off a profile by the tagger but not yet promoted, so it carries no
+   weight. Dotted, because it is provisional rather than wrong. */
+.z-tag[data-origin="llm"] {
+  border-style: dashed;
+  border-color: var(--z-divider);
+}
+
+/* Implied by the search query but absent from the person's own text. Struck,
+   because it is a reason they were looked at, not a fact about them. */
+.z-tag[data-unconfirmed] {
+  color: var(--z-ink-faint);
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
+  opacity: 0.75;
+}
+
+.z-tag-x {
+  border: 0;
+  background: none;
+  padding: 0 0 0 2px;
+  color: var(--z-ink-faint);
+  cursor: pointer;
+  font-size: var(--z-fs-micro);
+  line-height: 1;
+}
+
+.z-tag-x:hover {
+  color: var(--z-ink);
+}
+
+/* ── Bulk action bar ───────────────────────────────────────────────────── */
+
+/* Only rendered with a selection, so it costs nothing when idle. */
+.z-bulkbar {
+  display: flex;
+  align-items: center;
+  gap: var(--z-space-3);
+  flex-wrap: wrap;
+  padding: var(--z-space-3) var(--z-space-4);
+  margin-bottom: var(--z-space-4);
+  border: 1px solid var(--z-border);
+  border-radius: var(--z-r-card);
+  background: var(--z-surface-blue);
+}
+
+/* An action that should be reachable but not compete with the row's content. */
+.z-quiet-action {
+  margin-left: var(--z-space-2);
+  opacity: 0;
+  transition: opacity var(--z-t-fast);
+  font-size: var(--z-fs-micro);
+}
+
+tr:hover .z-quiet-action,
+.z-quiet-action:focus-visible {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  /* No hover on touch, so it has to be visible or it is unreachable. */
+  .z-quiet-action {
+    opacity: 1;
+  }
+}
+
+/* Rows the sweep screen has un-ticked because they were already triaged. */
+tr[data-dimmed] {
+  opacity: 0.55;
+}
+
+tr[data-pinned] td:first-child {
+  box-shadow: inset 2px 0 0 var(--z-blue);
+}
+
+/* ── Nav additions ─────────────────────────────────────────────────────── */
+
+.z-nav-count {
+  margin-left: 5px;
+  font-size: var(--z-fs-micro);
+  color: var(--z-ink-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Enrichment now survives navigation, so there has to be somewhere that says a
+   run is still going from any screen. */
+.z-runpill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: var(--z-r-pill);
+  border: 1px solid var(--z-border);
+  background: #ffffff;
+  color: var(--z-ink-nav);
+  font-size: var(--z-fs-micro);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.z-runpill-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: var(--z-r-circle);
+  background: var(--z-blue);
+  animation: z-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes z-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.3;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .z-runpill-dot {
+    animation: none;
+  }
+}
+
+/* ── Discovery trace ───────────────────────────────────────────────────── */
+
+.z-trace {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--z-space-2);
+}
+
+/* ── Graph ─────────────────────────────────────────────────────────────── */
+
+/* Light canvas. The dark surface this used to use was the only dark section in
+   the app and it fought everything around it. */
+.z-graph-wrap {
+  position: relative;
+  background: var(--z-surface);
+  border: 1px solid var(--z-border);
+  border-radius: var(--z-r-card-lg);
+  overflow: hidden;
+}
+
+.z-graph {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 1000 / 620;
+  cursor: grab;
+  touch-action: none;
+}
+
+.z-graph:active {
+  cursor: grabbing;
+}
+
+.z-graph-loading {
+  display: grid;
+  place-items: center;
+  aspect-ratio: 1000 / 620;
+  color: var(--z-ink-faint);
+}
+
+.z-graph-edge {
+  stroke: var(--z-divider);
+  stroke-width: 1;
+  opacity: 0.7;
+  transition: opacity var(--z-t-fast);
+}
+
+/* A discovery edge is a fact — this person was found on that person's People
+   Also Viewed — so it is drawn solid and darker than an inferred one. */
+.z-graph-edge[data-kind="discovery"] {
+  stroke: var(--z-ink-faint);
+  stroke-width: 1.4;
+  opacity: 0.85;
+}
+
+.z-graph-edge[data-kind="affinity"] {
+  stroke-dasharray: 4 3;
+}
+
+.z-graph-edge[data-dim] {
+  opacity: 0.12;
+}
+
+.z-graph-node {
+  cursor: pointer;
+  transition: opacity var(--z-t-fast);
+}
+
+.z-graph-node[data-dim] {
+  opacity: 0.18;
+}
+
+.z-graph-node[data-selected] circle {
+  stroke: var(--z-navy);
+  stroke-width: 2.5;
+}
+
+.z-graph-node:focus-visible {
+  outline: none;
+}
+
+.z-graph-node:focus-visible circle {
+  stroke: var(--z-blue);
+  stroke-width: 2.5;
+}
+
+.z-graph-initials {
+  fill: #ffffff;
+  font-weight: 600;
+  pointer-events: none;
+  font-family: var(--z-font);
+}
+
+/* Tags are a different kind of thing from people, so they read as a different
+   kind of mark: hollow, not filled. */
+.z-graph-tagdot {
+  fill: #ffffff;
+  stroke: var(--z-ink-faint);
+  stroke-width: 1.2;
+}
+
+.z-graph-taglabel {
+  fill: var(--z-ink-mid);
+  font-size: 11px;
+  font-family: var(--z-font);
+  pointer-events: none;
+}
+
+.z-graph-panel {
+  position: absolute;
+  top: var(--z-space-4);
+  right: var(--z-space-4);
+  width: 270px;
+  max-height: calc(100% - var(--z-space-8));
+  overflow-y: auto;
+  padding: var(--z-space-5);
+  background: #ffffff;
+  border: 1px solid var(--z-border);
+  border-radius: var(--z-r-card);
+  box-shadow: var(--z-shadow-lift);
+}
+
+.z-panel-close {
+  border: 0;
+  background: none;
+  cursor: pointer;
+  color: var(--z-ink-faint);
+  font-size: var(--z-fs-h4);
+  line-height: 1;
+  padding: 0;
+}
+
+.z-panel-close:hover {
+  color: var(--z-ink);
+}
+
+.z-legend-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: var(--z-r-circle);
+  display: inline-block;
+  flex: none;
+}
