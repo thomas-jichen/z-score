@@ -18,8 +18,25 @@ import { log } from "./log";
 const DAY_SECONDS = 60 * 60 * 24;
 const HOUR_SECONDS = 60 * 60;
 
+/**
+ * Read a numeric setting from the environment, falling back when it is unusable.
+ *
+ * `Number(process.env.X ?? 500)` looks right and is not: `??` only catches null
+ * and undefined, so an env var **present but empty** — which is what a blank field
+ * in the Vercel dashboard produces — yields `Number("")`, which is `0`. That
+ * turned the daily enrichment cap into zero on production and refused every run
+ * with "Daily enrichment cap reached (0 profiles)".
+ *
+ * A non-positive or non-numeric value is a misconfiguration, never an intent, so
+ * it falls back rather than silently disabling the feature it guards.
+ */
+export function envNumber(raw: string | undefined, fallback: number): number {
+  const n = Number((raw ?? "").trim());
+  return Number.isFinite(n) && n > 0 ? n : fallback;
+}
+
 /** Profiles per teammate per day. 500 is about $2 at HarvestAPI's no-email rate. */
-export const DAILY_PROFILE_CAP = Number(process.env.ZSCORE_DAILY_PROFILE_CAP ?? 500);
+export const DAILY_PROFILE_CAP = envNumber(process.env.ZSCORE_DAILY_PROFILE_CAP, 500);
 /** Searches per teammate per hour. Generous; a human cannot out-click this. */
 export const HOURLY_SEARCH_CAP = 120;
 /** Tagger calls per teammate per hour. */

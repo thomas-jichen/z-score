@@ -2,6 +2,7 @@ import type { Archetype } from "./clusters";
 import { ARCHETYPES, isArchetype } from "./clusters";
 import type { Person } from "./people";
 import { log } from "./log";
+import { envNumber } from "./ratelimit";
 
 /**
  * Groq client for the one job the model is trusted with: reading credential
@@ -36,7 +37,7 @@ const TIMEOUT_MS = 30_000;
  * minute no matter how many run at once; three in parallel just converts the same
  * throughput into rate-limit errors. Raise it if your tier is higher.
  */
-const CONCURRENCY = Number(process.env.ZSCORE_GROQ_CONCURRENCY ?? 1);
+const CONCURRENCY = envNumber(process.env.ZSCORE_GROQ_CONCURRENCY, 1);
 /** Beyond this a profile is padded, not rich. Keeps prompt cost bounded. */
 const MAX_CHARS = 6000;
 const MAX_TERMS = 12;
@@ -216,10 +217,10 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
  * Retrying on 429 remains the backstop, not the mechanism.
  */
 const LIMITS = {
-  rpm: Number(process.env.ZSCORE_GROQ_RPM ?? 30),
-  tpm: Number(process.env.ZSCORE_GROQ_TPM ?? 8_000),
-  rpd: Number(process.env.ZSCORE_GROQ_RPD ?? 1_000),
-  tpd: Number(process.env.ZSCORE_GROQ_TPD ?? 200_000),
+  rpm: envNumber(process.env.ZSCORE_GROQ_RPM, 30),
+  tpm: envNumber(process.env.ZSCORE_GROQ_TPM, 8_000),
+  rpd: envNumber(process.env.ZSCORE_GROQ_RPD, 1_000),
+  tpd: envNumber(process.env.ZSCORE_GROQ_TPD, 200_000),
 };
 
 /**

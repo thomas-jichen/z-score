@@ -15,6 +15,7 @@ import {
   toSlug,
   usableNeighbors,
 } from "./enrichment";
+import { envNumber } from "./ratelimit";
 import { inferYear } from "./search";
 
 /**
@@ -47,7 +48,7 @@ const SCRAPER_MODE = "Profile details no email ($4 per 1k)";
  * zero profiles and still bills for the run. Configurable because the right number
  * is a property of the account, not of this code.
  */
-export const MAX_PROFILES_PER_RUN = Number(process.env.ZSCORE_APIFY_MAX_PER_RUN ?? 250);
+export const MAX_PROFILES_PER_RUN = envNumber(process.env.ZSCORE_APIFY_MAX_PER_RUN, 250);
 
 export type RunStatus =
   | "READY"
