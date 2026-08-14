@@ -554,15 +554,14 @@ function TagRegistryEditor({
   }
 
   return (
-    <div className="z-section-gap">
-      <div className="z-col-head">
-        <p className="z-label is-quiet">Tags</p>
-        <span className="z-spacer" />
-        <span className="z-micro">{Object.keys(registry).length} in the registry</span>
-      </div>
+    <div>
       <p className="z-small" style={{ marginBottom: "var(--z-space-4)", maxWidth: "62ch" }}>
-        Read off structured profile fields, so these are exact rather than inferred. A tag scores
-        only once it is switched on.
+        Everything the score is made of. Most are read straight off structured profile fields, so
+        they are exact rather than inferred, and each one scores only once it is switched on.
+        <span className="z-micro" style={{ display: "block", marginTop: "var(--z-space-2)" }}>
+          {Object.keys(registry).length} in the registry. These are also the options the sweep
+          menus offer.
+        </span>
       </p>
 
       <div className="z-stack" style={{ gap: "var(--z-space-3)" }}>

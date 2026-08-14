@@ -301,6 +301,38 @@ export function hydrate(stored: Partial<ProfileState> | null): ProfileState {
   };
 }
 
+/**
+ * Reclassify tags stored under the retired "school" facet.
+ *
+ * College and high school started as one facet and were split, because they
+ * answer different questions and carry very different weights. Sixty seeded tags
+ * were already stored under the old name, and a facet that no longer exists is
+ * dropped by validation — so without this they vanish from the taxonomy screen and
+ * the sweep menus, taking their weights with them.
+ *
+ * Decided against the curated lists first, since those are exactly the tags that
+ * were seeded, then by name.
+ */
+const LEGACY_SCHOOL = "school";
+
+function migrateFacets(tags: TagRegistry): TagRegistry {
+  const stale = Object.values(tags).filter(
+    (d) => (d.facet as string) === LEGACY_SCHOOL
+  );
+  if (stale.length === 0) return tags;
+
+  const colleges = new Set(COLLEGES.map((c) => c.toLowerCase()));
+  const next = { ...tags };
+  for (const def of stale) {
+    const label = def.label.toLowerCase();
+    const isCollege =
+      colleges.has(label) ||
+      /university|college|institute of technology|\bpolytechnic\b/.test(label);
+    next[def.id] = { ...def, facet: isCollege ? "college" : "highschool" };
+  }
+  return next;
+}
+
 export function hydrateTeam(stored: Partial<TeamState> | null): TeamState {
   const base = emptyTeam();
   if (!stored) return base;
@@ -314,7 +346,9 @@ export function hydrateTeam(stored: Partial<TeamState> | null): TeamState {
       // Nested objects need their own merge, or a document written before these
       // existed comes back with the field missing rather than defaulted, and
       // every read of `counts.experience.points` throws.
-      tags: tax.tags ?? base.taxonomy.tags,
+      // Migrated on read, so a document written before the school split keeps its
+      // sixty school tags instead of having them silently validated away.
+      tags: tax.tags ? migrateFacets(tax.tags) : base.taxonomy.tags,
       counts: { ...base.taxonomy.counts, ...(tax.counts ?? {}) },
       facetDefaults: { ...base.taxonomy.facetDefaults, ...(tax.facetDefaults ?? {}) },
       bands: { ...base.taxonomy.bands, ...(tax.bands ?? {}) },
