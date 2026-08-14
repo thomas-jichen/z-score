@@ -24,23 +24,21 @@
   /* Cluster ramp. Shades of the sourced #2067ff rather than six unrelated hues,
      so the app stays inside the Z Fellows scheme. Polymath is absent on purpose:
      it is a badge, not a cluster. */
-  --z-arch-olympiad: #0b3fd4;
+  --z-arch-quant: #0b3fd4;
   --z-arch-research: #2067ff;
   --z-arch-builder: #4aaeff;
   --z-arch-founder: #75a9ff;
-  --z-arch-quant: #1a2f7a;
-  --z-arch-scholar: #8fa8d8;
+  --z-arch-operator: #8fa8d8;
 
   /* Graph nodes sit on a light surface, where the top of the ramp above washes
      out — #a8c8ff on #f6f6fa is invisible. These are the same hues held to a
      legible contrast against a near-white canvas. Kept separate so the tags,
      which sit on white with a border, are unaffected. */
-  --z-node-olympiad: #0b3fd4;
+  --z-node-quant: #0b3fd4;
   --z-node-research: #2067ff;
   --z-node-builder: #1f8fd0;
   --z-node-founder: #4f6fd8;
-  --z-node-quant: #16255c;
-  --z-node-scholar: #6d84b4;
+  --z-node-operator: #6d84b4;
 
   --z-border: #e1e4ea;
   --z-border-soft: #ebebeb;

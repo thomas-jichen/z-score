@@ -34,7 +34,20 @@
  * you could take a mean of it.
  */
 
-export type Archetype = "olympiad" | "research" | "builder" | "founder" | "quant" | "scholar";
+/**
+ * Five clusters.
+ *
+ * "olympiad" was folded into "quant": competition maths and quantitative trading
+ * select for the same thing, and splitting them meant a USAMO qualifier and a Jane
+ * Street intern were treated as different populations when the pipeline between
+ * them is the most trodden path in this population.
+ *
+ * "scholar" became "operator". Selective-scholarship-and-humanities was a
+ * catch-all for whatever the other four did not describe, which is the shape of a
+ * missing category rather than a real one. Operator names something specific:
+ * people who run things — chapters, non-profits, camps, programmes.
+ */
+export type Archetype = "research" | "builder" | "founder" | "quant" | "operator";
 
 /**
  * Colour thresholds for a score. Declared here rather than in lib/state.ts so
@@ -49,26 +62,18 @@ export type BandThresholds = {
 };
 
 export const ARCHETYPES: { id: Archetype; label: string; blurb: string }[] = [
-  { id: "olympiad", label: "Olympiad", blurb: "Competition math, informatics, physics, bio" },
+  { id: "quant", label: "Quant", blurb: "Competition math and informatics, trading, quantitative research" },
   { id: "research", label: "Research", blurb: "Published, lab-affiliated, or a selective research program" },
   { id: "builder", label: "Builder", blurb: "Ships things: repos, hardware, side projects" },
   { id: "founder", label: "Founder", blurb: "Started something with users or revenue" },
-  { id: "quant", label: "Quant", blurb: "Trading and quantitative research pipelines" },
-  { id: "scholar", label: "Scholar", blurb: "Selective scholarships and humanities programs" },
+  { id: "operator", label: "Operator", blurb: "Runs things: chapters, non-profits, programs, teams" },
 ];
 
 /**
  * Tie-break order for equal weights, so a person's label never flickers
  * between renders. Earlier wins.
  */
-const CLUSTER_ORDER: Archetype[] = [
-  "olympiad",
-  "research",
-  "founder",
-  "quant",
-  "builder",
-  "scholar",
-];
+const CLUSTER_ORDER: Archetype[] = ["quant", "research", "founder", "builder", "operator"];
 
 export function archetypeLabel(a: Archetype): string {
   return ARCHETYPES.find((x) => x.id === a)?.label ?? a;
@@ -85,15 +90,15 @@ export function isArchetype(v: unknown): v is Archetype {
  * term on the taxonomy screen, including back to a cluster.
  */
 export const TERM_CLUSTER: Record<string, Archetype | null> = {
-  // Olympiad
-  IMO: "olympiad",
-  IOI: "olympiad",
-  USAMO: "olympiad",
-  "USACO Platinum": "olympiad",
-  USAPhO: "olympiad",
-  USABO: "olympiad",
-  Mathcamp: "olympiad",
-  PROMYS: "olympiad",
+  // Quant, which now covers competition maths and informatics as well as trading.
+  IMO: "quant",
+  IOI: "quant",
+  USAMO: "quant",
+  "USACO Platinum": "quant",
+  USAPhO: "quant",
+  USABO: "quant",
+  Mathcamp: "quant",
+  PROMYS: "quant",
   // Research
   RSI: "research",
   STS: "research",
@@ -109,13 +114,15 @@ export const TERM_CLUSTER: Record<string, Archetype | null> = {
   "Thiel Fellow": "founder",
   "Neo Scholar": "founder",
   "Diamond Challenge": "founder",
-  // Quant
   "Jane Street": "quant",
-  // Scholar
-  "Coca-Cola Scholar": "scholar",
-  TASP: "scholar",
-  SPARC: "scholar",
+  // Operator
+  "Coca-Cola Scholar": "operator",
+  TASP: "operator",
+  SPARC: "operator",
   QuestBridge: null,
+  // Z Fellows is a fellowship you get for starting something, so it is a
+  // programme that votes Founder rather than an award.
+  "Z Fellow": "founder",
 };
 
 /** Starting points for a human to tune, which is the point of the taxonomy screen. */

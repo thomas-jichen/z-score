@@ -490,8 +490,22 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
     [candidates]
   );
 
+  /**
+   * The queue: everyone not triaged out.
+   *
+   * An absent mark means "queued", not "nowhere". Marks are only written when
+   * someone acts, so a person added by a teammate — or added before marks were
+   * per-teammate — has none, and treating that as excluded made three screens
+   * disagree: the queue screen defaulted an absent mark to "queued" and listed 19
+   * people, while this defaulted it to nothing, so the nav badge and the digest
+   * both said 2. Same roster, three numbers.
+   *
+   * The queue screen's reading is the correct one: enriching someone is an
+   * implicit "I want this person", and only `known` or `rejected` is a decision to
+   * take them out.
+   */
   const queueList = useMemo(() => {
-    const rows = candidates.filter((c) => (marks[c.slug]?.status ?? null) === "queued");
+    const rows = candidates.filter((c) => (marks[c.slug]?.status ?? "queued") === "queued");
     return rows.sort((a, b) => {
       const pa = marks[a.slug]?.pinned ? 1 : 0;
       const pb = marks[b.slug]?.pinned ? 1 : 0;

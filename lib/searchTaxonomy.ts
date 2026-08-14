@@ -34,6 +34,7 @@ export const PROGRAMS: string[] = [
   "Hack Club",
   "Neo Scholar",
   "Thiel Fellow",
+  "Z Fellow",
   "Coca-Cola Scholar",
   "QuestBridge",
   "Diamond Challenge",

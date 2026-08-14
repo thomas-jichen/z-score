@@ -705,26 +705,26 @@ console.log("\ncluster assignment — highest weight wins");
   check(
     "the heavier term decides",
     assignCluster([
-      { label: "IOI", weight: 2.0, cluster: "olympiad" },
+      { label: "IOI", weight: 2.0, cluster: "quant" },
       { label: "RSI", weight: 1.8, cluster: "research" },
     ]),
-    "olympiad"
+    "quant"
   );
   check(
     "order of the input does not matter",
     assignCluster([
       { label: "RSI", weight: 1.8, cluster: "research" },
-      { label: "IOI", weight: 2.0, cluster: "olympiad" },
+      { label: "IOI", weight: 2.0, cluster: "quant" },
     ]),
-    "olympiad"
+    "quant"
   );
   check(
     "a tie breaks the same way every time",
     assignCluster([
-      { label: "A", weight: 1.0, cluster: "scholar" },
-      { label: "B", weight: 1.0, cluster: "olympiad" },
+      { label: "A", weight: 1.0, cluster: "operator" },
+      { label: "B", weight: 1.0, cluster: "quant" },
     ]),
-    "olympiad"
+    "quant"
   );
   check(
     "a term with no cluster casts no vote",
@@ -738,7 +738,7 @@ console.log("\ncluster assignment — highest weight wins");
 
   // The case that motivated the whole mechanic.
   const iorsi = scoreOne(bare("iorsi", ["IOI", "RSI"]), TAX);
-  check("IOI + RSI is primarily Olympiad", iorsi.archetype, "olympiad");
+  check("IOI + RSI is primarily Olympiad", iorsi.archetype, "quant");
   check("and carries the Polymath badge", iorsi.polymath, true);
   check("with Research as the secondary", iorsi.secondary_archetypes, ["research"]);
 

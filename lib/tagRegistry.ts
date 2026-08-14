@@ -381,6 +381,9 @@ export function seedRegistry(input: {
   };
 
   for (const p of input.programs) add(p, "program");
+  // Written every which way in a headline — "Z-Fellow", "Z Fellows", "ZFellows" —
+  // and the headline is usually the only place it appears.
+  add("Z Fellow", "program", ["Z-Fellow", "Z Fellows", "ZFellows", "Z Fellowship"], 1.4);
   for (const c of input.colleges) add(c, "college");
   for (const h of input.highSchools) add(h, "highschool");
   for (const t of input.titles) add(t.label, "title", t.aliases);
