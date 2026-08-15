@@ -10,6 +10,7 @@ import { COUNT_KINDS, extractTags, type CountKind } from "./extract";
 import type { Person } from "./people";
 import { textOf } from "./people";
 import type { TaxonomyPrefs } from "./state";
+import { indexRegistry, resolveAny } from "./tagRegistry";
 import { matchedTerms, type MatchedTerm } from "./tags";
 import type { Candidate, DiscoveryHop, Signal } from "./zscore";
 
@@ -146,6 +147,18 @@ export function scoreOne(p: Person, tax: TaxonomyPrefs): Candidate {
 
   const year = p.gradYear ? String(p.gradYear) : p.inferredYear;
 
+  /**
+   * The school, under the one name the app uses for it.
+   *
+   * The vendor writes whatever the profile owner typed — "Stanford University" on
+   * one record, "Stanford" on the next — and the registry already knows those are
+   * one school. Resolving the label means the queue row, the graph panel and the
+   * tag all say the same word, instead of the screen naming the same place twice.
+   */
+  const school = p.school
+    ? (resolveAny(indexRegistry(tax.tags), p.school)?.label ?? p.school)
+    : undefined;
+
   return {
     slug: p.slug,
     name: p.name,
@@ -153,7 +166,7 @@ export function scoreOne(p: Person, tax: TaxonomyPrefs): Candidate {
     url: p.url,
     location: p.location || undefined,
     state: p.state,
-    school: p.school,
+    school,
     graduation_year: year,
     archetype,
     polymath,

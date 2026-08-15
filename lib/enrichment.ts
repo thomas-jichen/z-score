@@ -318,22 +318,122 @@ export function isHighSchool(e: Education): boolean {
   return /high school|\bhs\b|academy|preparatory|\bprep\b|secondary|magnet|gymnasium/.test(school);
 }
 
+/**
+ * Whether an education record is tertiary *study* — a degree someone is working
+ * towards or has finished.
+ *
+ * The third answer `isHighSchool` cannot give. LinkedIn's education section takes
+ * anything, and this population fills it with accelerators and summer programmes:
+ * "Z Fellows / Gap Year", "Y Combinator / S26", "buildspace / Physics", "Yale Young
+ * Global Scholars / Innovation". None of those is a high school, so treating
+ * "not secondary" as "college" handed the class year to whichever of them carried a
+ * date — Davido Zhang read as the class of 2026 off a Z Fellows row, and Philip
+ * Meng as the class of 2019 off his middle school.
+ *
+ * So a row counts only when the degree names one, or the school is plainly a
+ * degree-granting institution. Everything else is a line on a CV, not a graduation.
+ */
+export function isDegreeRow(e: Education): boolean {
+  if (isHighSchool(e)) return false;
+  const degree = (e.degree ?? "").toLowerCase();
+  if (
+    /bachelor|master|doctor|phd|associate|undergrad|\bb\.?s\.?\b|\bb\.?a\.?\b|\bm\.?s\.?\b|\bm\.?a\.?\b|\bmba\b|\bs\.?b\.?\b/.test(
+      degree
+    )
+  ) {
+    return true;
+  }
+  const school = (e.school ?? "").toLowerCase();
+  return /university|college|institute of technology|\bpolytechnic\b/.test(school);
+}
+
 /** Highest-signal award first, for the one-line summary in list views. */
 export function topHonor(profile: EnrichedProfile): string | undefined {
   return profile.honors[0]?.title;
 }
 
 /**
- * Most recent school, which for a student is the one that matters.
+ * Shortest credible gap between leaving school and finishing a degree.
  *
- * An absent end date means still enrolled, so it sorts *first*, not last. The
- * previous `?? 0` put an in-progress university behind a graduated high school,
- * which is exactly backwards for this population.
+ * Two, not four, because an associate degree is two years and a few of this
+ * population finish early. It exists only to reject the impossible.
+ */
+const MIN_SCHOOL_TO_DEGREE = 2;
+
+/**
+ * Class year, meaning the *college* class — the number the whole app means by
+ * "class".
+ *
+ * A stated college end date is the answer, but only when it is possible. LinkedIn
+ * college rows are often half-filled: Thomas Wang's Stanford record ends 2026 and
+ * his high school also ends 2026, which cannot both be graduations. Taking the
+ * stated year at face value made an incoming freshman read as the class of 2026 on
+ * every screen. So a college-derived answer has to clear leaving school by
+ * `MIN_SCHOOL_TO_DEGREE`, and where it does not, the high-school rule takes over —
+ * leaving school in 2026 means the class of 2030.
+ *
+ * Falls back to the latest start year plus four when no end date is stated, which
+ * is common on student profiles that only list "started 2024". A guessed year is
+ * better than none for a cohort filter, and the raw dates are kept so the guess is
+ * auditable.
+ */
+export function inferGradYear(educations: Education[]): number | undefined {
+  const college = educations.filter(isDegreeRow);
+  const school = educations.filter(isHighSchool);
+
+  const years = (rows: Education[], key: "startYear" | "endYear") =>
+    rows.map((e) => e[key]).filter((y): y is number => y !== undefined);
+
+  const schoolEnds = years(school, "endYear");
+  const schoolStarts = years(school, "startYear");
+  const leftSchool = schoolEnds.length
+    ? Math.max(...schoolEnds)
+    : schoolStarts.length
+      ? Math.max(...schoolStarts) + 4
+      : undefined;
+
+  /** A college answer only counts if it could not be the high-school year. */
+  const credible = (y: number) =>
+    leftSchool === undefined || y >= leftSchool + MIN_SCHOOL_TO_DEGREE;
+
+  const collegeEnds = years(college, "endYear");
+  if (collegeEnds.length > 0) {
+    const stated = Math.max(...collegeEnds);
+    if (credible(stated)) return stated;
+  }
+
+  // In college with no end date stated: four years from starting.
+  const collegeStarts = years(college, "startYear");
+  if (collegeStarts.length > 0) {
+    const guess = Math.max(...collegeStarts) + 4;
+    if (credible(guess)) return guess;
+  }
+
+  // No usable college row, which is most of this population.
+  return leftSchool === undefined ? undefined : leftSchool + HIGH_SCHOOL_TO_COLLEGE;
+}
+
+/**
+ * The school to put next to someone's name.
+ *
+ * A college beats a high school outright, before any date is consulted. Once
+ * someone is at university that is who they are — "Thomas Wang, Shady Side
+ * Academy" is not wrong about the past but it is wrong about the present, and this
+ * string is the one that appears on the queue row, the graph panel and the digest.
+ * Both schools are still tagged; this only decides the label.
+ *
+ * Dates break ties within a level. An absent end date means still enrolled, so it
+ * sorts *first*, not last: the previous `?? 0` put an in-progress university behind
+ * a graduated high school, which is exactly backwards for this population.
  */
 export function currentSchool(profile: EnrichedProfile): string | undefined {
+  const level = (e: Education) => (isHighSchool(e) ? 0 : 1);
   const rank = (e: Education) => e.endYear ?? Infinity;
   const sorted = [...profile.educations]
     .filter((e) => e.school)
-    .sort((a, b) => rank(b) - rank(a) || (b.startYear ?? 0) - (a.startYear ?? 0));
+    .sort(
+      (a, b) =>
+        level(b) - level(a) || rank(b) - rank(a) || (b.startYear ?? 0) - (a.startYear ?? 0)
+    );
   return sorted[0]?.school;
 }

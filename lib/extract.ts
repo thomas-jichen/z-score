@@ -175,14 +175,17 @@ export function currentState(e: EnrichedProfile, fallback?: string): string | un
  * `schoolState` is supplied by the caller, which knows the registry. Falls back to
  * a state named in the school's own text, and returns nothing rather than a guess.
  */
-export type SchoolStateLookup = (
+/**
+ * Asks the registry what a school is. Takes the caller's guess, and may correct it.
+ */
+export type SchoolLookup = (
   school: string,
-  facet: "highschool" | "college"
-) => string | undefined;
+  guess: "highschool" | "college"
+) => { facet: "highschool" | "college"; state?: string };
 
 export function inferHomeState(
   e: EnrichedProfile,
-  schoolState: SchoolStateLookup
+  lookup: SchoolLookup
 ): string | undefined {
   // Earliest first: a high school is far more local than a university.
   const schools = [...e.educations]
@@ -202,7 +205,7 @@ export function inferHomeState(
    */
   for (const list of secondary.length > 0 ? [secondary] : [schools]) {
     for (const ed of list) {
-      const known = schoolState(ed.school, isHighSchool(ed) ? "highschool" : "college");
+      const known = lookup(ed.school, isHighSchool(ed) ? "highschool" : "college").state;
       if (known) return known;
     }
     for (const ed of list) {
@@ -224,7 +227,7 @@ const STATE_NAMES = Object.values(US_STATES);
  */
 export function extractTags(
   p: Person,
-  schoolState: SchoolStateLookup = () => undefined
+  lookup: SchoolLookup = (_s, guess) => ({ facet: guess })
 ): Extraction {
   const tags: CandidateTag[] = [];
   const seen = new Set<string>();
@@ -252,11 +255,12 @@ export function extractTags(
   /* Schools. `schoolId` makes two spellings of one school the same tag. */
   for (const ed of e.educations) {
     if (!ed.school) continue;
+    // Two facets, because a university and a feeder high school answer different
+    // questions and carry very different weights. The registry has the final say:
+    // the name-based guess is wrong on every acronym.
     push(tags, seen, {
       label: ed.school,
-      // Two facets, because a university and a feeder high school answer
-      // different questions and carry very different weights.
-      facet: isHighSchool(ed) ? "highschool" : "college",
+      facet: lookup(ed.school, isHighSchool(ed) ? "highschool" : "college").facet,
       linkedinId: ed.schoolId,
     });
   }
@@ -312,7 +316,7 @@ export function extractTags(
   // Its own facet, and emitted even when it equals the current state. They are
   // two different facts, and "from here and still here" is itself worth filtering
   // on — suppressing the duplicate made that group invisible.
-  const home = inferHomeState(e, schoolState);
+  const home = inferHomeState(e, lookup);
   if (home) push(tags, seen, { label: home, facet: "homestate", inferred: true });
 
   return { tags, counts };

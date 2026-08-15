@@ -1,6 +1,6 @@
 import { isArchetype, type Archetype } from "./clusters";
 import type { Person, Roster } from "./people";
-import { capRoster, migrateLegacy } from "./people";
+import { capRoster, migrateLegacy, refreshDerived } from "./people";
 import type { EnrichedProfile } from "./enrichment";
 import { get, hgetall, hset, keys, set } from "./store";
 import {
@@ -31,7 +31,13 @@ import {
 
 
 export async function readRoster(): Promise<Roster> {
-  return hgetall<Person>(ROSTER_KEY);
+  const roster = await hgetall<Person>(ROSTER_KEY);
+  // Derived fields are recomputed here so a correction to how they are derived
+  // reaches records already stored, without paying Apify to enrich anyone twice.
+  for (const [slug, person] of Object.entries(roster)) {
+    roster[slug] = refreshDerived(person);
+  }
+  return roster;
 }
 
 export async function writePeople(people: Person[]): Promise<void> {

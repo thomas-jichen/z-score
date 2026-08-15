@@ -1201,11 +1201,16 @@ a.z-archetype:hover {
 
 /* Polymath annotates the primary cluster rather than replacing it, so it reads
    quieter than the cluster tag next to it. */
+/* Matches .z-pill's metrics exactly, because it sits inline beside one. Its own
+   smaller padding and tighter radius made it a different height and read as a
+   different kind of object, which is what looked misaligned. Only the fill and
+   the border differ, which is the one thing it needs to say. */
 .z-badge-poly {
   display: inline-flex;
   align-items: center;
-  padding: 1px 8px;
-  border-radius: var(--z-r-pill);
+  border-radius: var(--z-r-tag);
+  padding: 0.43rem 0.93rem;
+  line-height: 1.15;
   border: 1px solid var(--z-blue);
   color: var(--z-blue);
   background: transparent;
@@ -1388,6 +1393,39 @@ tr[data-pinned] td:first-child {
 
 /* ── Graph ─────────────────────────────────────────────────────────────── */
 
+/* Three rows, one decision each: what kind of picture, what counts as a link, how
+   to arrange it. Separated by air rather than by rules. */
+.z-graph-controls {
+  display: flex;
+  flex-direction: column;
+  gap: var(--z-space-3);
+  margin-bottom: var(--z-space-5);
+}
+
+.z-graph-line {
+  display: flex;
+  align-items: center;
+  gap: var(--z-space-2);
+}
+
+/* A shared gutter, so Links and Arrange read as a list and their pills start on
+   one line instead of at two arbitrary offsets. */
+.z-graph-key {
+  min-width: 58px;
+  flex: none;
+}
+
+.z-graph-find {
+  max-width: 150px;
+  padding: 6px 12px;
+  font-size: var(--z-fs-small);
+}
+
+.z-graph-range {
+  width: 88px;
+  accent-color: var(--z-blue);
+}
+
 /* Light canvas. The dark surface this used to use was the only dark section in
    the app and it fought everything around it. */
 .z-graph-wrap {
@@ -1418,27 +1456,40 @@ tr[data-pinned] td:first-child {
   color: var(--z-ink-faint);
 }
 
+/* Edges are paths now, not lines, so they bow. `fill: none` is not optional:
+   a filled quadratic curve paints a solid lens over the canvas. */
 .z-graph-edge {
+  fill: none;
   stroke: var(--z-divider);
-  stroke-width: 1;
-  opacity: 0.7;
+  stroke-linecap: round;
+  opacity: 0.75;
   transition: opacity var(--z-t-fast);
 }
 
 /* A discovery edge is a fact — this person was found on that person's People
-   Also Viewed — so it is drawn solid and darker than an inferred one. */
+   also viewed — so it is drawn solid, darker, and pointing. */
 .z-graph-edge[data-kind="discovery"] {
   stroke: var(--z-ink-faint);
-  stroke-width: 1.4;
-  opacity: 0.85;
+  opacity: 0.9;
 }
 
+/* An affinity edge is an inference, and dashes are how the rest of the app says
+   so (the hollow score badge, the search-only node ring). */
 .z-graph-edge[data-kind="affinity"] {
-  stroke-dasharray: 4 3;
+  stroke-dasharray: 5 4;
+}
+
+.z-graph-edge[data-kind="tag"] {
+  stroke: var(--z-divider);
+  opacity: 1;
 }
 
 .z-graph-edge[data-dim] {
-  opacity: 0.12;
+  opacity: 0.1;
+}
+
+.z-graph-arrow {
+  fill: var(--z-ink-faint);
 }
 
 .z-graph-node {
@@ -1447,19 +1498,28 @@ tr[data-pinned] td:first-child {
 }
 
 .z-graph-node[data-dim] {
-  opacity: 0.18;
+  opacity: 0.14;
 }
 
-.z-graph-node[data-selected] circle {
-  stroke: var(--z-navy);
-  stroke-width: 2.5;
+/* Selection reads as attention, not as another category of node: a soft blue
+   wash behind the mark, and the mark itself unchanged. */
+.z-graph-halo {
+  fill: var(--z-blue);
+  opacity: 0.14;
 }
 
+/* The group's bounding box includes the name label, so the browser's own ring
+   draws a rectangle around a round node. Suppressed in every state and replaced
+   by a ring on the mark itself, which is the shape the eye expects. */
+.z-graph-node,
+.z-graph-node:focus,
 .z-graph-node:focus-visible {
   outline: none;
+  -webkit-tap-highlight-color: transparent;
 }
 
-.z-graph-node:focus-visible circle {
+.z-graph-node:focus-visible circle:not(.z-graph-halo),
+.z-graph-node:focus-visible rect {
   stroke: var(--z-blue);
   stroke-width: 2.5;
 }
@@ -1471,26 +1531,119 @@ tr[data-pinned] td:first-child {
   font-family: var(--z-font);
 }
 
-/* Tags are a different kind of thing from people, so they read as a different
-   kind of mark: hollow, not filled. */
-.z-graph-tagdot {
-  fill: #ffffff;
-  stroke: var(--z-ink-faint);
-  stroke-width: 1.2;
-}
-
-.z-graph-taglabel {
-  fill: var(--z-ink-mid);
-  font-size: 11px;
+/* A name appears only while its person is in focus, so it can be set at reading
+   weight. The white stroke under it is what keeps it legible where it crosses an
+   edge — cheaper and calmer than a background plate. */
+.z-graph-name {
+  fill: var(--z-ink);
+  font-size: 11.5px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
   font-family: var(--z-font);
   pointer-events: none;
+  stroke: var(--z-surface);
+  stroke-width: 3.5;
+  stroke-linejoin: round;
+}
+
+/* A group's name, written on the canvas behind its people. Set as a quiet
+   architectural label rather than a caption: it should register as the region it
+   names, not compete with the nodes inside it. */
+.z-graph-group {
+  fill: var(--z-ink-faint);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-family: var(--z-font);
+  opacity: 0.55;
+  pointer-events: none;
+}
+
+/* A hub is a chip, not a dot with a caption. The label *is* the node, which is
+   why the layout can keep two of them from overlapping and why you can read the
+   graph without hovering anything. */
+.z-graph-chip {
+  fill: #ffffff;
+  stroke: var(--z-border);
+  stroke-width: 1;
+  transition: stroke var(--z-t-fast);
+}
+
+.z-graph-chip[data-family="program"] {
+  stroke: var(--z-blue-glow);
+}
+
+.z-graph-chip[data-family="company"] {
+  stroke: var(--z-ink-faint);
+}
+
+.z-graph-chip[data-family="school"] {
+  stroke: var(--z-divider);
+}
+
+.z-graph-node[data-selected] .z-graph-chip {
+  stroke: var(--z-blue);
+  stroke-width: 2;
+}
+
+.z-graph-chip-label {
+  fill: var(--z-ink);
+  font-size: 11.5px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  font-family: var(--z-font);
+  pointer-events: none;
+}
+
+.z-graph-chip-n {
+  fill: var(--z-ink-faint);
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+  font-family: var(--z-font);
+  pointer-events: none;
+}
+
+/* Bottom-left, so it never sits under the panel. Glass over the canvas rather
+   than a bar above it: the controls belong to the picture. */
+.z-graph-dial {
+  position: absolute;
+  bottom: var(--z-space-4);
+  left: var(--z-space-4);
+  display: inline-flex;
+  background: #ffffffd9;
+  backdrop-filter: blur(8px);
+  border: 1px solid var(--z-border);
+  border-radius: var(--z-r-pill);
+  overflow: hidden;
+}
+
+.z-graph-dial button {
+  width: 30px;
+  height: 28px;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  color: var(--z-ink-mid);
+  font-size: 14px;
+  line-height: 1;
+  transition: background-color var(--z-t-fast), color var(--z-t-fast);
+}
+
+.z-graph-dial button + button {
+  border-left: 1px solid var(--z-border);
+}
+
+.z-graph-dial button:hover {
+  background: var(--z-surface);
+  color: var(--z-ink);
 }
 
 .z-graph-panel {
   position: absolute;
   top: var(--z-space-4);
   right: var(--z-space-4);
-  width: 270px;
+  width: 272px;
   max-height: calc(100% - var(--z-space-8));
   overflow-y: auto;
   padding: var(--z-space-5);
@@ -1512,6 +1665,106 @@ tr[data-pinned] td:first-child {
 
 .z-panel-close:hover {
   color: var(--z-ink);
+}
+
+.z-graph-sweep {
+  width: 100%;
+  margin-top: var(--z-space-5);
+}
+
+/* One connection: who, and on the line below, why. The reason is the whole point
+   — a link you cannot read the reason for is decoration. */
+.z-conn {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  padding: 5px 0;
+  border-bottom: 1px solid var(--z-border-soft);
+}
+
+.z-conn:last-of-type {
+  border-bottom: 0;
+}
+
+.z-conn-name {
+  display: block;
+  font-size: var(--z-fs-small);
+  font-weight: 500;
+  letter-spacing: var(--z-ls-body);
+  color: var(--z-ink);
+  transition: color var(--z-t-fast);
+}
+
+.z-conn:hover .z-conn-name {
+  color: var(--z-blue);
+}
+
+.z-conn-why {
+  display: block;
+  font-size: var(--z-fs-micro);
+  color: var(--z-ink-faint);
+  margin-top: 1px;
+}
+
+/* Leads. The strip that turns the picture into a next step. */
+.z-leads {
+  display: flex;
+  flex-direction: column;
+  gap: var(--z-space-2);
+  margin-top: var(--z-space-5);
+  padding-top: var(--z-space-4);
+  border-top: 1px solid var(--z-border);
+}
+
+.z-lead {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--z-border);
+  border-radius: var(--z-r-pill);
+  background: #ffffff;
+  padding: 5px 8px 5px 12px;
+  font-size: var(--z-fs-small);
+  font-weight: 500;
+  letter-spacing: var(--z-ls-body);
+  color: var(--z-ink-body);
+  cursor: pointer;
+  transition: border-color var(--z-t-fast), color var(--z-t-fast),
+    background-color var(--z-t-fast);
+}
+
+/* The same three families as the chips on the canvas, so a lead and its hub are
+   recognisably the same object. */
+.z-lead[data-family="program"] {
+  border-color: var(--z-blue-glow);
+}
+
+.z-lead:hover {
+  border-color: var(--z-blue);
+  color: var(--z-ink);
+}
+
+.z-lead[aria-pressed="true"] {
+  background: var(--z-surface-blue);
+  border-color: var(--z-blue);
+  color: var(--z-ink);
+}
+
+.z-lead-n {
+  font-size: var(--z-fs-micro);
+  font-variant-numeric: tabular-nums;
+  color: var(--z-ink-faint);
+  background: var(--z-surface);
+  border-radius: var(--z-r-pill);
+  padding: 1px 7px;
+}
+
+.z-lead[aria-pressed="true"] .z-lead-n {
+  background: #ffffff;
+  color: var(--z-blue);
 }
 
 .z-legend-dot {

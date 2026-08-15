@@ -33,7 +33,23 @@ export const PROGRAMS: Seed[] = [
   { label: "PROMYS", aliases: ["Program in Mathematics for Young Scientists"] },
   { label: "Simons Fellow", aliases: ["Simons Summer Research Program", "Simons Summer Research"] },
   { label: "Garcia Program", aliases: ["Garcia Summer Scholar", "Garcia Center"] },
-  { label: "Jane Street", aliases: ["AMP", "Academy of Math and Programming"] },
+  /**
+   * Named for the programme, not the firm.
+   *
+   * This used to read "Jane Street", which collided head-on with the Jane Street
+   * entry in COMPANIES: one label, one tag, so an internship on the trading floor
+   * and a place on the summer maths programme became the same credential. They are
+   * different achievements, they belong to different link types on the graph, and
+   * merging them meant the graph could not draw a shared employer at all.
+   */
+  {
+    label: "Jane Street AMP",
+    aliases: [
+      "AMP",
+      "Academy of Math and Programming",
+      "Jane Street Academy of Math and Programming",
+    ],
+  },
   { label: "USAMO", aliases: ["USA Mathematical Olympiad"] },
   { label: "USACO Platinum", aliases: ["USA Computing Olympiad Platinum"] },
   { label: "USAPhO", aliases: ["USA Physics Olympiad"] },

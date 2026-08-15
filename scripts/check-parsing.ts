@@ -8,8 +8,11 @@ import { extractSlug, parseTitle, inferYear, runShard } from "../lib/search";
 import { buildQuery, selectionCount, EMPTY_SELECTION, type Selection } from "../lib/query";
 import { parseProfile } from "../lib/apify";
 import {
+  currentSchool,
   estimateCost,
   formatCost,
+  inferGradYear,
+  isDegreeRow,
   isUsableNeighbor,
   MAX_NEIGHBORS,
   neighborsOf,
@@ -20,7 +23,7 @@ import {
   type Provenance,
 } from "../lib/enrichment";
 import { capRoster, hopAfter, isSuppressed, migrateLegacy, neighborsFrom, nextHopFrom, withEnriched, MAX_PEOPLE, type Person } from "../lib/people";
-import { emptyTeam, type TaxonomyPrefs } from "../lib/state";
+import { emptyTeam, hydrateTeam, type TaxonomyPrefs } from "../lib/state";
 import { scoreOne, toCandidates } from "../lib/candidates";
 import {
   buildSearchLabels,
@@ -38,7 +41,7 @@ import {
   resolveAny,
   resolveTag,
 } from "../lib/tagRegistry";
-import { buildGraph, DEFAULT_MIN_HOLDERS } from "../lib/graph";
+import { buildGraph, edgePath, DEFAULT_MIN_HOLDERS } from "../lib/graph";
 
 let failures = 0;
 function check(label: string, actual: unknown, expected: unknown) {
@@ -353,7 +356,15 @@ console.log("\ngrad year fallback");
 check(
   "start year plus four when no end date is stated",
   parseProfile(
-    { publicIdentifier: "x", education: [{ schoolName: "S", startDate: { year: 2024 } }] },
+    {
+      publicIdentifier: "x",
+      // Named, because the row now has to read as a degree. A school called "S"
+      // with no degree is not one, which is the point of the stricter rule: a
+      // dated accelerator row must not be able to set a class year.
+      education: [
+        { schoolName: "Stanford University", degree: "BS", startDate: { year: 2024 } },
+      ],
+    },
     VIA_SERP
   )?.gradYear,
   2028
@@ -361,6 +372,14 @@ check(
 check(
   "no education means no guess",
   parseProfile({ publicIdentifier: "x", education: [] }, VIA_SERP)?.gradYear,
+  undefined
+);
+check(
+  "and an undated programme is not a guess either",
+  parseProfile(
+    { publicIdentifier: "x", education: [{ schoolName: "Z Fellows", degree: "Gap Year" }] },
+    VIA_SERP
+  )?.gradYear,
   undefined
 );
 
@@ -499,6 +518,100 @@ console.log("\nstatus and suppression");
   check("no mark at all is not suppressed", isSuppressed(undefined), false);
 }
 
+console.log("\ninferGradYear — class means the college class");
+{
+  const ed = (
+    school: string,
+    degree?: string,
+    startYear?: number,
+    endYear?: number
+  ) => ({ school, degree, startYear, endYear });
+
+  // The ordinary case: only a high school listed, which is most of this population.
+  check(
+    "leaving school in 2026 is the class of 2030",
+    inferGradYear([ed("Pittsford Mendon High School", "High School Diploma", 2022, 2026)]),
+    2030
+  );
+
+  // A real, dated degree is the answer.
+  check(
+    "a dated degree wins",
+    inferGradYear([
+      ed("Pittsford Mendon High School", "High School Diploma", 2020, 2024),
+      ed("Stanford University", "Bachelor of Science - BS", 2024, 2028),
+    ]),
+    2028
+  );
+
+  /**
+   * Thomas Wang: a Stanford row ending the same year he left school.
+   *
+   * Both cannot be graduations, and taking the stated year at face value made an
+   * incoming freshman read as the class of 2026 on every screen.
+   */
+  check(
+    "a college year that cannot be one is rejected for the school rule",
+    inferGradYear([
+      ed("Stanford University", "Bachelor of Science", undefined, 2026),
+      ed("Shady Side Academy", "High School Diploma", 2022, 2026),
+    ]),
+    2030
+  );
+
+  /**
+   * Accelerators are not degrees.
+   *
+   * LinkedIn's education section takes anything and this population fills it with
+   * programmes. Davido Zhang read as the class of 2026 off a Z Fellows row, and
+   * Philip Meng as the class of 2019 off his middle school — neither of which is a
+   * graduation, and neither of which is a high school either.
+   */
+  check("an accelerator is not a degree", isDegreeRow(ed("Z Fellows", "Gap Year")), false);
+  check("nor is a batch", isDegreeRow(ed("Y Combinator", "S26 Batch")), false);
+  check("nor a pre-college division", isDegreeRow(ed("The Juilliard School", "Pre-College Division")), false);
+  check("a named university is", isDegreeRow(ed("Stanford University", "Computer Science")), true);
+  check("so is an abbreviated degree", isDegreeRow(ed("Massachusetts Institute of Technology", "S.B.")), true);
+  check("a high school never is", isDegreeRow(ed("Shady Side Academy", "High School Diploma")), false);
+
+  check(
+    "so a dated accelerator cannot set the class year",
+    inferGradYear([
+      ed("Stanford University", "Bachelor's Degree"),
+      ed("Phillips Exeter Academy", "High School Diploma"),
+      ed("Z Fellows", undefined, undefined, 2026),
+    ]),
+    undefined
+  );
+  check(
+    "and neither can a middle school",
+    inferGradYear([
+      ed("Stanford University", "Electrical Engineering and Computer Science"),
+      ed("Eaglebrook School", "School President"),
+      ed("Chinese International School", "Student Council", undefined, 2019),
+    ]),
+    undefined
+  );
+
+  /**
+   * The label is the school someone is at, not the one they left.
+   *
+   * Both are tagged either way; this only decides the string next to their name, and
+   * a tie on end date used to hand it to the high school.
+   */
+  check(
+    "a college outranks a high school for the label",
+    currentSchool({
+      ...p,
+      educations: [
+        { school: "Stanford University", degree: "Bachelor of Science", endYear: 2026 },
+        { school: "Shady Side Academy", degree: "High School Diploma", startYear: 2022, endYear: 2026 },
+      ],
+    }),
+    "Stanford University"
+  );
+}
+
 console.log("\nmigrateLegacy — old documents keep working");
 {
   const { roster, marks } = migrateLegacy({
@@ -513,6 +626,56 @@ console.log("\nmigrateLegacy — old documents keep working");
     "an interested rating stays in the queue",
     migrateLegacy({ ratings: { x: "interested" } }).marks.x.status,
     "queued"
+  );
+}
+
+console.log("\nhydrateTeam — a stored registry keeps up with the seed lists");
+{
+  /**
+   * An alias that changes hands has to leave the tag it came from.
+   *
+   * "AMP" belonged to a tag labelled "Jane Street" while the firm and the summer
+   * programme shared one entry. Splitting them moved the alias to Jane Street AMP,
+   * and a stored document that kept it on the firm left one key answering to two
+   * tags — so an extracted "AMP" resolved to whichever the index happened to hold.
+   */
+  const stale = hydrateTeam({
+    taxonomy: {
+      ...emptyTeam().taxonomy,
+      tags: {
+        "jane-street": {
+          id: "jane-street",
+          label: "Jane Street",
+          facet: "program",
+          aliases: ["amp", "academy-math-programming", "hand-added-by-a-teammate"],
+          weight: 3.3,
+          cluster: "quant",
+          promoted: true,
+        },
+      },
+    },
+  } as Parameters<typeof hydrateTeam>[0]);
+
+  const firm = stale.taxonomy.tags["jane-street"];
+  const programme = stale.taxonomy.tags["jane-street-amp"];
+  check("the firm is retyped to a company", firm.facet, "company");
+  check("it surrenders the reassigned alias", firm.aliases.includes("amp"), false);
+  check(
+    "but keeps one nobody else claims",
+    firm.aliases.includes("hand-added-by-a-teammate"),
+    true
+  );
+  check("the team's own weight is left alone", firm.weight, 3.3);
+  check("and the programme is seeded in beside it", programme?.facet, "program");
+  check("holding the alias", programme?.aliases.includes("amp"), true);
+  // One key, one tag — checked on the alias that actually moved. A blanket sweep
+  // would fail on the state pairs, where "CA" is deliberately an alias of both
+  // California-now and California-home: those ids are facet-qualified and the
+  // ambiguity is the point of having two facets.
+  check(
+    "exactly one tag answers to the moved alias",
+    Object.values(stale.taxonomy.tags).filter((d) => d.aliases.includes("amp")).map((d) => d.id),
+    ["jane-street-amp"]
   );
 }
 
@@ -906,7 +1069,37 @@ console.log("\ncluster assignment — highest weight wins");
 
   // Jane Street used to come out "polymath", which was the tell that a cluster
   // was missing.
-  check("Jane Street is Quant", scoreOne(bare("js", ["Jane Street"]), TAX).archetype, "quant");
+  check(
+    "the Jane Street programme is Quant",
+    scoreOne(bare("js", ["Jane Street AMP"]), TAX).archetype,
+    "quant"
+  );
+
+  /**
+   * The firm and the programme are two tags, not one.
+   *
+   * They shared the label "Jane Street" and therefore shared a tag, so a summer on
+   * the trading floor and a place on the summer maths programme were the same
+   * credential — and the graph could not draw a shared employer at all, because the
+   * only Jane Street tag was filed as a programme.
+   */
+  {
+    const employed = bare("js-co");
+    employed.enriched!.experience = [{ title: "Intern", company: "Jane Street" }];
+    const scored = scoreOne(employed, TAX);
+    check("working there is a company tag", scored.archetype, "quant");
+    check(
+      "and it is the company, not the programme",
+      scored.signals.some((sg) => sg.label === "Jane Street"),
+      true
+    );
+    check(
+      "the programme is a separate tag with its own weight",
+      TAX.tags["jane-street-amp"]?.facet,
+      "program"
+    );
+    check("and the firm keeps the plain name", TAX.tags["jane-street"]?.facet, "company");
+  }
   check(
     "QuestBridge scores but does not decide the label",
     matchedTerms(bare("qb", ["QuestBridge"]), TAX)[0].cluster,
@@ -999,14 +1192,27 @@ console.log("\ngraph — the rarity window is what keeps it readable");
       ...base,
       gradYear: 2027,
       school,
-      enriched: { ...base.enriched!, educations: [{ school, endYear: 2027 }] },
+      enriched: {
+        ...base.enriched!,
+        educations: [
+          { school, degree: "High School Diploma", endYear: 2027 },
+          // All twelve, so it exceeds the ceiling and becomes background. This is
+          // the real shape of the hub problem: twelve of twenty are at Stanford, so
+          // drawing it as a connection says nothing about any pair of them.
+          { school: "Stanford", degree: "Bachelor of Science", endYear: 2031 },
+        ],
+      },
     };
   });
   const roster = Object.fromEntries(crowd.map((x) => [x.slug, x]));
   const cands = toCandidates(crowd, TAX);
 
   const opts = {
-    sources: ["program", "school", "year"] as const,
+    // "year" and "state" are no longer link types: a shared class year across
+    // twenty people linked most of the queue to most of the queue, which is a
+    // grouping and not a connection. Both survive under Arrange. High school and
+    // college are separate switches because one is rare and one is a hub.
+    sources: ["program", "highschool", "college", "discovery"] as const,
     groupBy: "cluster" as const,
     showTags: true,
     minHolders: DEFAULT_MIN_HOLDERS,
@@ -1018,21 +1224,90 @@ console.log("\ngraph — the rarity window is what keeps it readable");
   const tagLabels = g.nodes.filter((n) => n.kind === "tag").map((n) => n.label);
   check("a tag shared by three becomes a node", tagLabels.includes("RSI"), true);
   check("a tag shared by six becomes a node", tagLabels.includes("TJHSST"), true);
-  // "Class of 2027" is on all twelve, so as a hub it would drag the whole graph
-  // into one blob. It is reported as background instead.
-  check("a tag shared by twelve does not", tagLabels.includes("Class of 2027"), false);
+  // Stanford is on all twelve, so as a hub it would drag the whole graph into one
+  // blob. It is held back as background instead.
+  check("a tag shared by twelve does not", tagLabels.includes("Stanford"), false);
   check("and is reported rather than silently dropped", g.tooCommon.some((t) => t.count === 12), true);
 
   check("every person is a node", g.nodes.filter((n) => n.kind === "person").length, 12);
   check("edges only ever join a person to a tag", g.edges.every((e) => e.a.startsWith("t:") || e.b.startsWith("t:")), true);
 
-  // Raising the ceiling brings the common tag back in.
+  // Raising the ceiling brings the hub back in.
   const wide = buildGraph(cands, roster, TAX, { ...opts, sources: [...opts.sources], maxHolders: 20 });
   check(
     "raising the ceiling admits it",
-    wide.nodes.filter((n) => n.kind === "tag").map((n) => n.label).includes("Class of 2027"),
+    wide.nodes.filter((n) => n.kind === "tag").map((n) => n.label).includes("Stanford"),
     true
   );
+
+  /**
+   * A tag too broad to draw is the *best* lead, not a discarded one.
+   *
+   * This is the inversion the screen is built on. Stanford across all twelve is a
+   * useless line — it joins everyone to everyone — but it is the richest place to
+   * go looking for more people like them. So the ceiling removes it from the
+   * canvas and it has to still be in `hubs`.
+   */
+  const leadLabels = g.hubs.map((h) => h.label);
+  check("a hub too broad to draw is still a lead", leadLabels.includes("Stanford"), true);
+  check("and so are the drawable ones", leadLabels.includes("RSI") && leadLabels.includes("TJHSST"), true);
+  check("a thing only one person has is not a lead", g.hubs.every((h) => h.count >= 2), true);
+  // Ranked by talent, so a small selective programme can outrank a large university.
+  check(
+    "leads are ranked by the talent behind them",
+    g.hubs.every((h, i) => i === 0 || g.hubs[i - 1].talent >= h.talent),
+    true
+  );
+  check("every lead knows who holds it", g.hubs.every((h) => h.slugs.length === h.count), true);
+
+  /**
+   * Connections are computed whichever way the canvas is drawn.
+   *
+   * In Hubs mode the person-to-person edges are not on the canvas, but "why are
+   * these two together" does not stop being worth answering because of how the
+   * picture is arranged — the panel asks it either way.
+   */
+  check("connections exist in hub mode, where the edges do not", (g.connections["g0"] ?? []).length > 0, true);
+  check(
+    "and every one names its reason",
+    Object.values(g.connections).every((list) => list.every((l) => l.reasons.length > 0)),
+    true
+  );
+  check(
+    "the rarest shared thing leads the reason list",
+    // g0 and g1 share RSI (3 holders) and TJHSST (6). RSI is rarer, so it is first.
+    g.connections["g0"]?.find((l) => l.slug === "g1")?.reasons[0],
+    "RSI"
+  );
+  check(
+    "a link is symmetric",
+    g.connections["g1"]?.some((l) => l.slug === "g0"),
+    true
+  );
+
+  /**
+   * Hub labels must not overlap.
+   *
+   * This was the single thing that made the hub view useless: chips landing on top
+   * of each other, so the canvas carried twenty strings and you could read six. The
+   * force pass only knows discs, so a separate box pass runs after it.
+   */
+  {
+    const chips = g.nodes.filter((n): n is Extract<typeof n, { kind: "tag" }> => n.kind === "tag");
+    const collisions = chips.flatMap((a, i) =>
+      chips.slice(i + 1).filter(
+        (b) => Math.abs(a.x - b.x) < (a.w + b.w) / 2 && Math.abs(a.y - b.y) < (a.h + b.h) / 2
+      )
+    );
+    check("no two hub labels overlap", collisions.length, 0);
+  }
+
+  // No grouping means no anchors: the links decide the arrangement.
+  {
+    const free = buildGraph(cands, roster, TAX, { ...opts, sources: [...opts.sources], groupBy: "none" });
+    check("ungrouped draws no group anchors", free.groups.length, 0);
+    check("and still places every node", free.nodes.every((n) => Number.isFinite(n.x) && Number.isFinite(n.y)), true);
+  }
 
   // The cap must drop the least interesting people, not an arbitrary slice.
   const capped = buildGraph(cands, roster, TAX, { ...opts, sources: [...opts.sources], cap: 5 });
@@ -1102,6 +1377,34 @@ console.log("\ngraph — the rarity window is what keeps it readable");
       g2.edges.some((e) => e.a.includes("not-here") || e.b.includes("not-here")),
       false
     );
+    // Which way round it went is the useful half, so the panel says it from each
+    // side rather than printing one neutral sentence twice.
+    check(
+      "the panel reads it from the seed's side",
+      g2.connections["seed-a"]?.[0]?.reasons[0],
+      "Found them on People also viewed"
+    );
+    check(
+      "and from the other's",
+      g2.connections["found-b"]?.[0]?.reasons[0],
+      "Found on their People also viewed"
+    );
+  }
+
+  console.log("\ngraph — edges are bowed paths, trimmed to the node");
+  {
+    // A straight run of lines through a dense middle reads as a spider web, and two
+    // parallel links become one smudge. A consistent slight bow separates them.
+    const p1 = edgePath(0, 0, 100, 0);
+    check("a path is a quadratic, not a line", /^M[\d.-]+ [\d.-]+Q/.test(p1), true);
+    check("it bows off the straight line", p1.includes("Q50 9"), true);
+    // The trim is what lets a discovery arrowhead land outside the target instead of
+    // underneath the circle it points at.
+    const trimmed = edgePath(0, 0, 100, 0, 10, 20);
+    check("the ends are pulled back by the trim", trimmed.startsWith("M10 0"), true);
+    check("at both ends", trimmed.endsWith(" 80 0"), true);
+    // Coincident endpoints must not divide by zero.
+    check("coincident nodes do not produce NaN", /NaN/.test(edgePath(5, 5, 5, 5)), false);
   }
 }
 // ── Store: concurrent writes to different keys ───────────────────────────

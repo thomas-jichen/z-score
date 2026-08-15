@@ -1,5 +1,5 @@
 import type { EnrichedProfile, HopCandidate, Provenance } from "./enrichment";
-import { currentSchool, profileUrl, usableNeighbors } from "./enrichment";
+import { currentSchool, inferGradYear, profileUrl, usableNeighbors } from "./enrichment";
 import { inferYear } from "./search";
 import type { Hit } from "./types";
 import type { Archetype } from "./clusters";
@@ -166,6 +166,35 @@ export function withEnriched(existing: Person | undefined, profile: EnrichedProf
     enriched: profile,
     updatedAt: now(),
   };
+}
+
+/**
+ * Re-derive the two fields that are stored but computed.
+ *
+ * `school` and `gradYear` are copied onto the Person at enrich time so the queue,
+ * graph and digest can read them without unpacking the whole profile. That means a
+ * change to how either is derived reaches new enrichments only — and both
+ * derivations were wrong in the same way, preferring a graduated high school over
+ * the university someone is at right now. Rather than pay to re-enrich the roster,
+ * they are computed again on read, in the house pattern: the same derivation,
+ * applied twice, so a stored record catches up for free.
+ *
+ * `enriched.gradYear` is corrected too, because the extractor reads that one.
+ *
+ * The result is authoritative, including when it is `undefined`. Falling back to the
+ * stored value looks like prudence and is the opposite: the stored value came from
+ * this same derivation, one version ago, so keeping it is keeping the bug. Philip
+ * Meng read as the class of 2019 off a middle-school row; once that row stopped
+ * counting the honest answer was "unknown", and `?? p.gradYear` handed 2019 straight
+ * back. Nothing else ever writes these two fields.
+ */
+export function refreshDerived(p: Person): Person {
+  const e = p.enriched;
+  if (!e) return p;
+  const school = currentSchool(e);
+  const gradYear = inferGradYear(e.educations);
+  if (school === p.school && gradYear === p.gradYear && gradYear === e.gradYear) return p;
+  return { ...p, school, gradYear, enriched: { ...e, gradYear } };
 }
 
 /** Every field of free text a term could plausibly appear in, richest first. */

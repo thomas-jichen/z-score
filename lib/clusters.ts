@@ -107,6 +107,8 @@ export const TERM_CLUSTER: Record<string, Archetype | null> = {
   "MIT PRIMES": "research",
   "Simons Fellow": "research",
   "Garcia Program": "research",
+  "Jane Street AMP": "quant",
+  "Jane Street": "quant",
   // Builder
   "Hack Club": "builder",
   "Conrad Challenge": "builder",
@@ -114,7 +116,6 @@ export const TERM_CLUSTER: Record<string, Archetype | null> = {
   "Thiel Fellow": "founder",
   "Neo Scholar": "founder",
   "Diamond Challenge": "founder",
-  "Jane Street": "quant",
   // Operator
   "Coca-Cola Scholar": "operator",
   TASP: "operator",
@@ -137,7 +138,11 @@ export const START_WEIGHT: Record<string, number> = {
   USAMO: 1.3,
   "Neo Scholar": 1.3,
   "USACO Platinum": 1.2,
-  "Jane Street": 1.2,
+  // The programme is the more selective filter for a seventeen-year-old; the job is
+  // still far above an average employer, which is why it does not sit at the company
+  // default of 0.5.
+  "Jane Street AMP": 1.2,
+  "Jane Street": 1.0,
   PROMYS: 1.1,
   SSP: 1.0,
   "Simons Fellow": 1.0,

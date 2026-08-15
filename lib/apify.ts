@@ -9,8 +9,7 @@ import type {
   Volunteering,
 } from "./enrichment";
 import {
-  HIGH_SCHOOL_TO_COLLEGE,
-  isHighSchool,
+  inferGradYear,
   profileUrl,
   toSlug,
   usableNeighbors,
@@ -384,38 +383,6 @@ function nameList(v: unknown, key: string): string[] {
       return "";
     })
     .filter(Boolean);
-}
-
-/**
- * Graduation year: the latest education end date.
- *
- * Falls back to the latest start year plus four when no end date is stated,
- * which is common on student profiles that only list "started 2024". A guessed
- * year is better than none for a cohort filter, and the raw dates are kept so
- * the guess is auditable.
- */
-function inferGradYear(educations: Education[]): number | undefined {
-  const college = educations.filter((e) => !isHighSchool(e));
-  const school = educations.filter(isHighSchool);
-
-  // A stated college end date is the answer.
-  const collegeEnds = college.map((e) => e.endYear).filter((y): y is number => y !== undefined);
-  if (collegeEnds.length > 0) return Math.max(...collegeEnds);
-
-  // In college with no end date stated: four years from starting.
-  const collegeStarts = college.map((e) => e.startYear).filter((y): y is number => y !== undefined);
-  if (collegeStarts.length > 0) return Math.max(...collegeStarts) + 4;
-
-  // Only high school on the profile, which is most of this population. Leaving
-  // school in 2026 means the class of 2030, and that is the number the whole app
-  // means by "class".
-  const schoolEnds = school.map((e) => e.endYear).filter((y): y is number => y !== undefined);
-  if (schoolEnds.length > 0) return Math.max(...schoolEnds) + HIGH_SCHOOL_TO_COLLEGE;
-
-  const schoolStarts = school.map((e) => e.startYear).filter((y): y is number => y !== undefined);
-  if (schoolStarts.length > 0) return Math.max(...schoolStarts) + 4 + HIGH_SCHOOL_TO_COLLEGE;
-
-  return undefined;
 }
 
 /**

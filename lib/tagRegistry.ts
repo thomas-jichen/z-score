@@ -485,8 +485,10 @@ export function seedRegistry(input: {
     if (!id) return;
     const existing = reg[id];
     if (existing) {
-      // Two seed lists naming the same thing (Jane Street is both a program and
-      // a company) merge rather than collide. First list wins the facet.
+      // Two seed lists naming the same thing merge rather than collide, first list
+      // winning the facet. Only reach for this when the lists really do mean one
+      // thing — where they do not, the fix is to name them apart, as Jane Street
+      // AMP now is from Jane Street.
       existing.aliases = [
         ...new Set([...existing.aliases, ...aliases.map(normalizeKey)]),
       ].filter((a) => a && a !== id);

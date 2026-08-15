@@ -1,6 +1,6 @@
 import type { Archetype } from "./clusters";
 import { clusterOf, weightOf } from "./clusters";
-import { extractTags } from "./extract";
+import { extractTags, type SchoolLookup } from "./extract";
 import type { Person } from "./people";
 import type { TaxonomyPrefs } from "./state";
 import type { Selection } from "./query";
@@ -214,31 +214,51 @@ const SOURCE_FOR_FACET: Record<TagFacet, MatchedTerm["source"]> = {
  * the Berkeley entry and its state. This is what makes a home state a fact rather
  * than a scan for any state name on the profile.
  */
-export function schoolStateLookup(tax: TaxonomyPrefs) {
+export function schoolStateLookup(tax: TaxonomyPrefs): SchoolLookup {
   const index = indexRegistry(tax.tags);
   /**
-   * `facet` is required, not a fallback across both.
+   * The registry answers both questions about a school: which kind it is, and
+   * which state it is in.
    *
-   * Trying high school and then college meant "Stanford Online High School"
-   * failed as a high school and then matched Stanford by containment as a
-   * college, putting an online student in California. A record is one kind of
-   * school or the other, and the caller knows which.
+   * The guess passed in comes from the degree and the school's name, and it is
+   * wrong on any acronym — "TJHSST" contains no word that says high school, so it
+   * was filed as a college and then failed to resolve against a registry that had
+   * it as a high school all along. The registry knows, so it decides, and the
+   * guess is only used when the school is genuinely unknown.
+   *
+   * The guess is still tried first, which is what keeps "Stanford Online High
+   * School" from matching Stanford: it asks as a high school, resolves as one, and
+   * never reaches the college facet.
    */
-  return (school: string, facet: "highschool" | "college"): string | undefined => {
-    const r = resolveTag(index, { label: school, facet });
-    return r.kind === "exact" ? r.def.state : undefined;
+  return (school, guess) => {
+    const order: ("highschool" | "college")[] =
+      guess === "highschool" ? ["highschool", "college"] : ["college", "highschool"];
+    for (const facet of order) {
+      const r = resolveTag(index, { label: school, facet });
+      if (r.kind === "exact") return { facet, state: r.def.state };
+    }
+    return { facet: guess };
   };
 }
 
-export function heldTags(p: Person, tax: TaxonomyPrefs): { def: TagDef; source: Signal["source"] }[] {
+export type HeldTag = {
+  def: TagDef;
+  source: Signal["source"];
+  /** Deduced rather than stated, e.g. a home state. */
+  inferred?: boolean;
+  /** Claimed in the headline rather than backed by a record. */
+  selfReported?: boolean;
+};
+
+export function heldTags(p: Person, tax: TaxonomyPrefs): HeldTag[] {
   const index = indexRegistry(tax.tags);
-  const out: { def: TagDef; source: Signal["source"] }[] = [];
+  const out: HeldTag[] = [];
   const seen = new Set<string>();
 
-  const take = (def: TagDef, source: Signal["source"]) => {
+  const take = (def: TagDef, source: Signal["source"], extra?: Partial<HeldTag>) => {
     if (seen.has(def.id)) return;
     seen.add(def.id);
-    out.push({ def, source });
+    out.push({ def, source, ...extra });
   };
 
   /**
@@ -249,7 +269,12 @@ export function heldTags(p: Person, tax: TaxonomyPrefs): { def: TagDef; source: 
    */
   for (const cand of extractTags(p, schoolStateLookup(tax)).tags) {
     const res = resolveTag(index, cand);
-    if (res.kind === "exact") take(res.def, SOURCE_FOR_FACET[res.def.facet]);
+    if (res.kind === "exact") {
+      take(res.def, SOURCE_FOR_FACET[res.def.facet], {
+        inferred: cand.inferred,
+        selfReported: cand.selfReported,
+      });
+    }
   }
 
   /**
@@ -325,24 +350,20 @@ export function attributeTags(p: Person): Tag[] {
  * taxonomy come first, then attributes, then extracted terms not yet promoted.
  */
 export function allTags(p: Person, tax: TaxonomyPrefs): Tag[] {
-  const terms = matchedTerms(p, tax);
-  const out: Tag[] = terms.map((t) => ({
-    label: t.label,
-    kind: "program",
-    origin: t.source === "snippet" ? "query" : "text",
-    confirmed: true,
-    cluster: t.cluster,
-  }));
-
   /**
-   * Deduped on kind AND label.
+   * One pass over the registry, so a tag appears exactly once.
    *
-   * It used to key on the label alone, so a school named the same as a program
-   * silently lost one of them — and the graph keyed on `kind:label` correctly, so
-   * the two screens disagreed about how many tags a person had.
+   * This used to run two: `matchedTerms` forced every result to `kind: "program"`,
+   * and then a second pass added the same tags again under their real facet. Every
+   * scoring tag therefore became two, which is why the graph drew "Shady Side
+   * Academy" and "Computer Science" twice and reported eighty-one tags for twenty
+   * people. The facet is the tag's own, and it is the only thing that decides kind.
    */
+  const out: Tag[] = [];
   const key = (kind: TagKind, label: string) => `${kind}:${label.toLowerCase()}`;
-  const have = new Set(out.map((t) => key(t.kind, t.label)));
+  const have = new Set<string>();
+  /** Registry ids already placed, so a resolvable extracted term is not repeated. */
+  const placed = new Set<string>();
 
   const take = (t: Tag) => {
     if (have.has(key(t.kind, t.label))) return;
@@ -350,33 +371,30 @@ export function allTags(p: Person, tax: TaxonomyPrefs): Tag[] {
     out.push(t);
   };
 
-  /**
-   * Everything the extractor found, whether or not it scores.
-   *
-   * Unpromoted tags appear here deliberately: the point of showing a profile is
-   * to show what is on it, and holding a tag at zero weight is a statement about
-   * scoring, not about whether the fact is real. `weighted` marks which ones are
-   * actually contributing so the UI can tell them apart.
-   */
   const index = indexRegistry(tax.tags);
-  for (const cand of extractTags(p, schoolStateLookup(tax)).tags) {
-    const res = resolveTag(index, cand);
-    const def = res.kind === "exact" ? res.def : null;
+
+  for (const { def, source, inferred, selfReported } of heldTags(p, tax)) {
+    placed.add(def.id);
     take({
-      label: def?.label ?? cand.label,
-      kind: FACET_KIND[cand.facet],
-      facet: cand.facet,
-      origin: cand.selfReported ? "query" : "attribute",
+      label: def.label,
+      kind: FACET_KIND[def.facet],
+      facet: def.facet,
+      origin: selfReported ? "query" : source === "snippet" ? "query" : "attribute",
       confirmed: true,
-      inferred: cand.inferred,
-      weighted: Boolean(def?.promoted && def.weight > 0),
-      cluster: def?.cluster ?? null,
+      inferred,
+      // Unpromoted tags still appear: showing a profile means showing what is on
+      // it, and holding a tag at zero weight is a statement about scoring, not
+      // about whether the fact is real. This marks the ones contributing.
+      weighted: def.promoted && def.weight > 0,
+      cluster: def.cluster,
     });
   }
 
   for (const t of attributeTags(p)) take(t);
 
   for (const label of p.manualTerms ?? []) {
+    const def = resolveAny(index, label);
+    if (def && placed.has(def.id)) continue;
     take({ label, kind: "extracted", origin: "attribute", confirmed: true });
   }
 
@@ -387,6 +405,10 @@ export function allTags(p: Person, tax: TaxonomyPrefs): Tag[] {
   const dismissed = new Set(tax.dismissed.map((d) => d.toLowerCase()));
   for (const label of p.extractedTerms ?? []) {
     if (dismissed.has(label.trim().toLowerCase())) continue;
+    // Already shown under its canonical name, so showing the raw one too would be
+    // the duplicate the registry exists to prevent.
+    const def = resolveAny(index, label);
+    if (def && placed.has(def.id)) continue;
     take({ label, kind: "extracted", origin: "llm", confirmed: true });
   }
 
@@ -394,6 +416,8 @@ export function allTags(p: Person, tax: TaxonomyPrefs): Tag[] {
   // person was looked at without implying the claim is established.
   for (const l of p.searchLabels) {
     if (l.confirmed) continue;
+    const def = resolveAny(index, l.label);
+    if (def && placed.has(def.id)) continue;
     take({ label: l.label, kind: "program", origin: "query", confirmed: false });
   }
 

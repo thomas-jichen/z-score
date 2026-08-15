@@ -371,6 +371,10 @@ function seedFacets(): Map<string, TagFacet> {
  *   3. Union in new seed tags and new aliases. Aliases are the whole mechanism
  *      preventing "Massachusetts Institute of Technology" from becoming a second
  *      MIT, and adding one to a seed list has to reach documents already stored.
+ *   4. Surrender an alias the seeds have since given to a different tag. Splitting
+ *      Jane Street AMP out of Jane Street moved "AMP" from the firm to the
+ *      programme, and without this the firm kept it — so the alias table had one
+ *      key pointing at two tags and which one won was arbitrary.
  *
  * Weights, clusters and promoted state are never touched: those are the team's
  * tuning, and a seed list has no business overwriting them.
@@ -379,6 +383,18 @@ function migrateFacets(tags: TagRegistry): TagRegistry {
   const colleges = new Set(COLLEGES.map((c) => c.label.toLowerCase()));
   const authoritative = seedFacets();
   const seeded = seededTags();
+
+  /**
+   * Which tag the seed lists say each alias belongs to.
+   *
+   * Only aliases the seeds actually claim are listed, so one a teammate added by
+   * hand is invisible here and therefore untouched below.
+   */
+  const aliasOwner = new Map<string, string>();
+  for (const def of Object.values(seeded)) {
+    for (const a of def.aliases) if (!aliasOwner.has(a)) aliasOwner.set(a, def.id);
+  }
+
   let changed = false;
   const next = { ...tags };
 
@@ -396,15 +412,17 @@ function migrateFacets(tags: TagRegistry): TagRegistry {
     const should = authoritative.get(updated.id);
     if (should && should !== updated.facet) updated = { ...updated, facet: should };
 
-    // Union, never replace: an alias someone added by hand must survive.
+    // Union, never replace: an alias someone added by hand must survive. But an
+    // alias the seeds have reassigned is given up, or two tags answer to one key.
     const fresh = seeded[updated.id];
-    if (fresh && fresh.aliases.some((a) => !updated.aliases.includes(a))) {
-      updated = {
-        ...updated,
-        aliases: [...new Set([...updated.aliases, ...fresh.aliases])].filter(
-          (a) => a !== updated.id
-        ),
-      };
+    const merged = [...new Set([...updated.aliases, ...(fresh?.aliases ?? [])])].filter(
+      (a) => a !== updated.id && (aliasOwner.get(a) ?? updated.id) === updated.id
+    );
+    if (
+      merged.length !== updated.aliases.length ||
+      merged.some((a, i) => a !== updated.aliases[i])
+    ) {
+      updated = { ...updated, aliases: merged };
     }
     // A school's state, which arrived after these documents were written. Without
     // this the home state silently stays empty for every seeded school already
