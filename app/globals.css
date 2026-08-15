@@ -844,7 +844,7 @@ a.z-archetype:hover {
   padding: var(--z-space-3) var(--z-space-4);
   border-radius: var(--z-r-sm);
   font-size: var(--z-fs-small);
-  margin-bottom: var(--z-space-4);
+  margin: var(--z-space-4) 0;
   border: 1px solid var(--z-blue);
   color: var(--z-blue);
   background: var(--z-surface-blue);

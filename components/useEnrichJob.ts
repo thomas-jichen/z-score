@@ -76,6 +76,17 @@ export function useEnrichJob(onDone: (result: JobResult) => void) {
         if (!alive) return;
 
         if (!res.ok) {
+          /**
+           * A 5xx with no explanation is the server having a bad moment, not the
+           * run failing. Keep polling: Apify is still working and the run is
+           * already paid for. Only a 4xx is a real verdict — the job is gone, or
+           * this teammate cannot see it.
+           */
+          if (res.status >= 500) {
+            setNote("Lost contact with the server. Still watching the run.");
+            timer = setTimeout(tick, POLL_MS);
+            return;
+          }
           setPhase("error");
           setError(data.error ?? `Enrichment failed (${res.status})`);
           return;

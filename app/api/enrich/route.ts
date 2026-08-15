@@ -151,7 +151,26 @@ export async function GET(req: Request) {
   const jobId = new URL(req.url).searchParams.get("jobId");
   if (!jobId) return NextResponse.json({ ok: false, error: "No jobId." }, { status: 400 });
 
-  const job = await readJob(r.profile, jobId);
+  /**
+   * Reading the job is the first thing that can fail, and failing it must not end
+   * the run.
+   *
+   * This used to sit outside any try, so a transient store error threw an
+   * unhandled 500 with no JSON body. The client then reported a bare "Enrichment
+   * failed (500)" and stopped polling — while Apify carried on and finished a run
+   * that had already been paid for. A store hiccup says nothing about the run, so
+   * it is reported as a note and the next poll tries again.
+   */
+  let job;
+  try {
+    job = await readJob(r.profile, jobId);
+  } catch (e) {
+    return NextResponse.json({
+      ok: true,
+      status: "running",
+      note: e instanceof Error ? e.message : "Could not read the run just now.",
+    });
+  }
   if (!job) return NextResponse.json({ ok: false, error: "Job not found." }, { status: 404 });
 
   if (job.status === "error") {
@@ -162,6 +181,9 @@ export async function GET(req: Request) {
     return NextResponse.json({ ok: true, status: "done", people: [], job, alreadyApplied: true });
   }
 
+  // `getRunStatus` and `getDatasetItems` already report their own failures rather
+  // than throwing, so from here the only unguarded step is the write below, which
+  // has its own try.
   const run = await getRunStatus(job.runId);
   if (!run.ok) {
     // A transient poll failure is reported without ending the run.

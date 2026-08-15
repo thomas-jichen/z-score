@@ -620,13 +620,6 @@ export default function SweepPage() {
             />
           )}
 
-          {busy && (
-            <div className="z-banner">
-              Enriching. This runs on Apify and can take a few minutes. Leaving this page is fine,
-              the run keeps going.
-            </div>
-          )}
-
           {/* SERP hits, awaiting a decision on who is worth paying for. */}
           {mode === "serp" && ran && hits.length > 0 && (
             <ReviewTable
@@ -937,6 +930,9 @@ function SeedComposer({
         <Button variant="secondary" onClick={onQueue} disabled={slugs.length === 0 || working}>
           Add to queue
         </Button>
+        {busy && (
+          <span className="z-micro">Runs in the background, so you can leave this page.</span>
+        )}
       </div>
     </div>
   );

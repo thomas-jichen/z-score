@@ -64,7 +64,14 @@ export default function GraphPage() {
 
   const [sources, setSources] = useState<EdgeSource[]>(["program", "school", "discovery"]);
   const [groupBy, setGroupBy] = useState<GroupBy>("cluster");
-  const [showTags, setShowTags] = useState(true);
+  /**
+   * People only, until asked otherwise.
+   *
+   * Tag nodes multiply the node count several times over and the graph is about
+   * the people. Opening on the dense view meant the first thing anyone saw was the
+   * hardest thing to read.
+   */
+  const [showTags, setShowTags] = useState(false);
   const [maxHolders, setMaxHolders] = useState(DEFAULT_MAX_HOLDERS);
   const [search, setSearch] = useState("");
   const [hovered, setHovered] = useState<string | null>(null);
@@ -220,6 +227,8 @@ export default function GraphPage() {
               <Pill as="button" active={showTags} onClick={() => setShowTags(!showTags)}>
                 {showTags ? "Tag nodes" : "People only"}
               </Pill>
+              {/* Only means anything once tags are drawn. */}
+              {showTags && (
               <label className="z-row z-micro" style={{ gap: 6 }}>
                 Hide tags above
                 <input
@@ -234,6 +243,7 @@ export default function GraphPage() {
                 />
                 <span className="z-num">{maxHolders}</span>
               </label>
+              )}
               <button className="z-linkish" onClick={reset}>
                 Reset
               </button>
