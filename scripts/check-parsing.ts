@@ -23,17 +23,18 @@ import {
   type Provenance,
 } from "../lib/enrichment";
 import { capRoster, hopAfter, isSuppressed, migrateLegacy, neighborsFrom, nextHopFrom, withEnriched, MAX_PEOPLE, type Person } from "../lib/people";
-import { emptyTeam, hydrateTeam, type TaxonomyPrefs } from "../lib/state";
+import { SEED_VERSION, emptyTeam, hydrateTeam, type TaxonomyPrefs } from "../lib/state";
 import { scoreOne, toCandidates } from "../lib/candidates";
 import {
   buildSearchLabels,
+  heldTags,
   matchedTerms,
   schoolStateLookup,
   termCounts,
   unmatchedTerms,
 } from "../lib/tags";
 import { extractTags, inferHomeState } from "../lib/extract";
-import { assignCluster, round } from "../lib/clusters";
+import { START_WEIGHT, assignCluster, round } from "../lib/clusters";
 import {
   containsTokens,
   indexRegistry,
@@ -665,9 +666,39 @@ console.log("\nhydrateTeam — a stored registry keeps up with the seed lists");
     firm.aliases.includes("hand-added-by-a-teammate"),
     true
   );
-  check("the team's own weight is left alone", firm.weight, 3.3);
   check("and the programme is seeded in beside it", programme?.facet, "program");
   check("holding the alias", programme?.aliases.includes("amp"), true);
+
+  /**
+   * A weight is the team's to keep — unless the document has never seen the current
+   * seed generation, in which case the recalibration reaches it once.
+   *
+   * Both halves need saying. Without the first, a seed edit silently discards
+   * tuning. Without the second, a deliberate whole-table recalibration only ever
+   * applies to documents nobody has written yet, which is no recalibration at all.
+   */
+  const tuned = (seedVersion?: number) =>
+    hydrateTeam({
+      taxonomy: {
+        ...emptyTeam().taxonomy,
+        seedVersion,
+        tags: {
+          "jane-street": {
+            id: "jane-street",
+            label: "Jane Street",
+            facet: "company",
+            aliases: [],
+            weight: 3.3,
+            cluster: "quant",
+            promoted: true,
+          },
+        },
+      },
+    } as Parameters<typeof hydrateTeam>[0]).taxonomy.tags["jane-street"].weight;
+
+  check("a current document keeps its own weight", tuned(SEED_VERSION), 3.3);
+  check("a stale one adopts the recalibration", tuned(undefined), 0.7);
+  check("and is marked so it only happens once", stale.taxonomy.seedVersion, SEED_VERSION);
   // One key, one tag — checked on the alias that actually moved. A blanket sweep
   // would fail on the state pairs, where "CA" is deliberately an alias of both
   // California-now and California-home: those ids are facet-qualified and the
@@ -830,10 +861,15 @@ console.log("\nseeded aliases — one tag per real-world thing");
   // A headline writes it every which way.
   resolves("Z Fellows", "Z Fellow");
   resolves("Z-Fellow", "Z Fellow");
-  // Z Fellows is a fellowship for starting something, so it is a programme that
-  // votes Founder rather than an award.
+  /**
+   * Z Fellows writes you a cheque, so it is an accelerator, not a programme.
+   *
+   * The facet is what carries the weight scale: as a programme it sat on the same
+   * shelf as a summer course, and the whole point of the accelerator facet is that
+   * being funded is a harder filter than being admitted.
+   */
   const z = resolveAny(ix, "Z Fellow")!;
-  check("Z Fellow is a program", z.facet, "program");
+  check("Z Fellow is an accelerator", z.facet, "accelerator");
   check("and it votes Founder", z.cluster, "founder");
   // Distinct things must stay distinct.
   check("USACO Gold is not USACO Platinum", resolveAny(ix, "USACO Gold")?.label, undefined);
@@ -946,6 +982,107 @@ console.log("\nhome state — from the high school, not from any state on the pr
   );
 }
 
+console.log("\naccelerators — the signal that was invisible");
+{
+  /**
+   * Every way a batch actually appears on a profile, and it appeared none of the
+   * ways the code was looking.
+   *
+   * Four people in the roster showed YC three times over — an education row, a
+   * company registered as "Poth Labs (YC S26)", and "YC S26" in the headline — and
+   * scored nothing for any of it. The education row resolved as a *university*,
+   * because that is what an undated row with no degree looks like.
+   */
+  // Geography comes along from the fixture's location and is not what is under test.
+  const held = (p: Person) =>
+    heldTags(p, TAX)
+      .filter((t) => t.def.facet !== "state" && t.def.facet !== "homestate")
+      .map((t) => `${t.def.label}[${t.def.facet}]`);
+
+  const batchRow = bare("batch");
+  batchRow.enriched!.educations = [{ school: "Y Combinator", degree: "S26" }];
+  check("a batch in the education section is the accelerator", held(batchRow), [
+    "Y Combinator[accelerator]",
+  ]);
+
+  const plural = bare("plural");
+  plural.enriched!.educations = [{ school: "Z Fellows", degree: "Gap Year" }];
+  check("and the plural spelling resolves too", held(plural), ["Z Fellow[accelerator]"]);
+
+  /**
+   * The company's registered name.
+   *
+   * "(YC S24)" is part of what a YC company calls itself, and it says investors
+   * funded this. Company names are resolved by exact key with containment
+   * deliberately off — "ex-Google intern" must not become a Google role — so this
+   * needed its own narrow rule rather than a general loosening.
+   */
+  const marked = bare("marked");
+  marked.enriched!.experience = [{ title: "Co-Founder", company: "Willow (YC S24)" }];
+  check("a batch marker in a company name counts", held(marked).includes("Y Combinator[accelerator]"), true);
+  check(
+    "a company that merely mentions one does not",
+    held(
+      Object.assign(bare("plain"), {
+        enriched: {
+          ...bare("plain").enriched!,
+          experience: [{ title: "Intern", company: "Some YC-backed startup" }],
+        },
+      })
+    ).includes("Y Combinator[accelerator]"),
+    false
+  );
+
+  /**
+   * Prose about a venture is not a claim about the person.
+   *
+   * Olaoluwa Oguneye is a Partner at Dorm Room Fund, "the original student-run
+   * venture fund backed by a16z" — a sentence about the fund, which scored him 1.8
+   * as though a16z had backed him.
+   */
+  const aboutTheFund = bare("fund");
+  aboutTheFund.enriched!.experience = [
+    {
+      title: "Partner",
+      company: "Dorm Room Fund",
+      description: "The original student-run venture fund, backed by a16z and Sequoia.",
+    },
+  ];
+  check("someone else's backers do not transfer", held(aboutTheFund).includes("a16z[accelerator]"), false);
+
+  // Their own headline does count: naming it about yourself is the claim.
+  const claimed = bare("claimed");
+  claimed.enriched!.headline = "CEO, Headstarter | a16z Speedrun Scout";
+  check("but their own headline does", held(claimed).includes("a16z[accelerator]"), true);
+
+  /**
+   * A famous name attached to an open-enrolment product.
+   *
+   * YC Startup School is a free online course. It read as YC itself and put the
+   * heaviest weight in the taxonomy on "Y Combinator Startup School 2026 Admit".
+   */
+  const school = bare("school", ["Y Combinator Startup School 2026 Admit"]);
+  check("Startup School is not Y Combinator", held(school).includes("Y Combinator[accelerator]"), false);
+
+  // A two-character alias in prose is a coincidence waiting to happen: "10 companies
+  // into yc/a16z sr." is a placement business, not a batch.
+  const placer = bare("placer");
+  placer.enriched!.experience = [
+    { title: "Founder", company: "Headstarter", description: "10 companies into yc/a16z sr." },
+  ];
+  check("a two-letter alias is not text-matched", held(placer).includes("Y Combinator[accelerator]"), false);
+
+  // A company named for an acronym is not the programme of that acronym.
+  const acronym = bare("acronym");
+  acronym.enriched!.experience = [{ title: "Researcher", company: "SSP International" }];
+  check("a company name is not the credential vocabulary", held(acronym).includes("SSP[program]"), false);
+
+  // An accelerator has an address, not a home town.
+  const noHome = bare("nohome");
+  noHome.enriched!.educations = [{ school: "Y Combinator", degree: "S26" }];
+  check("and it sets no home state", inferHomeState(noHome.enriched!, schoolStateLookup(TAX)), undefined);
+}
+
 console.log("\nthe score is a sum — the documented worked examples");
 {
   // The score IS the raw total now, so these assert it directly. The three
@@ -955,15 +1092,33 @@ console.log("\nthe score is a sum — the documented worked examples");
     round(c.signals.reduce((s, x) => s + x.points, 0));
 
   const hackClub = scoreOne(bare("hc", ["Hack Club"]), TAX);
-  check("Hack Club alone", hackClub.score, 0.7);
+  check("Hack Club alone", hackClub.score, 0.5);
 
+  // 1.6 + 0.8 + 1.2. ISEF used to be 1.4, above every accelerator, on ~1,800
+  // finalists a year.
   const three = scoreOne(bare("three", ["RSI", "ISEF", "USAMO"]), TAX);
-  check("RSI + ISEF + USAMO", three.score, 4.5);
+  check("RSI + ISEF + USAMO", three.score, 3.6);
 
   const strong = bare("strong", ["IMO", "IOI", "RSI"]);
   strong.enriched!.publications = ["A paper"];
   const strongScored = scoreOne(strong, TAX);
-  check("IMO+IOI+RSI+1 pub", strongScored.score, 6.6);
+  // 2.0 + 2.0 + 1.6 + 0.4.
+  check("IMO+IOI+RSI+1 pub", strongScored.score, 6.0);
+
+  /**
+   * Being funded outweighs any single competition.
+   *
+   * The assertion the whole recalibration exists for: Y Combinator scored 0.5 as an
+   * employer, a third of what an ISEF finalist got.
+   */
+  const backed = scoreOne(bare("yc", ["Y Combinator"]), TAX);
+  check("a YC batch alone", backed.score, 2.0);
+  check("which beats an ISEF finalist", backed.score > scoreOne(bare("isef", ["ISEF"]), TAX).score, true);
+  check("and votes Founder", backed.archetype, "founder");
+
+  // Nothing in the table exceeds 2.0, so the σ analogy survives a plain sum.
+  const overweight = Object.entries(START_WEIGHT).filter(([, w]) => w > 2);
+  check("no weight exceeds 2.0", overweight, []);
 
   // The breakdown on the detail screen must add up to the number above it. Under
   // the old model the rows were weight/sigma and the total was (Σw−mu)/sigma, so
@@ -981,15 +1136,17 @@ console.log("\ncapped counts");
   }));
   const scored = scoreOne(many, TAX);
   const row = scored.signals.find((s) => s.label.includes("experience"))!;
-  // 20 experiences, cap 8, 0.2 each. Volume must not beat quality.
-  check("counting stops at the cap", row.points, 1.6);
-  check("and the row says what was dropped", row.label, "20 experiences, 8 counted");
+  // 20 experiences, cap 6, 0.1 each. Volume must not beat quality — and it used to:
+  // counts alone could reach 7.6 against a top score of about 10, so most of a
+  // ranking came from the one thing anybody can pad.
+  check("counting stops at the cap", row.points, 0.6);
+  check("and the row says what was dropped", row.label, "20 experiences, 6 counted");
 
   const few = bare("few", []);
   few.enriched!.projects = [{ title: "One" }, { title: "Two" }];
   const f = scoreOne(few, TAX);
   const prow = f.signals.find((s) => s.label.includes("project"))!;
-  check("under the cap, everything counts", prow.points, 0.8);
+  check("under the cap, everything counts", prow.points, 0.3);
   check("and the label is plain", prow.label, "2 projects");
 }
 

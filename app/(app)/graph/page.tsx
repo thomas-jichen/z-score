@@ -56,6 +56,7 @@ import {
 
 const SOURCE_LABEL: Record<EdgeSource, string> = {
   discovery: "Found via",
+  backing: "Backed by",
   program: "Programs",
   company: "Companies",
   highschool: "High school",
@@ -66,6 +67,8 @@ const SOURCE_LABEL: Record<EdgeSource, string> = {
 const SOURCE_HINT: Record<EdgeSource, string> = {
   discovery:
     "Who was found on whose People also viewed. The only link that is a fact about the search rather than an inference about the people.",
+  backing:
+    "Both were picked by the same accelerator, fellowship or fund. The rarest link here and the most actionable: a batch has eighty more people in it.",
   program: "Both cleared the same selective filter — the same programme, fellowship or award.",
   company: "Both worked at the same company, fund or organisation.",
   highschool: "Both went to the same high school. Rare, and a pipeline you can go and sweep.",
@@ -88,6 +91,7 @@ const GROUP_HINT: Record<GroupBy, string> = {
 
 /** Three families, because a chip should read as its kind at a glance. */
 const FACET_FAMILY: Partial<Record<TagFacet, string>> = {
+  accelerator: "backing",
   program: "program",
   award: "program",
   company: "company",
@@ -97,6 +101,7 @@ const FACET_FAMILY: Partial<Record<TagFacet, string>> = {
 };
 
 const FACET_NOUN: Partial<Record<TagFacet, string>> = {
+  accelerator: "Backed by",
   program: "Program",
   award: "Award",
   company: "Company",
@@ -122,6 +127,7 @@ export default function GraphPage() {
    */
   const [sources, setSources] = useState<EdgeSource[]>([
     "discovery",
+    "backing",
     "program",
     "company",
     "highschool",

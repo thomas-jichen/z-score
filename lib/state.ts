@@ -1,6 +1,7 @@
 import { START_WEIGHT, TERM_CLUSTER, type Archetype, type BandThresholds } from "./clusters";
 import { US_STATES, type CountKind } from "./extract";
 import {
+  ACCELERATORS,
   COLLEGES,
   COMPANIES,
   HIGH_SCHOOLS,
@@ -92,6 +93,16 @@ export type TaxonomyPrefs = {
    * kept for the legacy read path during migration.
    */
   tags: TagRegistry;
+  /**
+   * Which generation of the seed weights this document has seen.
+   *
+   * A stored weight is normally the team's to keep, and the migration never touches
+   * it. But a stored weight is *also* what an older seed list happened to say, and
+   * those two are indistinguishable after the fact. When the seed table is
+   * deliberately recalibrated, this is what lets the correction reach documents
+   * already written — once, for the tags the seeds own, and never again.
+   */
+  seedVersion?: number;
   /** How much a countable thing is worth, and where counting stops. */
   counts: CountRules;
   /** Score needed in two or more clusters for the Polymath badge. */
@@ -179,17 +190,26 @@ export function rawKey(slug: string): string {
  */
 export function defaultCounts(): CountRules {
   return {
-    experience: { points: 0.2, cap: 8 },
-    project: { points: 0.4, cap: 4 },
-    publication: { points: 0.8, cap: 3 },
-    patent: { points: 1.0, cap: 2 },
+    /**
+     * Priced well below the credentials, and capped low.
+     *
+     * These were worth up to 7.6 between them, against a target of about 10 for the
+     * strongest person in the roster — so most of a score could come from the least
+     * discriminating thing on a profile. Anyone can list eight experiences. The
+     * ceiling is now 3.4, and a publication or a patent still moves a score
+     * noticeably because for a nineteen-year-old it should.
+     */
+    experience: { points: 0.1, cap: 6 },
+    project: { points: 0.15, cap: 4 },
+    publication: { points: 0.4, cap: 3 },
+    patent: { points: 0.5, cap: 2 },
     /**
      * Off by default. An award already scores as its own tag, and a profile with
      * seventeen honors is mostly listing AP Scholar and National Merit — paying
      * per honor on top of the award weights rewards length, not achievement. The
      * knob exists so it can be turned on deliberately.
      */
-    honor: { points: 0, cap: 10 },
+    honor: { points: 0, cap: 8 },
   };
 }
 
@@ -202,17 +222,26 @@ export function defaultCounts(): CountRules {
  */
 export function defaultFacetWeights(): Record<TagFacet, number> {
   return {
-    program: 1.0,
-    award: 0.8,
-    company: 0.5,
-    org: 0.3,
-    college: 0.4,
-    // A feeder high school is a weaker signal than a university and there are far
-    // more of them, so it starts lower.
-    highschool: 0.2,
-    major: 0.2,
-    title: 0.2,
-    flag: 0.3,
+    program: 0.8,
+    award: 0.6,
+    // The heaviest default in the table. Somebody wrote a cheque.
+    accelerator: 1.2,
+    /**
+     * These are what a name *nobody curated* starts at — an employer, a university
+     * or a school first seen on somebody's profile. The seeded lists sit above them,
+     * and named tunings above that.
+     *
+     * Titles start at zero on purpose. A title is what you were called; the few
+     * worth points are named in START_WEIGHT. Listing "Intern", "Analyst" and
+     * "Software Engineer" used to pay 0.6 — more than an ISEF finalist now scores.
+     */
+    company: 0.2,
+    org: 0.1,
+    college: 0.2,
+    highschool: 0.1,
+    major: 0.1,
+    title: 0,
+    flag: 0.2,
     count: 0,
     year: 0,
     // Geography groups and filters; it is not an achievement, so it starts at zero.
@@ -221,9 +250,16 @@ export function defaultFacetWeights(): Record<TagFacet, number> {
   };
 }
 
-/** Sized for the seeded weights, where a strong profile lands in the tens. */
+/**
+ * Sized so the top of a real roster reaches the top band.
+ *
+ * The recalibrated table puts the strongest person in the live queue at 9.9, and the
+ * ceiling was 20 — so nobody was ever exceptional and a third of the roster fell
+ * below the lowest band. These cut the actual distribution into shapes that mean
+ * something: one exceptional, a couple strong, a third in the middle.
+ */
 export function defaultBands(): BandThresholds {
-  return { exceptional: 20, strong: 12, above: 6, mid: 2 };
+  return { exceptional: 9, strong: 7, above: 5, mid: 3 };
 }
 
 /**
@@ -239,6 +275,7 @@ export function defaultBands(): BandThresholds {
 function seededTags(): TagRegistry {
   return seedRegistry({
     programs: PROGRAMS,
+    accelerators: ACCELERATORS,
     colleges: COLLEGES,
     highSchools: HIGH_SCHOOLS,
     titles: TITLES,
@@ -348,6 +385,9 @@ function seedFacets(): Map<string, TagFacet> {
     const id = seedKey(label);
     if (id && !m.has(id)) m.set(id, facet);
   };
+  // Accelerators before programmes, matching seedRegistry, so a label in both lists
+  // resolves the same way in the migration as it does in a fresh document.
+  for (const x of ACCELERATORS) put(x.label, "accelerator");
   for (const x of PROGRAMS) put(x.label, "program");
   for (const x of COLLEGES) put(x.label, "college");
   for (const x of HIGH_SCHOOLS) put(x.label, "highschool");
@@ -355,6 +395,42 @@ function seedFacets(): Map<string, TagFacet> {
   for (const x of MAJORS) put(x.label, "major");
   for (const x of COMPANIES) put(x.label, "company");
   return m;
+}
+
+/**
+ * The current generation of `START_WEIGHT` and the facet defaults.
+ *
+ * Bump this only for a deliberate, whole-table recalibration, and say what changed.
+ *
+ *   1 — the original table.
+ *   2 — accelerators split out and put at the top; competitions repriced by cohort
+ *       size (ISEF 1.4 → 0.8, MOP 1.0 → 1.6); titles zeroed; counts cut from a
+ *       ceiling of 7.6 to 3.4, so the strongest person lands near 10.
+ */
+export const SEED_VERSION = 2;
+
+/**
+ * Adopt a recalibrated seed table, once.
+ *
+ * Only touches tags the seed lists own, and only their weight and cluster — a tag
+ * the team created, and anything the team added to a seeded tag, is left exactly as
+ * it is. Guarded by the version so it cannot run twice and cannot creep into being a
+ * rule that quietly overwrites tuning whenever a seed changes.
+ */
+const behindSeeds = (tax: Partial<TaxonomyPrefs>) => (tax.seedVersion ?? 1) < SEED_VERSION;
+
+function adoptSeedWeights(tags: TagRegistry): TagRegistry {
+  const seeded = seededTags();
+  let changed = false;
+  const next = { ...tags };
+  for (const [id, def] of Object.entries(tags)) {
+    const seed = seeded[id];
+    if (!seed) continue;
+    if (def.weight === seed.weight && (def.cluster ?? null) === (seed.cluster ?? null)) continue;
+    next[id] = { ...def, weight: seed.weight, cluster: seed.cluster };
+    changed = true;
+  }
+  return changed ? next : tags;
 }
 
 /**
@@ -461,10 +537,29 @@ export function hydrateTeam(stored: Partial<TeamState> | null): TeamState {
       // every read of `counts.experience.points` throws.
       // Migrated on read, so a document written before the school split keeps its
       // sixty school tags instead of having them silently validated away.
-      tags: tax.tags ? migrateFacets(tax.tags) : base.taxonomy.tags,
-      counts: { ...base.taxonomy.counts, ...(tax.counts ?? {}) },
-      facetDefaults: { ...base.taxonomy.facetDefaults, ...(tax.facetDefaults ?? {}) },
-      bands: { ...base.taxonomy.bands, ...(tax.bands ?? {}) },
+      /**
+       * A document behind the seed generation takes the new table for the three
+       * things the recalibration is *about*: the weights, the count prices and the
+       * facet defaults. A document already current keeps whatever it holds.
+       */
+      ...(() => {
+        const migrated = migrateFacets(tax.tags ?? base.taxonomy.tags);
+        return behindSeeds(tax)
+          ? {
+              tags: adoptSeedWeights(migrated),
+              counts: base.taxonomy.counts,
+              facetDefaults: base.taxonomy.facetDefaults,
+              // The thresholds are read in the same units, so they move together.
+              bands: base.taxonomy.bands,
+            }
+          : {
+              tags: migrated,
+              counts: { ...base.taxonomy.counts, ...(tax.counts ?? {}) },
+              facetDefaults: { ...base.taxonomy.facetDefaults, ...(tax.facetDefaults ?? {}) },
+              bands: { ...base.taxonomy.bands, ...(tax.bands ?? {}) },
+            };
+      })(),
+      seedVersion: SEED_VERSION,
       polymathPoints: tax.polymathPoints ?? base.taxonomy.polymathPoints,
     },
     customTerms: { ...base.customTerms, ...(stored.customTerms ?? {}) },

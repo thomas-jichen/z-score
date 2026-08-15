@@ -74,8 +74,14 @@ function countTerms(counts: Record<CountKind, number>, tax: TaxonomyPrefs): Matc
   return out;
 }
 
-/** "Founder" in a headline is real signal, held low because it is cheap to write. */
-const FOUNDER_TEXT_WEIGHT = 0.5;
+/**
+ * "Founder" in a headline is real signal, held low because it is cheap to write.
+ *
+ * Lowered with the rest of the scale. It also stacks with the Founder *title* tag,
+ * which is deliberate — claiming it and holding the role are two facts — but 0.5 plus
+ * 0.3 was most of an RSI place for writing one word about yourself.
+ */
+const FOUNDER_TEXT_WEIGHT = 0.3;
 
 function bonuses(p: Person): MatchedTerm[] {
   if (!FOUNDER_WORDS.test(p.headline)) return [];

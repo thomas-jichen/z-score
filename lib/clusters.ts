@@ -109,13 +109,37 @@ export const TERM_CLUSTER: Record<string, Archetype | null> = {
   "Garcia Program": "research",
   "Jane Street AMP": "quant",
   "Jane Street": "quant",
+  IPhO: "quant",
+  IChO: "quant",
+  MOP: "quant",
+  IBO: "research",
   // Builder
   "Hack Club": "builder",
   "Conrad Challenge": "builder",
-  // Founder
+  buildspace: "builder",
+  /**
+   * Founder — and every accelerator votes here.
+   *
+   * Being backed is the definitive founder signal, and it is the vote that most
+   * needs casting: without it someone whose whole record is "YC S26, ex-Palantir"
+   * fell through to the text heuristic to get labelled at all.
+   */
   "Thiel Fellow": "founder",
   "Neo Scholar": "founder",
   "Diamond Challenge": "founder",
+  "Y Combinator": "founder",
+  a16z: "founder",
+  Sequoia: "founder",
+  "Founders Fund": "founder",
+  "Pear VC": "founder",
+  "South Park Commons": "founder",
+  "1517 Fund": "founder",
+  Contrary: "founder",
+  "Dorm Room Fund": "founder",
+  "Entrepreneur First": "founder",
+  Techstars: "founder",
+  Antler: "founder",
+  "Emergent Ventures": "founder",
   // Operator
   "Coca-Cola Scholar": "operator",
   TASP: "operator",
@@ -126,37 +150,164 @@ export const TERM_CLUSTER: Record<string, Archetype | null> = {
   "Z Fellow": "founder",
 };
 
-/** Starting points for a human to tune, which is the point of the taxonomy screen. */
+/**
+ * Starting points for a human to tune, which is the point of the taxonomy screen.
+ *
+ * ── The scale ─────────────────────────────────────────────────────────────
+ * Nothing exceeds 2.0, and the strongest person in a healthy roster lands near 10.
+ * That keeps the σ glyph honest as an analogy even though the arithmetic is a plain
+ * sum: a "+10σ" reads as remarkable and a "+3σ" as ordinary, which is what the
+ * numbers should feel like.
+ *
+ * ── What earns 2.0 ────────────────────────────────────────────────────────
+ * Two things, and they are different in kind:
+ *
+ *   1. **Somebody wrote a cheque.** Y Combinator, a Thiel Fellowship. A programme
+ *      admitting you is an opinion; an investor funding you is a decision with
+ *      money behind it, made by people whose job is exactly this judgement. For a
+ *      tool that exists to find people worth backing, that is the strongest
+ *      evidence available, and it used to score 0.5 as though YC were an employer.
+ *   2. **The global ceiling of a competition.** An IMO or IOI medal is a few hundred
+ *      people on earth per year.
+ *
+ * ── Why so much moved down ────────────────────────────────────────────────
+ * Selectivity, roughly by cohort size, replaced vibes. ISEF sat at 1.4 above every
+ * accelerator, and ISEF has ~1,800 finalists a year — a real achievement, and an
+ * order of magnitude less selective than MOP's sixty. MOP sat *below* USAMO, which
+ * is its own qualifying round. Both are fixed.
+ *
+ * ── Descriptions are not achievements ─────────────────────────────────────
+ * Titles start at zero and majors at 0.1. "Intern" and "Software Engineer" were each
+ * worth 0.2, so listing five ordinary roles paid the same as a Coca-Cola
+ * Scholarship. Founding something is the exception, because it is a fact about what
+ * you did rather than what you were called.
+ */
 export const START_WEIGHT: Record<string, number> = {
+  /* ── Accelerators, fellowships, funds ─────────────────────────────────── */
+  "Y Combinator": 2.0,
+  "Thiel Fellow": 2.0,
+  a16z: 1.8,
+  "Z Fellow": 1.6,
+  "Neo Scholar": 1.5,
+  Sequoia: 1.5,
+  "Founders Fund": 1.4,
+  "Pear VC": 1.2,
+  "South Park Commons": 1.2,
+  "1517 Fund": 1.2,
+  "Emergent Ventures": 1.1,
+  Contrary: 1.0,
+  "Dorm Room Fund": 1.0,
+  "Entrepreneur First": 0.9,
+  Techstars: 0.7,
+  Antler: 0.6,
+  buildspace: 0.5,
+
+  /* ── Competitions and programmes ──────────────────────────────────────── */
+  // International olympiad: a few hundred people on earth per year.
   IMO: 2.0,
   IOI: 2.0,
-  RSI: 1.8,
-  STS: 1.8,
-  "Thiel Fellow": 1.6,
-  "MIT PRIMES": 1.5,
-  ISEF: 1.4,
-  USAMO: 1.3,
-  "Neo Scholar": 1.3,
-  "USACO Platinum": 1.2,
-  // The programme is the more selective filter for a seventeen-year-old; the job is
-  // still far above an average employer, which is why it does not sit at the company
-  // default of 0.5.
+  IPhO: 2.0,
+  IBO: 2.0,
+  IChO: 2.0,
+  // National, and genuinely tiny: MOP takes ~60, RSI ~80, STS ~40 finalists.
+  MOP: 1.6,
+  RSI: 1.6,
+  /**
+   * Priced for the tier that actually matches, not the best tier that exists.
+   *
+   * There is one tag per programme, not one per round, so "Regeneron STS Scholar"
+   * and "STS Finalist" land on the same tag — and there are ~300 scholars to ~40
+   * finalists, so the common match is the weaker one. Same shape for Presidential
+   * Scholar, where semifinalists outnumber scholars roughly thirty to one, and for
+   * the USA olympiad semifinal rounds. The team can split a tier out on the taxonomy
+   * screen when it wants to; until then these are honest averages rather than
+   * flattering ones.
+   */
+  STS: 1.2,
+  "MIT PRIMES": 1.4,
+  "Davidson Fellow": 1.3,
+  "Presidential Scholar": 0.9,
+  Rise: 1.2,
+  "Coolidge Scholar": 1.2,
+  // Qualifying *is* the achievement here — a few hundred people a year.
+  USAMO: 1.2,
   "Jane Street AMP": 1.2,
-  "Jane Street": 1.0,
-  PROMYS: 1.1,
-  SSP: 1.0,
-  "Simons Fellow": 1.0,
-  "Coca-Cola Scholar": 0.9,
-  "Garcia Program": 0.9,
-  USAPhO: 0.9,
-  USABO: 0.9,
-  SPARC: 0.8,
-  "Conrad Challenge": 0.8,
-  QuestBridge: 0.8,
-  "Hack Club": 0.7,
-  "Diamond Challenge": 0.7,
-  Mathcamp: 0.7,
-  TASP: 0.6,
+  // Selective, but hundreds rather than dozens.
+  "USACO Platinum": 1.0,
+  PROMYS: 1.0,
+  SSP: 0.9,
+  Mathcamp: 0.9,
+  TASP: 0.9,
+  SPARC: 0.9,
+  "Simons Fellow": 0.9,
+  // The semifinal round, which is what a profile usually names. The national teams
+  // are IPhO and IBO above, at 2.0.
+  USAPhO: 0.8,
+  USABO: 0.8,
+  "Garcia Program": 0.8,
+  // ~1,800 finalists a year. Real, and not in the same class as MOP.
+  ISEF: 0.8,
+  "Coca-Cola Scholar": 0.7,
+  QuestBridge: 0.6,
+  "Conrad Challenge": 0.5,
+  "Diamond Challenge": 0.5,
+  "Hack Club": 0.5,
+
+  /* ── Employers ────────────────────────────────────────────────────────── */
+  // Frontier labs and the elite quant desks hire on raw ability at this age.
+  OpenAI: 0.7,
+  Anthropic: 0.7,
+  DeepMind: 0.7,
+  "Jane Street": 0.7,
+  Citadel: 0.6,
+  "Hudson River Trading": 0.6,
+  "Two Sigma": 0.6,
+  "Jump Trading": 0.6,
+  Nvidia: 0.5,
+  Palantir: 0.5,
+  Stripe: 0.5,
+  Google: 0.4,
+  Meta: 0.4,
+  Apple: 0.4,
+  Microsoft: 0.4,
+  "McKinsey & Company": 0.4,
+  "Bain & Company": 0.4,
+  "Boston Consulting Group": 0.4,
+  "Goldman Sachs": 0.4,
+  Amazon: 0.3,
+  Regeneron: 0.3,
+
+  /* ── Universities ─────────────────────────────────────────────────────── */
+  MIT: 0.6,
+  Stanford: 0.6,
+  Caltech: 0.6,
+  Harvard: 0.6,
+  Princeton: 0.5,
+  Berkeley: 0.5,
+  "Carnegie Mellon": 0.5,
+  Yale: 0.5,
+  Oxford: 0.5,
+  Cambridge: 0.5,
+
+  /* ── High schools ─────────────────────────────────────────────────────── */
+  // The rest of the curated list starts at 0.3 and anything discovered at 0.1.
+  TJHSST: 0.4,
+  "Phillips Exeter": 0.4,
+  "Phillips Andover": 0.4,
+  Stuyvesant: 0.4,
+  IMSA: 0.4,
+  NCSSM: 0.4,
+  Harker: 0.4,
+
+  /* ── Titles ───────────────────────────────────────────────────────────── */
+  // A fact about what you did, not what you were called.
+  Founder: 0.3,
+  CEO: 0.2,
+  CTO: 0.2,
+  Partner: 0.2,
+  Quant: 0.1,
+  Trader: 0.1,
+  Researcher: 0.1,
 };
 
 /** Anything promoted from the review queue without an explicit weight. */

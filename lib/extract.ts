@@ -176,12 +176,18 @@ export function currentState(e: EnrichedProfile, fallback?: string): string | un
  * a state named in the school's own text, and returns nothing rather than a guess.
  */
 /**
- * Asks the registry what a school is. Takes the caller's guess, and may correct it.
+ * Asks the registry what an education row names. Takes the caller's guess, and may
+ * correct it.
+ *
+ * `accelerator` is one of the answers because LinkedIn's education section is where
+ * a batch gets listed: "Y Combinator / S26", "Z Fellows / Gap Year". Those rows were
+ * being filed as universities, so they matched nothing and scored nothing — the
+ * single strongest signal in the roster, silently dropped on four profiles.
  */
 export type SchoolLookup = (
   school: string,
   guess: "highschool" | "college"
-) => { facet: "highschool" | "college"; state?: string };
+) => { facet: "highschool" | "college" | "accelerator"; state?: string };
 
 export function inferHomeState(
   e: EnrichedProfile,
@@ -205,8 +211,10 @@ export function inferHomeState(
    */
   for (const list of secondary.length > 0 ? [secondary] : [schools]) {
     for (const ed of list) {
-      const known = lookup(ed.school, isHighSchool(ed) ? "highschool" : "college").state;
-      if (known) return known;
+      const answer = lookup(ed.school, isHighSchool(ed) ? "highschool" : "college");
+      // An accelerator has an address, not a home town. Skipping it matters: YC
+      // would have made every founder in the roster Californian.
+      if (answer.facet !== "accelerator" && answer.state) return answer.state;
     }
     for (const ed of list) {
       const named = STATE_NAMES.find((n) => contains(ed.school, n));
@@ -217,6 +225,33 @@ export function inferHomeState(
 }
 
 const STATE_NAMES = Object.values(US_STATES);
+
+/**
+ * A batch marker inside a company's registered name.
+ *
+ * YC companies almost universally name themselves "Willow (YC S24)" on LinkedIn, and
+ * that string is the whole signal: it says professional investors funded this
+ * company, which is the strongest thing a profile can say in this population. It was
+ * matching nothing, because company names are resolved by exact key and containment
+ * is deliberately off for companies — "ex-Google intern" must not become a Google
+ * role.
+ *
+ * This is not that. The marker is part of the legal-ish name, in a fixed shape, and
+ * it means one specific thing. So it gets its own narrow rule rather than a general
+ * loosening: a season letter and two digits, in brackets, after the accelerator's
+ * initials. "(YC S24)", "(YC W23)", "(YC F24)", "(YC X25)".
+ */
+const BATCH_MARKERS: { re: RegExp; label: string }[] = [
+  { re: /\(\s*yc\s*[swfx]?\d{2}\s*\)/i, label: "Y Combinator" },
+  { re: /\(\s*(?:a16z\s+)?speedrun(?:\s+[a-z]?\d{2})?\s*\)/i, label: "a16z" },
+  { re: /\(\s*pearx?(?:\s+[a-z]?\d{2})?\s*\)/i, label: "Pear VC" },
+  { re: /\(\s*techstars(?:\s+[a-z]?\d{2})?\s*\)/i, label: "Techstars" },
+];
+
+function backerInCompanyName(company: string): string | null {
+  for (const m of BATCH_MARKERS) if (m.re.test(company)) return m.label;
+  return null;
+}
 
 /* ── The extractor ──────────────────────────────────────────────────────── */
 
@@ -283,6 +318,8 @@ export function extractTags(
   for (const x of e.experience) {
     if (x.company) {
       push(tags, seen, { label: x.company, facet: "company", linkedinId: x.companyId });
+      const backer = backerInCompanyName(x.company);
+      if (backer) push(tags, seen, { label: backer, facet: "accelerator" });
     }
     for (const part of splitCompound(x.title)) {
       const known = seedsIn(part, TITLES);

@@ -1570,6 +1570,13 @@ tr[data-pinned] td:first-child {
   transition: stroke var(--z-t-fast);
 }
 
+/* Backing is the strongest thing a chip can say, so it is the one that gets the
+   full blue rather than the glow. */
+.z-graph-chip[data-family="backing"] {
+  stroke: var(--z-blue);
+  stroke-width: 1.5;
+}
+
 .z-graph-chip[data-family="program"] {
   stroke: var(--z-blue-glow);
 }
@@ -1738,6 +1745,10 @@ tr[data-pinned] td:first-child {
 
 /* The same three families as the chips on the canvas, so a lead and its hub are
    recognisably the same object. */
+.z-lead[data-family="backing"] {
+  border-color: var(--z-blue);
+}
+
 .z-lead[data-family="program"] {
   border-color: var(--z-blue-glow);
 }

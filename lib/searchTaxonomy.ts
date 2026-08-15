@@ -56,13 +56,15 @@ export const PROGRAMS: Seed[] = [
   { label: "USABO", aliases: ["USA Biolympiad", "USA Biology Olympiad"] },
   { label: "IMO", aliases: ["International Mathematical Olympiad"] },
   { label: "IOI", aliases: ["International Olympiad in Informatics"] },
+  // The other three internationals, which carry the same weight as IMO and IOI and
+  // were simply missing — an IPhO medallist scored nothing for it.
+  { label: "IPhO", aliases: ["International Physics Olympiad"] },
+  { label: "IBO", aliases: ["International Biology Olympiad", "IBmO"] },
+  { label: "IChO", aliases: ["International Chemistry Olympiad"] },
   { label: "Mathcamp", aliases: ["Canada/USA Mathcamp"] },
   { label: "SPARC", aliases: ["Summer Program on Applied Rationality and Cognition"] },
   { label: "TASP", aliases: ["Telluride Association Summer Program", "TASS"] },
   { label: "Hack Club" },
-  { label: "Neo Scholar", aliases: ["Neo Scholars"] },
-  { label: "Thiel Fellow", aliases: ["Thiel Fellowship"] },
-  { label: "Z Fellow", aliases: ["Z Fellows", "Z-Fellow", "ZFellows", "Z Fellowship"] },
   { label: "Coca-Cola Scholar", aliases: ["Coca-Cola Scholars", "Coke Scholar"] },
   { label: "QuestBridge", aliases: ["QuestBridge Scholar", "QuestBridge National College Match"] },
   { label: "Diamond Challenge" },
@@ -276,6 +278,45 @@ export const MAJORS: Seed[] = [
 ];
 
 /**
+ * Accelerators, fellowships and funds that pick people and back them.
+ *
+ * Kept apart from both PROGRAMS and COMPANIES, because it was in those two lists
+ * that the signal went missing. "Y Combinator" as a company read as an employer,
+ * so the batch row in someone's education section resolved as a university and
+ * scored nothing; "Z Fellows" had the same problem from the other direction. And
+ * the labels collided: the firm a16z and a16z Speedrun cannot be one tag if one is
+ * a job and the other is a cheque.
+ *
+ * These carry the heaviest weights in the taxonomy. Every other signal here is
+ * somebody's opinion that a person is promising; this is somebody acting on it.
+ */
+export const ACCELERATORS: Seed[] = [
+  { label: "Y Combinator", aliases: ["YC", "YCombinator", "Y-Combinator"] },
+  { label: "Thiel Fellow", aliases: ["Thiel Fellowship", "Thiel Foundation"] },
+  // Labelled for the firm, not the programme. Keeping them apart would need two tags
+  // with one key, and for this population "a16z" on a profile means Speedrun or a
+  // scout role far more often than it means an analyst job.
+  {
+    label: "a16z",
+    aliases: ["Andreessen Horowitz", "a16z Speedrun", "Speedrun", "a16z SPEEDRUN"],
+  },
+  { label: "Z Fellow", aliases: ["Z Fellows", "Z-Fellow", "ZFellows", "Z Fellowship"] },
+  { label: "Neo Scholar", aliases: ["Neo Scholars", "Neo Accelerator"] },
+  { label: "Sequoia", aliases: ["Sequoia Capital", "Sequoia Arc", "Sequoia Atlas"] },
+  { label: "Founders Fund", aliases: ["Founders Fund Anduril Fellowship"] },
+  { label: "Pear VC", aliases: ["PearX", "Pear Garage"] },
+  { label: "South Park Commons", aliases: ["SPC"] },
+  { label: "Dorm Room Fund" },
+  { label: "Contrary", aliases: ["Contrary Capital", "Contrary Research"] },
+  { label: "Entrepreneur First", aliases: ["EF"] },
+  { label: "Emergent Ventures", aliases: ["Emergent Ventures Fellow"] },
+  { label: "1517 Fund", aliases: ["1517", "1517 Medici"] },
+  { label: "Techstars" },
+  { label: "Antler" },
+  { label: "buildspace", aliases: ["buildspace n&w", "Buildspace"] },
+];
+
+/**
  * Companies and funds whose name alone is signal for this population. Seeded so
  * the first profile mentioning one does not arrive as an unknown term, and so
  * the common short forms fold onto the full legal name.
@@ -298,10 +339,6 @@ export const COMPANIES: Seed[] = [
   { label: "Microsoft" },
   { label: "Amazon" },
   { label: "Stripe" },
-  { label: "Y Combinator", aliases: ["YC"] },
-  { label: "Dorm Room Fund" },
-  { label: "a16z", aliases: ["Andreessen Horowitz"] },
-  { label: "Sequoia", aliases: ["Sequoia Capital"] },
   { label: "Goldman Sachs" },
   { label: "Regeneron" },
   { label: "Bain & Company", aliases: ["Bain"] },

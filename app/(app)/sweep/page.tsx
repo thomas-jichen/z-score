@@ -26,18 +26,29 @@ import { useApp } from "@/components/AppState";
 const CATEGORIES: {
   key: keyof Selection & keyof CustomTerms;
   label: string;
-  facet?: TagFacet;
+  /**
+   * Which registry facets fill this menu. More than one where a menu is a place to
+   * search rather than a kind of thing: an accelerator is not a programme, but "who
+   * else came out of YC" is the same question as "who else did RSI", and both go into
+   * the query as keywords.
+   */
+  facets?: TagFacet[];
   builtIn: string[];
 }[] = [
-  { key: "programs", label: "Programs", facet: "program", builtIn: [] },
-  { key: "titles", label: "Title keywords", facet: "title", builtIn: [] },
-  { key: "colleges", label: "Colleges", facet: "college", builtIn: [] },
-  { key: "highSchools", label: "High schools", facet: "highschool", builtIn: [] },
+  {
+    key: "programs",
+    label: "Programs & backers",
+    facets: ["accelerator", "program", "award"],
+    builtIn: [],
+  },
+  { key: "titles", label: "Title keywords", facets: ["title"], builtIn: [] },
+  { key: "colleges", label: "Colleges", facets: ["college"], builtIn: [] },
+  { key: "highSchools", label: "High schools", facets: ["highschool"], builtIn: [] },
   { key: "years", label: "Class of", builtIn: GRAD_YEARS },
   // Two geography menus, because where someone is and where they are from are
   // different questions and often different answers.
-  { key: "states", label: "Current state", facet: "state", builtIn: [] },
-  { key: "homeStates", label: "Home state", facet: "homestate", builtIn: [] },
+  { key: "states", label: "Current state", facets: ["state"], builtIn: [] },
+  { key: "homeStates", label: "Home state", facets: ["homestate"], builtIn: [] },
 ];
 
 const BLANK: Selection = {
@@ -217,7 +228,7 @@ export default function SweepPage() {
     // Checking `builtIn` alone would let a tag already in the registry be added a
     // second time as a custom term.
     const all = [
-      ...(cat.facet ? (menuByFacet.get(cat.facet) ?? []) : cat.builtIn),
+      ...(cat.facets ? cat.facets.flatMap((f) => menuByFacet.get(f) ?? []) : cat.builtIn),
       ...team.customTerms[key],
     ];
     if (all.some((t) => t.toLowerCase() === term.toLowerCase())) return;
@@ -561,7 +572,7 @@ export default function SweepPage() {
               <Category
                 key={c.key}
                 label={c.label}
-                builtIn={c.facet ? (menuByFacet.get(c.facet) ?? []) : c.builtIn}
+                builtIn={c.facets ? c.facets.flatMap((f) => menuByFacet.get(f) ?? []) : c.builtIn}
                 custom={team.customTerms[c.key] ?? []}
                 selected={sel[c.key] ?? []}
                 onToggle={(o) => toggle(c.key, o)}

@@ -57,7 +57,14 @@ import type { TagFacet } from "./tagRegistry";
  * the redemption: a shared class year produced a near-complete mesh. Both survive
  * under Group by, which is what a broad shared attribute is actually for.
  */
-export const EDGE_SOURCES = ["discovery", "program", "company", "highschool", "college"] as const;
+export const EDGE_SOURCES = [
+  "discovery",
+  "backing",
+  "program",
+  "company",
+  "highschool",
+  "college",
+] as const;
 export type EdgeSource = (typeof EDGE_SOURCES)[number];
 
 /**
@@ -192,6 +199,14 @@ export type GraphOptions = {
  * are the two densest tags in the roster and the least informative.
  */
 const FACETS_FOR_SOURCE: Record<Exclude<EdgeSource, "discovery">, TagFacet[]> = {
+  /**
+   * The most valuable link on the canvas for talent discovery.
+   *
+   * Two people out of one YC batch have met, and the batch is a place with eighty
+   * more of them in it. It is also the rarest kind of shared thing here, so it almost
+   * never behaves like a hub.
+   */
+  backing: ["accelerator"],
   program: ["program", "award"],
   company: ["company", "org"],
   highschool: ["highschool"],
@@ -209,6 +224,7 @@ const FACETS_FOR_SOURCE: Record<Exclude<EdgeSource, "discovery">, TagFacet[]> = 
 export const SWEEP_KEY_FOR_FACET: Partial<Record<TagFacet, string>> = {
   program: "programs",
   award: "programs",
+  accelerator: "programs",
   college: "colleges",
   highschool: "highSchools",
   company: "titles",

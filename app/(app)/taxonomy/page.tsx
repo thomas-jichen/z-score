@@ -681,6 +681,7 @@ function TagRegistryEditor({
 const FACET_LABEL: Record<TagFacet, string> = {
   program: "Programs",
   award: "Awards",
+  accelerator: "Accelerators & funds",
   company: "Companies",
   org: "Organisations",
   college: "Colleges",

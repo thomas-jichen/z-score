@@ -39,6 +39,7 @@ export type TagKind = "program" | "school" | "year" | "state" | "extracted";
 const FACET_KIND: Record<TagFacet, TagKind> = {
   program: "program",
   award: "program",
+  accelerator: "program",
   company: "extracted",
   org: "extracted",
   college: "school",
@@ -114,8 +115,19 @@ export type MatchedTerm = {
   source: Signal["source"];
 };
 
-/** The record's own words, split by section so a breakdown can cite one. */
-function fieldedText(p: Person): { text: string; source: Signal["source"] }[] {
+type Field = { text: string; source: Signal["source"]; venture?: true };
+
+/**
+ * The record's own words, split by section so a breakdown can cite one.
+ *
+ * `venture` marks the two fields that are prose about a *business* rather than a
+ * claim about the person: an experience description and a project description. The
+ * distinction matters for anything that means "somebody chose me", because those
+ * fields routinely name other people's backers. Olaoluwa Oguneye is a Partner at Dorm
+ * Room Fund, "the original student-run venture fund backed by a16z" — a sentence about
+ * the fund, which scored him 1.8 as though a16z had backed *him*.
+ */
+function fieldedText(p: Person): Field[] {
   const e = p.enriched;
   if (!e) {
     return [{ text: [p.headline, p.snippet].filter(Boolean).join(" "), source: "snippet" }];
@@ -129,6 +141,7 @@ function fieldedText(p: Person): { text: string; source: Signal["source"] }[] {
     ...e.projects.map((x) => ({
       text: [x.title, x.description].filter(Boolean).join(" "),
       source: "projects" as const,
+      venture: true as const,
     })),
     ...e.volunteering.map((v) => ({
       text: [v.role, v.organization].filter(Boolean).join(" "),
@@ -138,11 +151,20 @@ function fieldedText(p: Person): { text: string; source: Signal["source"] }[] {
       text: [x.school, x.degree, x.field].filter(Boolean).join(" "),
       source: "education" as const,
     })),
-    // Experience descriptions are long-form and were previously not searched at
-    // all, which discarded the richest text on a populated profile.
+    /**
+     * Experience descriptions are long-form and were previously not searched at all,
+     * which discarded the richest text on a populated profile.
+     *
+     * The company *name* is deliberately not in here. It has its own structured
+     * resolution path, and throwing it into the credential vocabulary is the "any
+     * passing mention" hazard in its purest form: Vineet Saravanan was a Researcher
+     * at a company called "SSP International", which scored him for the Summer
+     * Science Program.
+     */
     ...e.experience.map((x) => ({
-      text: [x.title, x.company, x.description].filter(Boolean).join(" "),
+      text: [x.title, x.description].filter(Boolean).join(" "),
       source: "experience" as const,
+      venture: true as const,
     })),
     {
       text: [e.headline, e.about, ...e.publications, ...e.patents, ...e.certifications]
@@ -153,6 +175,17 @@ function fieldedText(p: Person): { text: string; source: Signal["source"] }[] {
     { text: p.snippet ?? "", source: "snippet" as const },
   ];
 }
+
+/**
+ * Phrases that carry an accelerator's name and none of its meaning.
+ *
+ * "Y Combinator Startup School" is a free online course with open enrolment. It read
+ * as YC itself and put a 2.0 — the heaviest weight in the taxonomy — on someone whose
+ * honour was literally "Y Combinator Startup School 2026 Admit". The list is short and
+ * specific by design: each entry is a real product whose whole problem is that it
+ * borrows a famous name.
+ */
+const BORROWED_NAME = /startup school|startup library|\bcohort\s+guest\b|newsletter/i;
 
 /**
  * The scoring vocabulary: every tag switched on, by display label.
@@ -170,12 +203,23 @@ export function vocabulary(tax: TaxonomyPrefs): string[] {
 }
 
 /** Facets whose evidence is prose rather than a structured field. */
-const TEXT_FACETS = new Set<TagFacet>(["program", "award"]);
+/**
+ * Facets whose evidence is prose rather than a structured field.
+ *
+ * Accelerators belong here for the same reason programmes do: "YC S26" and "a16z
+ * Speedrun Scout" appear in headlines constantly and frequently nowhere else. The
+ * risk that made companies ineligible — "interned at a Google-backed startup" is not
+ * a Google role — does not apply, because naming an accelerator in your own headline
+ * *is* the claim.
+ */
+const TEXT_FACETS = new Set<TagFacet>(["program", "award", "accelerator"]);
 
 /** Which part of a record a facet is understood to have come from. */
 const SOURCE_FOR_FACET: Record<TagFacet, MatchedTerm["source"]> = {
   program: "honors",
   award: "honors",
+  // Usually read off the education section, where a batch is listed like a degree.
+  accelerator: "education",
   company: "experience",
   org: "volunteering",
   college: "education",
@@ -231,8 +275,20 @@ export function schoolStateLookup(tax: TaxonomyPrefs): SchoolLookup {
    * never reaches the college facet.
    */
   return (school, guess) => {
-    const order: ("highschool" | "college")[] =
-      guess === "highschool" ? ["highschool", "college"] : ["college", "highschool"];
+    /**
+     * Accelerators are asked first, whatever the guess.
+     *
+     * A batch listed in the education section — "Y Combinator / S26", "Z Fellows /
+     * Gap Year" — has no word in it that says accelerator, so the name-based guess
+     * always calls it a college. Asking the registry first is what turns four
+     * profiles' strongest credential from nothing into a tag. It cannot steal a real
+     * school, because a school is only claimed here if it is in the accelerator list
+     * by name.
+     */
+    const order: ("highschool" | "college" | "accelerator")[] =
+      guess === "highschool"
+        ? ["accelerator", "highschool", "college"]
+        : ["accelerator", "college", "highschool"];
     for (const facet of order) {
       const r = resolveTag(index, { label: school, facet });
       if (r.kind === "exact") return { facet, state: r.def.state };
@@ -288,9 +344,29 @@ export function heldTags(p: Person, tax: TaxonomyPrefs): HeldTag[] {
   const fields = fieldedText(p);
   for (const def of Object.values(tax.tags)) {
     if (!TEXT_FACETS.has(def.facet) || seen.has(def.id)) continue;
-    // Aliases count: "Z-Fellow" in a headline is the Z Fellow tag.
-    const forms = [def.label, ...def.aliases];
-    const hit = fields.find((f) => forms.some((form) => mentions(f.text, form)));
+    /**
+     * An accelerator is only read from what the person says about themselves.
+     *
+     * Being funded is the heaviest signal here, so it is the one that can least
+     * afford a coincidence. A programme name in prose about a company is usually
+     * about the company.
+     */
+    const usable =
+      def.facet === "accelerator"
+        ? fields.filter((f) => !f.venture && !BORROWED_NAME.test(f.text))
+        : fields;
+    /**
+     * Aliases count — "Z-Fellow" in a headline is the Z Fellow tag — but only the
+     * ones long enough to mean something on their own.
+     *
+     * "YC" is an alias of Y Combinator, and Yasin Ehsan's experience description
+     * reads "10 companies into yc/a16z sr." He places other people into YC; he was
+     * never in it. A two-character token in prose is a coincidence waiting to
+     * happen, and nothing real is lost by ignoring it: everyone actually in a batch
+     * has it in their education section or in their company's registered name.
+     */
+    const forms = [def.label, ...def.aliases.filter((a) => a.length >= 3)];
+    const hit = usable.find((f) => forms.some((form) => mentions(f.text, form)));
     if (hit) take(def, hit.source);
   }
 

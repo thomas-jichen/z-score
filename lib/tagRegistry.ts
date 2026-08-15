@@ -36,6 +36,20 @@ import type { Archetype } from "./clusters";
 export const TAG_FACETS = [
   "program",
   "award",
+  /**
+   * An accelerator, fellowship or fund that selected them — YC, a16z Speedrun,
+   * Z Fellows, Thiel, Neo.
+   *
+   * Its own facet because it is neither a programme nor an employer, and filing it
+   * as either lost it. As a programme it collided with the firm of the same name;
+   * as a company it read as a job, and "Y Combinator" in the education section then
+   * resolved as a *university*. Meanwhile the strongest form of the signal — a
+   * company registered as "Willow (YC S24)" — matched nothing at all.
+   *
+   * It is also the signal this population is most about: professionals put money
+   * down. That is a harder filter than any competition.
+   */
+  "accelerator",
   "company",
   "org",
   "college",
@@ -462,6 +476,7 @@ export function mergeTags(reg: TagRegistry, fromId: string, intoId: string): Tag
  */
 export function seedRegistry(input: {
   programs: { label: string; aliases?: string[] }[];
+  accelerators: { label: string; aliases?: string[] }[];
   colleges: { label: string; aliases?: string[]; state?: string }[];
   highSchools: { label: string; aliases?: string[]; state?: string }[];
   titles: { label: string; aliases?: string[] }[];
@@ -474,11 +489,19 @@ export function seedRegistry(input: {
 }): TagRegistry {
   const reg: TagRegistry = {};
 
+  /**
+   * `listWeight` is what this seed list thinks its members are worth in general.
+   *
+   * It sits *below* `startWeight` in precedence, not above: a named tuning always
+   * wins. That ordering is what lets the forty hand-picked feeder high schools start
+   * at one number while an ordinary school discovered from a profile starts lower,
+   * and MIT still sit above both by name.
+   */
   const add = (
     label: string,
     facet: TagFacet,
     aliases: string[] = [],
-    weight?: number,
+    listWeight?: number,
     state?: string
   ) => {
     const id = tagId(label, facet);
@@ -499,13 +522,21 @@ export function seedRegistry(input: {
       label,
       facet,
       aliases: [...new Set(aliases.map(normalizeKey))].filter((a) => a && a !== id),
-      weight: clampWeight(weight ?? input.startWeight[label] ?? input.facetDefaults[facet]),
+      weight: clampWeight(
+        input.startWeight[label] ?? listWeight ?? input.facetDefaults[facet]
+      ),
       cluster: input.termCluster[label] ?? null,
       ...(state ? { state } : {}),
       promoted: true,
     };
   };
 
+  /**
+   * Accelerators first, so their labels win the facet where a name appears in two
+   * lists. "Sequoia" is a fund that backs people far more often than it is an
+   * employer of this population, and a shared batch is the connection worth having.
+   */
+  for (const a of input.accelerators) add(a.label, "accelerator", a.aliases);
   for (const p of input.programs) add(p.label, "program", p.aliases);
   /**
    * Every US state, in both geography facets.
@@ -518,14 +549,18 @@ export function seedRegistry(input: {
     add(name, "state", [code]);
     add(name, "homestate", [code]);
   }
-  // Written every which way in a headline — "Z-Fellow", "Z Fellows", "ZFellows" —
-  // and the headline is usually the only place it appears.
-  add("Z Fellow", "program", ["Z-Fellow", "Z Fellows", "ZFellows", "Z Fellowship"], 1.4);
-  for (const c of input.colleges) add(c.label, "college", c.aliases, undefined, c.state);
-  for (const h of input.highSchools) add(h.label, "highschool", h.aliases, undefined, h.state);
-  for (const t of input.titles) add(t.label, "title", t.aliases);
-  for (const m of input.majors) add(m.label, "major", m.aliases);
-  for (const c of input.companies) add(c.label, "company", c.aliases);
+  /**
+   * The seeded lists are the curated ones, so they start above the facet default.
+   *
+   * The facet default is what a name nobody chose gets — a school or an employer
+   * first seen on a profile. "Decatur High School" and "Harker" are both high
+   * schools and should not start at the same number.
+   */
+  for (const c of input.colleges) add(c.label, "college", c.aliases, 0.4, c.state);
+  for (const h of input.highSchools) add(h.label, "highschool", h.aliases, 0.3, h.state);
+  for (const t of input.titles) add(t.label, "title", t.aliases, 0);
+  for (const m of input.majors) add(m.label, "major", m.aliases, 0.1);
+  for (const c of input.companies) add(c.label, "company", c.aliases, 0.4);
 
   return reg;
 }
