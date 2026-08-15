@@ -149,13 +149,21 @@ export default function SweepPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loading, restored]);
 
-  // A completed batch only records who was added. What it co-viewed with is
-  // derived below, so nothing is pre-ticked and no spend is implied.
+  /**
+   * A finished run records who was added and opens the expansion.
+   *
+   * Opening it is the point: an enrichment's whole purpose in seed mode is to reach
+   * the next hop, and leaving it shut meant the run completed and then sat there
+   * waiting for a click on a section the user had no reason to suspect had changed.
+   * Nothing inside is pre-ticked, so opening it still implies no spend.
+   */
   const seenBatch = useRef<number>(0);
   useEffect(() => {
     if (!lastBatch || lastBatch.at === seenBatch.current) return;
     seenBatch.current = lastBatch.at;
     rememberAdded(lastBatch.people.map((p) => p.slug));
+    setPavFocus(null);
+    setPavOpen(true);
   }, [lastBatch]);
 
   /**
@@ -546,10 +554,10 @@ export default function SweepPage() {
       {notice && <div className="z-banner">{notice}</div>}
       {job.note && busy && <div className="z-banner">{job.note}</div>}
 
-      <div className="z-sweep-grid">
-        <aside className="z-stack" style={{ gap: "var(--z-space-3)" }}>
-          {mode === "serp" ? (
-            CATEGORIES.map((c) => (
+      <div className={mode === "serp" ? "z-sweep-grid" : undefined}>
+        {mode === "serp" && (
+          <aside className="z-stack" style={{ gap: "var(--z-space-3)" }}>
+            {CATEGORIES.map((c) => (
               <Category
                 key={c.key}
                 label={c.label}
@@ -567,11 +575,9 @@ export default function SweepPage() {
                 }
                 onClear={() => update({ ...selRef.current, [c.key]: [] })}
               />
-            ))
-          ) : (
-            <SeedPanel text={seedText} onChange={setSeedText} />
-          )}
-        </aside>
+            ))}
+          </aside>
+        )}
 
         <div style={{ minWidth: 0 }}>
           {mode === "serp" ? (
@@ -604,17 +610,14 @@ export default function SweepPage() {
               </div>
             </>
           ) : (
-            <div className="z-row z-row-wrap" style={{ marginBottom: "var(--z-space-10)" }}>
-              <Button onClick={enrichSeeds} disabled={seedCount === 0 || working}>
-                {busy ? "Working" : `Enrich ${seedCount || ""} ${seedCount === 1 ? "seed" : "seeds"}`.trim()}
-              </Button>
-              <Button variant="secondary" onClick={queueSeeds} disabled={seedCount === 0 || working}>
-                Add to queue
-              </Button>
-              {seedCount > 0 && (
-                <span className="z-small">enriching costs about {formatCost(estimateCost(seedCount))}</span>
-              )}
-            </div>
+            <SeedComposer
+              text={seedText}
+              onChange={setSeedText}
+              onEnrich={enrichSeeds}
+              onQueue={queueSeeds}
+              busy={busy}
+              working={working}
+            />
           )}
 
           {busy && (
@@ -628,7 +631,6 @@ export default function SweepPage() {
           {mode === "serp" && ran && hits.length > 0 && (
             <ReviewTable
               title="Search results"
-              hint="Untick the noise before you act. Adding to the queue is free; enriching costs about $0.004 each."
               rows={hits.map((h) => ({
                 slug: h.slug,
                 name: h.name || h.slug,
@@ -690,8 +692,7 @@ export default function SweepPage() {
               <div className="z-disclosure-body">
                 <ReviewTable
                   nested
-                  title={pavFocus ? "Co-viewed with this person" : "Co-viewed with who you added"}
-                  hint="People Also Viewed reflects who browsers looked at together, not who is similar, so expect some drift. Nothing here has been paid for yet."
+                  title={pavFocus ? "Co-viewed with this person" : "Co-viewed"}
                   rows={pavShown.map((n) => ({
                     slug: n.slug,
                     name: n.name || n.slug,
@@ -859,28 +860,83 @@ export default function SweepPage() {
 /* ── Seed input ─────────────────────────────────────────────────────────── */
 
 /**
- * The hop-count control is gone. It set a ceiling in seed mode while the gate it
- * fed applied to both modes, and a numeric limit was never the real guardrail:
- * every expansion is now offered one enrichment at a time, with the person who
- * surfaced each neighbour named in the table.
+ * The seed composer.
+ *
+ * Replaces a textarea sitting in a menu rail beside two buttons, which left the
+ * keyword sweep's two-column grid half empty in seed mode. Here the paste surface
+ * is the whole subject of the screen, so it gets the width and the focus.
+ *
+ * The parse is shown, not described. Every line is resolved as it is typed and the
+ * result comes back as chips, so what the tool understood is visible before any
+ * money is spent — which is the same reason a rejected line is named rather than
+ * silently dropped. That replaces the paragraph explaining what the field wants.
  */
-function SeedPanel({ text, onChange }: { text: string; onChange: (v: string) => void }) {
+function SeedComposer({
+  text,
+  onChange,
+  onEnrich,
+  onQueue,
+  busy,
+  working,
+}: {
+  text: string;
+  onChange: (v: string) => void;
+  onEnrich: () => void;
+  onQueue: () => void;
+  busy: boolean;
+  working: boolean;
+}) {
+  const { slugs, rejected } = useMemo(() => parseSeedInput(text), [text]);
+  const empty = text.trim().length === 0;
+
   return (
-    <div className="z-stack" style={{ gap: "var(--z-space-5)" }}>
-      <div>
-        <p className="z-label is-quiet">Seed profiles</p>
-        <p className="z-small" style={{ margin: "var(--z-space-2) 0 var(--z-space-3)" }}>
-          People you already know are strong. One LinkedIn URL per line. After
-          enriching, who they were co-viewed with is offered below.
+    <div style={{ maxWidth: 680 }}>
+      <textarea
+        className="z-seed-input"
+        rows={empty ? 5 : 7}
+        value={text}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={"Paste LinkedIn profile URLs, one per line"}
+        aria-label="Seed profile URLs"
+        spellCheck={false}
+      />
+
+      {/* What was understood, as chips. A rejected line is named so a typo is
+          fixable rather than mysterious. */}
+      {slugs.length > 0 && (
+        <div
+          className="z-row z-row-wrap"
+          style={{ gap: "var(--z-space-2)", marginTop: "var(--z-space-4)" }}
+        >
+          {slugs.map((slug) => (
+            <span key={slug} className="z-pill">
+              {slug}
+            </span>
+          ))}
+        </div>
+      )}
+
+      {rejected.length > 0 && (
+        <p className="z-micro" style={{ marginTop: "var(--z-space-3)" }}>
+          Not a profile URL: {rejected.slice(0, 3).join(", ")}
+          {rejected.length > 3 ? ` and ${rejected.length - 3} more` : ""}
         </p>
-        <textarea
-          className="z-input"
-          rows={10}
-          value={text}
-          onChange={(e) => onChange(e.target.value)}
-          placeholder={"https://www.linkedin.com/in/ada-chen\nhttps://www.linkedin.com/in/mira-okonkwo"}
-          style={{ resize: "vertical", fontSize: "var(--z-fs-small)", lineHeight: 1.6 }}
-        />
+      )}
+
+      <div
+        className="z-row z-row-wrap"
+        style={{ marginTop: "var(--z-space-6)", gap: "var(--z-space-3)" }}
+      >
+        <Button onClick={onEnrich} disabled={slugs.length === 0 || working}>
+          {busy
+            ? "Enriching"
+            : slugs.length === 0
+              ? "Enrich"
+              : `Enrich ${slugs.length}, ${formatCost(estimateCost(slugs.length))}`}
+        </Button>
+        <Button variant="secondary" onClick={onQueue} disabled={slugs.length === 0 || working}>
+          Add to queue
+        </Button>
       </div>
     </div>
   );
@@ -902,7 +958,6 @@ type ReviewRow = {
 
 function ReviewTable({
   title,
-  hint,
   rows,
   picked,
   onToggle,
@@ -914,7 +969,6 @@ function ReviewTable({
   footnote,
 }: {
   title: string;
-  hint: string;
   rows: ReviewRow[];
   picked: Set<string>;
   onToggle: (slug: string) => void;
@@ -948,10 +1002,6 @@ function ReviewTable({
           Clear
         </button>
       </div>
-      <p className="z-small" style={{ marginBottom: "var(--z-space-4)", maxWidth: "62ch" }}>
-        {hint}
-      </p>
-
       <div className="z-table-wrap">
         <table className="z-table">
           <thead>

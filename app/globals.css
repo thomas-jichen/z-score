@@ -604,6 +604,45 @@ a.z-archetype:hover {
   background: var(--z-divider);
 }
 
+/* ── Seed composer ─────────────────────────────────────────────────────── */
+
+/* The paste surface is the subject of the screen in seed mode, so it reads as a
+   canvas rather than a form field: no border until focus and a flat tone shift to
+   sit it back. The system font, like every other surface — monospace made it read
+   as a code editor, which is not what this is. */
+.z-seed-input {
+  width: 100%;
+  display: block;
+  background: var(--z-surface);
+  border: 1px solid transparent;
+  border-radius: var(--z-r-card);
+  padding: var(--z-space-5);
+  font-family: var(--z-font);
+  font-size: var(--z-fs-small);
+  letter-spacing: var(--z-ls-body);
+  line-height: 1.7;
+  color: var(--z-ink);
+  resize: vertical;
+  transition:
+    background-color var(--z-t-fast),
+    border-color var(--z-t-fast);
+}
+
+.z-seed-input::placeholder {
+  color: var(--z-ink-faint);
+}
+
+.z-seed-input:hover {
+  background: var(--z-surface-blue);
+}
+
+/* On focus it becomes white and bordered: the surface recedes and the text leads. */
+.z-seed-input:focus {
+  background: #ffffff;
+  border-color: var(--z-border);
+  outline: none;
+}
+
 /* ── Breakdown ─────────────────────────────────────────────────────────── */
 
 .z-breakdown-row {
