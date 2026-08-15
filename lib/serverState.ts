@@ -139,6 +139,10 @@ async function runMigration(): Promise<void> {
           colleges: [...new Set([...c.colleges, ...team.customTerms.colleges])],
           highSchools: [...new Set([...c.highSchools, ...team.customTerms.highSchools])],
           years: [...new Set([...c.years, ...team.customTerms.years])],
+          // Geography arrived later than this migration, so a legacy document has
+          // no such lists to merge.
+          states: [...team.customTerms.states],
+          homeStates: [...team.customTerms.homeStates],
         },
       });
     }

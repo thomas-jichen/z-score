@@ -1,5 +1,5 @@
 import { START_WEIGHT, TERM_CLUSTER, type Archetype, type BandThresholds } from "./clusters";
-import type { CountKind } from "./extract";
+import { US_STATES, type CountKind } from "./extract";
 import {
   COLLEGES,
   COMPANIES,
@@ -51,6 +51,8 @@ export type CustomTerms = {
   colleges: string[];
   highSchools: string[];
   years: string[];
+  states: string[];
+  homeStates: string[];
 };
 
 /**
@@ -213,7 +215,9 @@ export function defaultFacetWeights(): Record<TagFacet, number> {
     flag: 0.3,
     count: 0,
     year: 0,
+    // Geography groups and filters; it is not an achievement, so it starts at zero.
     state: 0,
+    homestate: 0,
   };
 }
 
@@ -242,6 +246,7 @@ function seededTags(): TagRegistry {
     companies: COMPANIES,
     startWeight: START_WEIGHT,
     termCluster: TERM_CLUSTER,
+    states: US_STATES,
     facetDefaults: defaultFacetWeights(),
   });
 }
@@ -264,7 +269,15 @@ export function emptyTeam(): TeamState {
       facetDefaults: defaultFacetWeights(),
       bands: defaultBands(),
     },
-    customTerms: { programs: [], titles: [], colleges: [], highSchools: [], years: [] },
+    customTerms: {
+      programs: [],
+      titles: [],
+      colleges: [],
+      highSchools: [],
+      years: [],
+      states: [],
+      homeStates: [],
+    },
     updatedAt: new Date().toISOString(),
   };
 }
@@ -393,6 +406,10 @@ function migrateFacets(tags: TagRegistry): TagRegistry {
         ),
       };
     }
+    // A school's state, which arrived after these documents were written. Without
+    // this the home state silently stays empty for every seeded school already
+    // stored — Groton, Phillips Exeter and Brooklyn Tech all lost theirs.
+    if (fresh?.state && !updated.state) updated = { ...updated, state: fresh.state };
 
     if (updated !== def) {
       next[updated.id] = updated;

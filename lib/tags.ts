@@ -49,6 +49,7 @@ const FACET_KIND: Record<TagFacet, TagKind> = {
   count: "extracted",
   year: "year",
   state: "state",
+  homestate: "state",
 };
 
 export type Tag = {
@@ -185,6 +186,7 @@ const SOURCE_FOR_FACET: Record<TagFacet, MatchedTerm["source"]> = {
   count: "projects",
   year: "education",
   state: "education",
+  homestate: "education",
 };
 
 /**
@@ -205,6 +207,29 @@ const SOURCE_FOR_FACET: Record<TagFacet, MatchedTerm["source"]> = {
  * all reported zero holders: those are found by text matching and by the tagger,
  * neither of which `extractTags` covers.
  */
+/**
+ * Which state a school is in, from the registry.
+ *
+ * Resolved rather than looked up by name, so "UC Berkeley …M.E.T. program" finds
+ * the Berkeley entry and its state. This is what makes a home state a fact rather
+ * than a scan for any state name on the profile.
+ */
+export function schoolStateLookup(tax: TaxonomyPrefs) {
+  const index = indexRegistry(tax.tags);
+  /**
+   * `facet` is required, not a fallback across both.
+   *
+   * Trying high school and then college meant "Stanford Online High School"
+   * failed as a high school and then matched Stanford by containment as a
+   * college, putting an online student in California. A record is one kind of
+   * school or the other, and the caller knows which.
+   */
+  return (school: string, facet: "highschool" | "college"): string | undefined => {
+    const r = resolveTag(index, { label: school, facet });
+    return r.kind === "exact" ? r.def.state : undefined;
+  };
+}
+
 export function heldTags(p: Person, tax: TaxonomyPrefs): { def: TagDef; source: Signal["source"] }[] {
   const index = indexRegistry(tax.tags);
   const out: { def: TagDef; source: Signal["source"] }[] = [];
@@ -222,7 +247,7 @@ export function heldTags(p: Person, tax: TaxonomyPrefs): { def: TagDef; source: 
    * Companies, schools, majors, titles, flags and geography. Exact, free, and the
    * bulk of a populated profile.
    */
-  for (const cand of extractTags(p).tags) {
+  for (const cand of extractTags(p, schoolStateLookup(tax)).tags) {
     const res = resolveTag(index, cand);
     if (res.kind === "exact") take(res.def, SOURCE_FOR_FACET[res.def.facet]);
   }
@@ -334,7 +359,7 @@ export function allTags(p: Person, tax: TaxonomyPrefs): Tag[] {
    * actually contributing so the UI can tell them apart.
    */
   const index = indexRegistry(tax.tags);
-  for (const cand of extractTags(p).tags) {
+  for (const cand of extractTags(p, schoolStateLookup(tax)).tags) {
     const res = resolveTag(index, cand);
     const def = res.kind === "exact" ? res.def : null;
     take({

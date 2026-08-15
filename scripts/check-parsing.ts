@@ -22,9 +22,22 @@ import {
 import { capRoster, hopAfter, isSuppressed, migrateLegacy, neighborsFrom, nextHopFrom, withEnriched, MAX_PEOPLE, type Person } from "../lib/people";
 import { emptyTeam, type TaxonomyPrefs } from "../lib/state";
 import { scoreOne, toCandidates } from "../lib/candidates";
-import { buildSearchLabels, matchedTerms, termCounts, unmatchedTerms } from "../lib/tags";
+import {
+  buildSearchLabels,
+  matchedTerms,
+  schoolStateLookup,
+  termCounts,
+  unmatchedTerms,
+} from "../lib/tags";
+import { extractTags, inferHomeState } from "../lib/extract";
 import { assignCluster, round } from "../lib/clusters";
-import { indexRegistry, makeTag, resolveAny } from "../lib/tagRegistry";
+import {
+  containsTokens,
+  indexRegistry,
+  makeTag,
+  resolveAny,
+  resolveTag,
+} from "../lib/tagRegistry";
 import { buildGraph, DEFAULT_MIN_HOLDERS } from "../lib/graph";
 
 let failures = 0;
@@ -661,6 +674,113 @@ console.log("\nseeded aliases — one tag per real-world thing");
   check("and it votes Founder", z.cluster, "founder");
   // Distinct things must stay distinct.
   check("USACO Gold is not USACO Platinum", resolveAny(ix, "USACO Gold")?.label, undefined);
+}
+
+console.log("\nschool containment — a programme name wrapped around a school");
+{
+  const ix = indexRegistry(TAX.tags);
+  const school = (label: string, facet: "college" | "highschool", expect: string | null) => {
+    const r = resolveTag(ix, { label, facet });
+    check(
+      `${JSON.stringify(label.slice(0, 44))} is ${expect ?? "not a known school"}`,
+      r.kind === "exact" ? r.def.label : null,
+      expect
+    );
+  };
+
+  // An education record routinely names the programme, not the school. That is
+  // still the school, and an exact-key match will never see it.
+  school("UC Berkeley Management, Entrepreneurship, & Technology (M.E.T.) program", "college", "Berkeley");
+  school("MIT Beaver Works Summer Institute", "college", "MIT");
+  school("Carnegie Mellon University School of Computer Science", "college", "Carnegie Mellon");
+  school("Harvard Extension School", "college", "Harvard");
+
+  // The hazard of containment, and the two things that contain it.
+  // A high-school record is never matched against a college tag, so "Stanford
+  // Online High School" cannot become Stanford.
+  // It is a school in its own right, and the point is that it is not Stanford.
+  school("Stanford Online High School", "highschool", "Stanford Online High School");
+  check(
+    "an online high school is not the university whose name it carries",
+    resolveTag(indexRegistry(TAX.tags), { label: "Stanford Online High School", facet: "highschool" })
+      .kind === "exact" &&
+      resolveAny(indexRegistry(TAX.tags), "Stanford Online High School")?.label !== "Stanford",
+    true
+  );
+  // And a genuinely different institution whose name contains a shorter one is
+  // named in an exclusion list.
+  school("Michigan State University", "college", null);
+  school("Washington State University", "college", null);
+
+  // Token-aligned, so a name is never matched inside a longer word.
+  check("mit does not match inside summit", containsTokens("summit-prep", "mit"), false);
+  check("but does match a whole token", containsTokens("mit-beaver-works", "mit"), true);
+  check("and the run must be contiguous", containsTokens("california-santa-cruz-berkeley", "california-berkeley"), false);
+}
+
+console.log("\nhome state — from the high school, not from any state on the profile");
+{
+  const look = schoolStateLookup(TAX);
+  const withSchools = (eds: { school: string; degree?: string; endYear?: number }[]) => {
+    const p = bare("geo");
+    p.enriched!.educations = eds;
+    return inferHomeState(p.enriched!, look);
+  };
+
+  // The school decides. Scanning the profile for any state name instead put six
+  // of nineteen real people in the wrong state.
+  check(
+    "a seeded high school knows its state",
+    withSchools([{ school: "Sewickley Academy", degree: "High School Diploma" }]),
+    "Pennsylvania"
+  );
+  check(
+    "and so does one written in full",
+    withSchools([{ school: "Phillips Exeter Academy", degree: "High School Diploma" }]),
+    "New Hampshire"
+  );
+  // The high school decides even when a university is also listed, because the
+  // university is where they went next, not where they are from.
+  check(
+    "the high school wins over the university",
+    withSchools([
+      { school: "Groton School", degree: "High School Diploma", endYear: 2025 },
+      { school: "Stanford University", degree: "Bachelor of Science", endYear: 2029 },
+    ]),
+    "Massachusetts"
+  );
+  // No high school at all: the university is the only evidence there is.
+  check(
+    "with no high school listed, the university is used",
+    withSchools([{ school: "MIT", degree: "Bachelor of Science" }]),
+    "Massachusetts"
+  );
+  // An online school has no state, and must not inherit one from the university
+  // whose name it carries.
+  check(
+    "an online high school yields nothing rather than a guess",
+    withSchools([
+      { school: "Stanford Online High School", degree: "Supplemental Coursework" },
+      { school: "Stanford University", degree: "Bachelor of Science" },
+    ]),
+    undefined
+  );
+
+  // Current and home are separate facets, so both can be held at once.
+  const p = bare("bothgeo");
+  p.enriched!.educations = [{ school: "Decatur High School", degree: "High School Diploma" }];
+  // `region` is the vendor's structured code and rightly beats the display
+  // string, so the fixture sets it rather than only the free text.
+  p.enriched!.region = "CA";
+  p.enriched!.location = "Stanford, California, United States";
+  const facets = extractTags(p, look).tags;
+  check("current state is tagged", facets.find((t) => t.facet === "state")?.label, "California");
+  check("home state is tagged separately", facets.find((t) => t.facet === "homestate")?.label, "Georgia");
+  check(
+    "and the home state is marked as inferred",
+    facets.find((t) => t.facet === "homestate")?.inferred,
+    true
+  );
 }
 
 console.log("\nthe score is a sum — the documented worked examples");

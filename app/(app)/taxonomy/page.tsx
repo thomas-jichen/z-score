@@ -703,7 +703,8 @@ const FACET_LABEL: Record<TagFacet, string> = {
   flag: "Flags",
   count: "Counts",
   year: "Class years",
-  state: "States",
+  state: "Current state",
+  homestate: "Home state",
 };
 
 /* ── Calibration ────────────────────────────────────────────────────────── */

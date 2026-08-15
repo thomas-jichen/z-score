@@ -123,6 +123,8 @@ function cleanSelection(raw: unknown): Selection {
     colleges: strList(o.colleges, 60, 80),
     highSchools: strList(o.highSchools, 60, 80),
     years: strList(o.years, 20, 8),
+    states: strList(o.states, 60, 40),
+    homeStates: strList(o.homeStates, 60, 40),
   };
 }
 

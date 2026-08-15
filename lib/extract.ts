@@ -113,7 +113,7 @@ function push(into: CandidateTag[], seen: Set<string>, tag: CandidateTag) {
 
 /* ── US states, for the home-state inference ────────────────────────────── */
 
-const STATES: Record<string, string> = {
+export const US_STATES: Record<string, string> = {
   AL: "Alabama", AK: "Alaska", AZ: "Arizona", AR: "Arkansas", CA: "California",
   CO: "Colorado", CT: "Connecticut", DE: "Delaware", FL: "Florida", GA: "Georgia",
   HI: "Hawaii", ID: "Idaho", IL: "Illinois", IN: "Indiana", IA: "Iowa",
@@ -133,8 +133,8 @@ export function stateName(v: string | undefined): string | undefined {
   const s = clean(v);
   if (!s) return undefined;
   const upper = s.toUpperCase();
-  if (STATES[upper]) return STATES[upper];
-  const hit = Object.values(STATES).find((n) => n.toLowerCase() === s.toLowerCase());
+  if (US_STATES[upper]) return US_STATES[upper];
+  const hit = Object.values(US_STATES).find((n) => n.toLowerCase() === s.toLowerCase());
   return hit;
 }
 
@@ -161,47 +161,71 @@ export function currentState(e: EnrichedProfile, fallback?: string): string | un
 /**
  * Where someone is *from*, as distinct from where they are now.
  *
- * A Stanford student's LinkedIn location is Stanford, California. The state that
- * actually groups them with their cohort is the one issuing their high-school
- * awards — "Georgia Department of Education", "Georgia Public Broadcasting". So
- * this scans award issuers, the earliest school, and early roles.
+ * The high school is the answer. A Stanford student's LinkedIn location is
+ * Stanford, California; the state that groups them with their cohort is where they
+ * went to school.
  *
- * It is a deduction from indirect evidence and is returned flagged as such.
- * Deliberately no scan of the current location: that is the other tag.
+ * An education record carries no location and a school's name rarely contains one,
+ * so the state comes from the school's own registry entry. The previous approach —
+ * scanning award issuers, school names and job locations for any state name — put
+ * six of nineteen people in the wrong state: Sewickley Academy came out as New
+ * York rather than Pennsylvania, Groton as California rather than Massachusetts.
+ * A profile mentions many states and only one of them is home.
+ *
+ * `schoolState` is supplied by the caller, which knows the registry. Falls back to
+ * a state named in the school's own text, and returns nothing rather than a guess.
  */
-export function inferHomeState(e: EnrichedProfile): string | undefined {
-  const haystacks = [
-    ...e.honors.map((h) => `${h.issuedBy ?? ""} ${h.associatedWith ?? ""} ${h.title}`),
-    // Earliest school first: a high school is far more local than a university.
-    ...[...e.educations]
-      .sort((a, b) => (a.endYear ?? Infinity) - (b.endYear ?? Infinity))
-      .map((s) => s.school),
-    ...[...e.experience]
-      .sort((a, b) => (a.startYear ?? Infinity) - (b.startYear ?? Infinity))
-      .map((x) => x.location ?? ""),
-  ].filter(Boolean);
+export type SchoolStateLookup = (
+  school: string,
+  facet: "highschool" | "college"
+) => string | undefined;
 
-  const tally = new Map<string, number>();
-  for (const text of haystacks) {
-    for (const [code, name] of Object.entries(STATES)) {
-      // Full names only for the free-text fields. Two-letter codes produce
-      // nonsense here: "OR" and "IN" appear in ordinary English, and "Georgia
-      // Department of Education" is the signal, not "GA".
-      if (contains(text, name)) tally.set(name, (tally.get(name) ?? 0) + 1);
-      else if (/,\s*[A-Z]{2}\b/.test(text) && contains(text, code)) {
-        tally.set(name, (tally.get(name) ?? 0) + 1);
-      }
+export function inferHomeState(
+  e: EnrichedProfile,
+  schoolState: SchoolStateLookup
+): string | undefined {
+  // Earliest first: a high school is far more local than a university.
+  const schools = [...e.educations]
+    .sort((a, b) => (a.endYear ?? Infinity) - (b.endYear ?? Infinity))
+    .filter((x) => x.school);
+
+  const secondary = schools.filter(isHighSchool);
+  /**
+   * The high school decides, and only falls through to a university when no high
+   * school is listed at all.
+   *
+   * Not "high school first, then anything": someone whose only high school is
+   * Stanford Online High School has no knowable home state, and letting it fall
+   * through put them in California because that is where their university is.
+   * A wrong answer is worse than none here, since this is the field that groups
+   * someone with their actual cohort.
+   */
+  for (const list of secondary.length > 0 ? [secondary] : [schools]) {
+    for (const ed of list) {
+      const known = schoolState(ed.school, isHighSchool(ed) ? "highschool" : "college");
+      if (known) return known;
+    }
+    for (const ed of list) {
+      const named = STATE_NAMES.find((n) => contains(ed.school, n));
+      if (named) return named;
     }
   }
-
-  if (tally.size === 0) return undefined;
-  const [best] = [...tally.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
-  return best[0];
+  return undefined;
 }
+
+const STATE_NAMES = Object.values(US_STATES);
 
 /* ── The extractor ──────────────────────────────────────────────────────── */
 
-export function extractTags(p: Person): Extraction {
+/**
+ * `schoolState` maps a school name to its state, supplied by the caller because
+ * only it holds the registry. Defaults to knowing nothing, so a caller that does
+ * not care about geography needs no extra argument.
+ */
+export function extractTags(
+  p: Person,
+  schoolState: SchoolStateLookup = () => undefined
+): Extraction {
   const tags: CandidateTag[] = [];
   const seen = new Set<string>();
   const e = p.enriched;
@@ -285,11 +309,11 @@ export function extractTags(p: Person): Extraction {
   const current = currentState(e, p.state);
   if (current) push(tags, seen, { label: current, facet: "state" });
 
-  const home = inferHomeState(e);
-  // Only worth a second tag when it differs from where they are now.
-  if (home && home !== current) {
-    push(tags, seen, { label: home, facet: "state", inferred: true });
-  }
+  // Its own facet, and emitted even when it equals the current state. They are
+  // two different facts, and "from here and still here" is itself worth filtering
+  // on — suppressing the duplicate made that group invisible.
+  const home = inferHomeState(e, schoolState);
+  if (home) push(tags, seen, { label: home, facet: "homestate", inferred: true });
 
   return { tags, counts };
 }

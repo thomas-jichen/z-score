@@ -45,7 +45,15 @@ export const TAG_FACETS = [
   "flag",
   "count",
   "year",
+  /** Where they are now, from the LinkedIn location. */
   "state",
+  /**
+   * Where they are from, deduced from the high school. Separate from `state`
+   * because they are different facts and frequently different answers: a Stanford
+   * student from Georgia is both, and collapsing them loses the one that groups
+   * them with their cohort.
+   */
+  "homestate",
 ] as const;
 
 export type TagFacet = (typeof TAG_FACETS)[number];
@@ -66,6 +74,12 @@ export type TagDef = {
   cluster: Archetype | null;
   /** LinkedIn company/school id, when the vendor gave one. */
   linkedinId?: string;
+  /**
+   * Which US state a school is in. Only set on a college or high school, and the
+   * only reliable source of a home state — an education record carries no
+   * location and a school name rarely contains one.
+   */
+  state?: string;
   /**
    * False means "we know about it and it shows on the profile, but it scores
    * zero". Nothing enters the score without someone saying so.
@@ -149,6 +163,20 @@ const NOISE = new Set([
  * genuinely different things to some teams and collapsing years silently would
  * be a decision, not a normalisation.
  */
+/**
+ * The registry key for a label in a facet.
+ *
+ * Bare for almost everything, which is what lets one name resolve from any
+ * direction. Facet-qualified for the two geography facets, because they hold the
+ * same fifty labels and a bare key would make "California, currently" and
+ * "California, originally" the same entry.
+ */
+export function tagId(label: string, facet: TagFacet): string {
+  const base = normalizeKey(label);
+  if (!base) return "";
+  return facet === "state" || facet === "homestate" ? `${facet}:${base}` : base;
+}
+
 export function normalizeKey(label: string): string {
   const folded = label
     .normalize("NFKD")
@@ -195,6 +223,88 @@ export function similarity(a: string, b: string): number {
 
 /** Above this, two labels in one facet are treated as probably the same thing. */
 export const NEAR_DUPLICATE = 0.82;
+
+/* ── Containment ────────────────────────────────────────────────────────── */
+
+/**
+ * Whether `needle`'s tokens appear as a contiguous run inside `haystack`'s.
+ *
+ * Token-aligned rather than a raw substring test, because a raw one is wrong in
+ * both directions: "mit" appears inside "summit" and "harvard" inside
+ * "harvardwestlake". Comparing whole hyphen-separated tokens means "uc-berkeley"
+ * matches "uc-berkeley-management-entrepreneurship-technology" and nothing else.
+ *
+ * Contiguity matters too. "california-berkeley" must not match
+ * "california-santa-cruz-berkeley-extension" by finding its two words apart.
+ */
+export function containsTokens(haystack: string, needle: string): boolean {
+  if (!haystack || !needle) return false;
+  const h = haystack.split("-");
+  const n = needle.split("-");
+  if (n.length === 0 || n.length > h.length) return false;
+
+  outer: for (let i = 0; i + n.length <= h.length; i++) {
+    for (let k = 0; k < n.length; k++) if (h[i + k] !== n[k]) continue outer;
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Institutions whose name contains a shorter school's name but which are a
+ * different place entirely.
+ *
+ * This is the one real hazard of containment matching. "Stanford Online High
+ * School" is not Stanford, and "Michigan State" is not Michigan. The facet split
+ * catches the first — a high-school record is never matched against a college tag
+ * — but not the second, so the genuinely ambiguous ones are named here.
+ *
+ * Keyed on the normalised form of the *other* institution.
+ */
+const NOT_THE_SAME: Record<string, string[]> = {
+  michigan: ["michigan-state", "western-michigan", "eastern-michigan", "central-michigan"],
+  washington: ["washington-state", "washington-st-louis", "george-washington"],
+  miami: ["miami-ohio"],
+  berkeley: ["berkeley-city"],
+  "uc-berkeley": ["berkeley-city"],
+  brown: ["brown-mackie"],
+  columbia: ["columbia-southern", "columbia-basin"],
+};
+
+/**
+ * Resolve a label by containment, for schools only.
+ *
+ * A LinkedIn education record routinely wraps the school in a programme name:
+ * "UC Berkeley Management, Entrepreneurship, & Technology (M.E.T.) program". That
+ * is Berkeley, and an exact-key match will never see it.
+ *
+ * Restricted to colleges and high schools because it is only safe where the value
+ * names an institution. Applying it to companies would make "ex-Google intern"
+ * a Google role, and to titles would make every long role title match three tags.
+ *
+ * Longest label first, so a school whose name contains a shorter one resolves to
+ * the more specific of the two.
+ */
+function resolveByContainment(index: RegistryIndex, facet: TagFacet, key: string): TagDef | null {
+  if (facet !== "college" && facet !== "highschool") return null;
+
+  const peers = (index.byFacet.get(facet) ?? [])
+    .flatMap((def) => [normalizeKey(def.label), ...def.aliases].map((form) => ({ def, form })))
+    // A two-letter form is too generic to match on its own; anything longer is
+    // safe because matching is token-aligned. "mit" cannot fire inside "summit",
+    // so excluding short acronyms only lost MIT, NYU and JHU for no benefit.
+    .filter(({ form }) => form.length >= 3)
+    .sort((a, b) => b.form.length - a.form.length);
+
+  for (const { def, form } of peers) {
+    if (!containsTokens(key, form)) continue;
+    // A different institution that merely contains this name.
+    const excluded = NOT_THE_SAME[form] ?? [];
+    if (excluded.some((other) => containsTokens(key, other))) continue;
+    return def;
+  }
+  return null;
+}
 
 /* ── Resolution ─────────────────────────────────────────────────────────── */
 
@@ -256,7 +366,7 @@ export function resolveTag(
     if (hit) return { kind: "exact", def: hit };
   }
 
-  const id = normalizeKey(input.label);
+  const id = tagId(input.label, input.facet);
   if (!id) return { kind: "new", id };
 
   // 2. Canonical key, including aliases. A facet-qualified key would be more
@@ -266,13 +376,24 @@ export function resolveTag(
   const byKey = index.byKey.get(id);
   if (byKey && byKey.facet === input.facet) return { kind: "exact", def: byKey };
 
-  // 3. Near matches inside the same facet only. Across facets a high score is
+  // 3. Containment, schools only. An education record routinely wraps the school
+  // in a programme name, and that is still the school.
+  const contained = resolveByContainment(index, input.facet, normalizeKey(input.label));
+  if (contained) return { kind: "exact", def: contained };
+
+  // 4. Near matches inside the same facet only. Across facets a high score is
   // meaningless: "Analyst" the title and "Analysis" the major are unrelated.
+  const bare = normalizeKey(input.label);
   const peers = index.byFacet.get(input.facet) ?? [];
   const candidates = peers
     .map((def) => ({
       def,
-      score: Math.max(similarity(id, def.id), ...def.aliases.map((a) => similarity(id, a))),
+      // Bare on both sides: a facet prefix is identical across a facet's entries
+      // and would inflate every score toward the threshold.
+      score: Math.max(
+        similarity(bare, normalizeKey(def.label)),
+        ...def.aliases.map((a) => similarity(bare, a))
+      ),
     }))
     .filter((c) => c.score >= NEAR_DUPLICATE)
     .sort((a, b) => b.score - a.score)
@@ -341,13 +462,14 @@ export function mergeTags(reg: TagRegistry, fromId: string, intoId: string): Tag
  */
 export function seedRegistry(input: {
   programs: { label: string; aliases?: string[] }[];
-  colleges: { label: string; aliases?: string[] }[];
-  highSchools: { label: string; aliases?: string[] }[];
+  colleges: { label: string; aliases?: string[]; state?: string }[];
+  highSchools: { label: string; aliases?: string[]; state?: string }[];
   titles: { label: string; aliases?: string[] }[];
   majors: { label: string; aliases?: string[] }[];
   companies: { label: string; aliases?: string[] }[];
   startWeight: Record<string, number>;
   termCluster: Record<string, Archetype | null>;
+  states: Record<string, string>;
   facetDefaults: Record<TagFacet, number>;
 }): TagRegistry {
   const reg: TagRegistry = {};
@@ -356,9 +478,10 @@ export function seedRegistry(input: {
     label: string,
     facet: TagFacet,
     aliases: string[] = [],
-    weight?: number
+    weight?: number,
+    state?: string
   ) => {
-    const id = normalizeKey(label);
+    const id = tagId(label, facet);
     if (!id) return;
     const existing = reg[id];
     if (existing) {
@@ -376,16 +499,28 @@ export function seedRegistry(input: {
       aliases: [...new Set(aliases.map(normalizeKey))].filter((a) => a && a !== id),
       weight: clampWeight(weight ?? input.startWeight[label] ?? input.facetDefaults[facet]),
       cluster: input.termCluster[label] ?? null,
+      ...(state ? { state } : {}),
       promoted: true,
     };
   };
 
   for (const p of input.programs) add(p.label, "program", p.aliases);
+  /**
+   * Every US state, in both geography facets.
+   *
+   * Seeded rather than created on demand so the sweep menus and the taxonomy
+   * groups are populated before anyone from that state has been enriched — an
+   * empty "Home state" menu is not a searchable filter.
+   */
+  for (const [code, name] of Object.entries(input.states)) {
+    add(name, "state", [code]);
+    add(name, "homestate", [code]);
+  }
   // Written every which way in a headline — "Z-Fellow", "Z Fellows", "ZFellows" —
   // and the headline is usually the only place it appears.
   add("Z Fellow", "program", ["Z-Fellow", "Z Fellows", "ZFellows", "Z Fellowship"], 1.4);
-  for (const c of input.colleges) add(c.label, "college", c.aliases);
-  for (const h of input.highSchools) add(h.label, "highschool", h.aliases);
+  for (const c of input.colleges) add(c.label, "college", c.aliases, undefined, c.state);
+  for (const h of input.highSchools) add(h.label, "highschool", h.aliases, undefined, h.state);
   for (const t of input.titles) add(t.label, "title", t.aliases);
   for (const m of input.majors) add(m.label, "major", m.aliases);
   for (const c of input.companies) add(c.label, "company", c.aliases);

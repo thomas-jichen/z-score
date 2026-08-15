@@ -4,7 +4,8 @@ import Link from "next/link";
 import { useMemo, useState } from "react";
 import { useApp } from "@/components/AppState";
 import { hopAfter, neighborsFrom } from "@/lib/people";
-import { allTags } from "@/lib/tags";
+import { extractTags } from "@/lib/extract";
+import { allTags, schoolStateLookup } from "@/lib/tags";
 import { ARCHETYPES, archetypeLabel, formatSigma, type Archetype } from "@/lib/zscore";
 import {
   ArchetypeTag,
@@ -82,10 +83,22 @@ export function CandidateDetail({ slug }: { slug: string }) {
   const isSeed = c.discovery.length === 1 && c.discovery[0].kind === "seed";
   const e = person.enriched;
 
+  /**
+   * Where they are now and where they are from, as two rows.
+   *
+   * They are different facts and frequently different answers — a Stanford student
+   * from Georgia is both — and the home state is the one that groups someone with
+   * the cohort they actually came up through. Marked as inferred, because it is
+   * deduced from the high school rather than stated on the profile.
+   */
+  const geo = extractTags(person, schoolStateLookup(team.taxonomy)).tags;
+  const homeState = geo.find((t) => t.facet === "homestate")?.label;
+
   const details = [
     ["School", c.school],
     ["Class of", c.graduation_year],
     ["Location", c.location],
+    homeState ? ["Home state", `${homeState}, inferred`] : undefined,
     e?.connectionsCount !== undefined ? ["Connections", String(e.connectionsCount)] : undefined,
     e?.followerCount !== undefined ? ["Followers", String(e.followerCount)] : undefined,
     // Joining LinkedIn at 14 is itself a signal, so the date is worth showing.

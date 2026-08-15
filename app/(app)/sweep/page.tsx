@@ -34,9 +34,21 @@ const CATEGORIES: {
   { key: "colleges", label: "Colleges", facet: "college", builtIn: [] },
   { key: "highSchools", label: "High schools", facet: "highschool", builtIn: [] },
   { key: "years", label: "Class of", builtIn: GRAD_YEARS },
+  // Two geography menus, because where someone is and where they are from are
+  // different questions and often different answers.
+  { key: "states", label: "Current state", facet: "state", builtIn: [] },
+  { key: "homeStates", label: "Home state", facet: "homestate", builtIn: [] },
 ];
 
-const BLANK: Selection = { programs: [], titles: [], colleges: [], highSchools: [], years: [] };
+const BLANK: Selection = {
+  programs: [],
+  titles: [],
+  colleges: [],
+  highSchools: [],
+  years: [],
+  states: [],
+  homeStates: [],
+};
 
 /** One run's ceiling, matching the server. Keeps a wide hop from overspending. */
 const MAX_PER_RUN = 250;
@@ -124,8 +136,12 @@ export default function SweepPage() {
   useEffect(() => {
     if (loading || restored) return;
     if (state.lastSelection && !touched.current) {
-      selRef.current = state.lastSelection;
-      setSel(state.lastSelection);
+      // Filled in against BLANK, so a selection stored before a category existed
+      // arrives complete. Geography was added after people had already saved one,
+      // and reading a missing list crashed this screen on load.
+      const restoredSel = { ...BLANK, ...state.lastSelection };
+      selRef.current = restoredSel;
+      setSel(restoredSel);
     }
     if (state.seeds.length > 0 && !seedText) setSeedText(state.seeds.join("\n"));
     if (state.recentSlugs.length > 0) setSessionSlugs(state.recentSlugs);
@@ -177,11 +193,11 @@ export default function SweepPage() {
 
   function toggle(key: keyof Selection, option: string) {
     const cur = selRef.current;
+    // A stored selection written before this category existed has no list here.
+    const held = cur[key] ?? [];
     update({
       ...cur,
-      [key]: cur[key].includes(option)
-        ? cur[key].filter((x) => x !== option)
-        : [...cur[key], option],
+      [key]: held.includes(option) ? held.filter((x) => x !== option) : [...held, option],
     });
   }
 
@@ -199,7 +215,7 @@ export default function SweepPage() {
     if (all.some((t) => t.toLowerCase() === term.toLowerCase())) return;
     // Menu options are team-wide, like the taxonomy they feed.
     patchTeam({ customTerms: { ...team.customTerms, [key]: [...team.customTerms[key], term] } });
-    update({ ...selRef.current, [key]: [...selRef.current[key], term] });
+    update({ ...selRef.current, [key]: [...(selRef.current[key] ?? []), term] });
   }
 
   function removeTerm(key: keyof CustomTerms, term: string) {
@@ -209,7 +225,7 @@ export default function SweepPage() {
         [key]: team.customTerms[key].filter((t) => t !== term),
       },
     });
-    update({ ...selRef.current, [key]: selRef.current[key].filter((t) => t !== term) });
+    update({ ...selRef.current, [key]: (selRef.current[key] ?? []).filter((t) => t !== term) });
   }
 
   async function runSweep() {
@@ -538,8 +554,8 @@ export default function SweepPage() {
                 key={c.key}
                 label={c.label}
                 builtIn={c.facet ? (menuByFacet.get(c.facet) ?? []) : c.builtIn}
-                custom={team.customTerms[c.key]}
-                selected={sel[c.key]}
+                custom={team.customTerms[c.key] ?? []}
+                selected={sel[c.key] ?? []}
                 onToggle={(o) => toggle(c.key, o)}
                 onAdd={(t) => addTerm(c.key, t)}
                 onRemove={(t) => removeTerm(c.key, t)}
@@ -815,7 +831,7 @@ export default function SweepPage() {
                       style={{ flex: "none" }}
                       onClick={() => {
                         setMode("serp");
-                        update(s.selection);
+                        update({ ...BLANK, ...s.selection });
                         setHits(s.hits);
                         setPicked(new Set(tickable(s.hits.map((h) => h.slug))));
                         setRan(true);

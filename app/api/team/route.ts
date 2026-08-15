@@ -17,6 +17,7 @@ import {
   clampWeight,
   isTagFacet,
   normalizeKey,
+  tagId,
   type TagDef,
   type TagRegistry,
 } from "@/lib/tagRegistry";
@@ -134,7 +135,12 @@ function cleanTaxonomy(raw: Partial<TaxonomyPrefs>): TaxonomyPrefs {
     const def = (value ?? {}) as Partial<TagDef>;
     const label = str(def.label, TERM_LEN).trim();
     if (!label || !isTagFacet(def.facet)) continue;
-    const id = normalizeKey(label);
+    // Recomputed rather than trusted, so a client cannot write an id that
+    // disagrees with its own label. Must use the same rule as the registry: the
+    // geography facets hold the same fifty labels, so their keys carry the facet,
+    // and computing a bare key here silently merged "California the current state"
+    // with "California the home state".
+    const id = tagId(label, def.facet);
     if (!id || tags[id]) continue;
     tags[id] = {
       id,
@@ -146,6 +152,9 @@ function cleanTaxonomy(raw: Partial<TaxonomyPrefs>): TaxonomyPrefs {
       weight: clampWeight(Number(def.weight)),
       cluster: isArchetype(def.cluster) ? def.cluster : null,
       ...(str(def.linkedinId, 120) ? { linkedinId: str(def.linkedinId, 120) } : {}),
+      // A school's state, which is what makes a home state knowable. Dropping it
+      // here would have quietly emptied every home state on the next save.
+      ...(str(def.state, 60) ? { state: str(def.state, 60) } : {}),
       promoted: def.promoted === true,
     };
   }
@@ -198,5 +207,7 @@ function cleanTerms(raw: Partial<CustomTerms>): CustomTerms {
     colleges: strList(raw.colleges, MAX_MENU_ITEMS, TERM_LEN),
     highSchools: strList(raw.highSchools, MAX_MENU_ITEMS, TERM_LEN),
     years: strList(raw.years, 40, 8),
+    states: strList(raw.states, MAX_MENU_ITEMS, TERM_LEN),
+    homeStates: strList(raw.homeStates, MAX_MENU_ITEMS, TERM_LEN),
   };
 }
