@@ -6,7 +6,7 @@ import { useSearchParams } from "next/navigation";
 import { useApp } from "@/components/AppState";
 import { estimateCost, formatCost } from "@/lib/enrichment";
 import { allTags } from "@/lib/tags";
-import { emptyFilters, type BandThresholds, type QueueFilters } from "@/lib/state";
+import { emptyFilters, type QueueFilters } from "@/lib/state";
 import type { PersonStatus } from "@/lib/people";
 import {
   ARCHETYPES,
@@ -538,7 +538,7 @@ function QueueInner() {
                         enriching={job.phase === "running"}
                         tags={allTags(roster[c.slug], team.taxonomy).slice(0, 5)}
                         mark={marks[c.slug]}
-                        bands={bands}
+                        scoreMax={bands.exceptional}
                       />
                     ))}
                   </tbody>
@@ -550,7 +550,7 @@ function QueueInner() {
                   <div className="z-card" key={c.slug}>
                     <PersonCell candidate={c} />
                     <div className="z-row z-row-wrap" style={{ marginTop: "var(--z-space-4)", gap: "var(--z-space-2)" }}>
-                      <ZScoreBadge candidate={c} bands={bands} />
+                      <ZScoreBadge candidate={c} />
                       {c.polymath && <PolymathBadge clusters={c.secondary_archetypes} />}
                       <span className="z-spacer" />
                       <MarkControl
@@ -582,7 +582,7 @@ function Row({
   enriching,
   tags,
   mark,
-  bands,
+  scoreMax,
 }: {
   candidate: Candidate;
   checked: boolean;
@@ -594,7 +594,7 @@ function Row({
   enriching: boolean;
   tags: ReturnType<typeof allTags>;
   mark?: Parameters<typeof MarkControl>[0]["mark"];
-  bands: BandThresholds;
+  scoreMax: number;
 }) {
   const [editing, setEditing] = useState(false);
 
@@ -621,8 +621,8 @@ function Row({
       </td>
       <td>
         <span className="z-row" style={{ gap: "var(--z-space-4)" }}>
-          <ZScoreBadge candidate={c} bands={bands} showClass={false} />
-          <DeviationBar z={c.score} max={bands.exceptional} />
+          <ZScoreBadge candidate={c} showClass={false} />
+          <DeviationBar z={c.score} max={scoreMax} />
         </span>
         {/* Only offered while there is something to gain, so it disappears once
             this person is enriched rather than sitting there greyed out. */}

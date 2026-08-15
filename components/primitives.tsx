@@ -6,13 +6,11 @@ import {
   archetypeLabel,
   dominantSignals,
   formatSigma,
-  scoreBand,
   type Archetype,
   type Candidate,
   type Signal,
 } from "@/lib/zscore";
 import type { PersonMark, PersonStatus } from "@/lib/people";
-import type { BandThresholds } from "@/lib/state";
 import type { Tag } from "@/lib/tags";
 
 /* ── Button ─ derives from zfellows .new-button ─────────────────────────── */
@@ -148,12 +146,10 @@ export function SegmentedControl<T extends string>({
 
 export function ZScoreBadge({
   candidate,
-  bands,
   display,
   showClass = true,
 }: {
   candidate: Candidate;
-  bands: BandThresholds;
   display?: boolean;
   showClass?: boolean;
 }) {
@@ -161,7 +157,6 @@ export function ZScoreBadge({
   return (
     <span
       className={`z-score${display ? " is-display" : ""}`}
-      data-band={scoreBand(score, bands)}
       // Hollow while a person is known from search results alone. The score is
       // computed the same way with no discount; this says how much was read.
       data-thin={!candidate.enriched || undefined}

@@ -548,26 +548,13 @@ a.z-archetype:hover {
   font-weight: 500;
 }
 
-/* Blue is reserved for genuine outliers so the distribution reads at a glance */
-.z-score[data-band="exceptional"] .z-score-sigma {
-  color: var(--z-blue);
-  font-weight: 700;
-}
-.z-score[data-band="strong"] .z-score-sigma {
+/* One blue, at one weight.
+   Five band shades ranked a score against thresholds nobody had tuned, and the
+   result was a column of near-identical blues doing no work. The number itself
+   already says how high it is. */
+.z-score .z-score-sigma {
   color: var(--z-blue);
   font-weight: 600;
-}
-.z-score[data-band="above"] .z-score-sigma {
-  color: var(--z-ink-body);
-  font-weight: 600;
-}
-.z-score[data-band="mid"] .z-score-sigma {
-  color: var(--z-ink-mid);
-  font-weight: 500;
-}
-.z-score[data-band="below"] .z-score-sigma {
-  color: var(--z-ink-faint);
-  font-weight: 400;
 }
 
 .z-score.is-display .z-score-sigma {

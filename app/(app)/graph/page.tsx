@@ -318,7 +318,7 @@ export default function GraphPage() {
                     </div>
 
                     <div className="z-row z-row-wrap" style={{ gap: 6, marginTop: "var(--z-space-4)" }}>
-                      <ZScoreBadge candidate={selectedCandidate} bands={team.taxonomy.bands} />
+                      <ZScoreBadge candidate={selectedCandidate} />
                       {selectedCandidate.polymath && (
                         <PolymathBadge clusters={selectedCandidate.secondary_archetypes} />
                       )}
@@ -440,7 +440,7 @@ export default function GraphPage() {
                     {c.name}
                   </Link>
                   <div className="z-row z-row-wrap" style={{ marginTop: 6, gap: 6 }}>
-                    <ZScoreBadge candidate={c} bands={team.taxonomy.bands} />
+                    <ZScoreBadge candidate={c} />
                     {c.polymath && <PolymathBadge clusters={c.secondary_archetypes} />}
                   </div>
                   <div className="z-row z-row-wrap" style={{ marginTop: 6, gap: 4 }}>

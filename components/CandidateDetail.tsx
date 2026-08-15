@@ -119,7 +119,7 @@ export function CandidateDetail({ slug }: { slug: string }) {
 
       {/* Hero. The score is the headline, the name is second. */}
       <div style={{ margin: "var(--z-space-8) 0 var(--z-space-12)" }}>
-        <ZScoreBadge candidate={c} bands={team.taxonomy.bands} display />
+        <ZScoreBadge candidate={c} display />
         <h1 className="z-h1" style={{ marginTop: "var(--z-space-4)" }}>
           {c.name}
         </h1>

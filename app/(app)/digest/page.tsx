@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useRef } from "react";
 import { useApp } from "@/components/AppState";
-import { archetypeLabel, dominantSignals, formatSigma, scoreBand } from "@/lib/zscore";
+import { archetypeLabel, dominantSignals, formatSigma } from "@/lib/zscore";
 import { EmptyState, MarkControl, PolymathBadge, type MarkChange } from "@/components/primitives";
 
 /**
@@ -108,7 +108,6 @@ export default function DigestPage() {
                             {isNew(c.surfaced_at) && <span className="z-badge-new">new</span>}
                             <div
                               className="z-score"
-                              data-band={scoreBand(c.score, team.taxonomy.bands)}
                               data-thin={!c.enriched || undefined}
                               style={{ marginTop: 6 }}
                             >

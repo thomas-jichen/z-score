@@ -6,6 +6,30 @@ Standing rules for this project and future ones. Tokens live in
 Target: VC-backed and premium. The bar is what leading engineers at Apple or Anthropic would
 ship. Sleek, polished, seamlessly natural to use. Something a user wants to come back to.
 
+## The brief, in one place
+
+**Function first, then subtract.** The design serves what the screen is for. Once it does,
+remove everything that is not carrying weight. A congested screen is a failed screen, however
+much it explains.
+
+**Essential text only.** Explanatory paragraphs on a working surface are a smell. If a control
+needs a sentence to be understood, the control is wrong. Keep a label; delete the lecture. Copy
+that narrates what the user can already see is the first thing to cut.
+
+**Whitespace is the primary material.** Not borders, not fills, not rules. When something feels
+cluttered the answer is almost always less content, not tighter spacing.
+
+**No generic text or generic design, ever.** No placeholder-sounding headings, no "Overview",
+no explanatory preamble, no stock arrangement of cards because that is how dashboards look.
+If a solution reads as the obvious default, it probably is, and it is probably wrong.
+
+**Break convention where convention is mediocre.** Full creative licence is expected, not
+tolerated. A screen that is unlike anything else and obviously right beats a screen that is
+familiar and unremarkable.
+
+**Fluidity is part of the product.** State changes should feel continuous and intentional. The
+UI should be pleasant to operate, not merely correct — that is what makes someone return to it.
+
 ## Hard bans
 
 These are the tells that make a page read as machine-generated. No exceptions.

@@ -267,10 +267,6 @@ export default function TaxonomyPage() {
               <p className="z-label is-quiet">Unmatched, but notable</p>
             </div>
             <Card size="lg">
-              <p className="z-small" style={{ marginBottom: "var(--z-space-4)" }}>
-                Terms the tagger read off profiles that are not in the taxonomy yet, so they carry no
-                weight.
-              </p>
 
               {promoting ? (
                 <PromoteForm
@@ -513,7 +509,7 @@ function TagRegistryEditor({
   holders: Map<string, number>;
   onPatch: (tags: TagRegistry) => void;
 }) {
-  const [open, setOpen] = useState<TagFacet | null>("company");
+  const [open, setOpen] = useState<TagFacet | null>(null);
   const [draft, setDraft] = useState<Record<string, number>>({});
 
   const byFacet = useMemo(() => {
@@ -553,15 +549,6 @@ function TagRegistryEditor({
 
   return (
     <div>
-      <p className="z-small" style={{ marginBottom: "var(--z-space-4)", maxWidth: "62ch" }}>
-        Everything the score is made of. Most are read straight off structured profile fields, so
-        they are exact rather than inferred, and each one scores only once it is switched on.
-        <span className="z-micro" style={{ display: "block", marginTop: "var(--z-space-2)" }}>
-          {Object.keys(registry).length} in the registry. These are also the options the sweep
-          menus offer.
-        </span>
-      </p>
-
       <div className="z-stack" style={{ gap: "var(--z-space-3)" }}>
         {TAG_FACETS.map((facet) => {
           const list = byFacet.get(facet) ?? [];
@@ -739,14 +726,7 @@ function Calibration({
 
   return (
     <div>
-      <div className="z-col-head">
-        <p className="z-label is-quiet">Calibration</p>
-      </div>
       <Card size="lg">
-        <p className="z-small" style={{ marginBottom: "var(--z-space-5)" }}>
-          The score is the sum of every tag switched on, plus the counts below. Nothing else.
-        </p>
-
         <p className="z-label is-quiet">Counts</p>
         {COUNT_KINDS.map((kind) => {
           const rule = taxonomy.counts[kind];
@@ -795,35 +775,6 @@ function Calibration({
             </div>
           );
         })}
-        <p className="z-micro" style={{ marginTop: "var(--z-space-3)" }}>
-          The cap is what stops a padded profile out-scoring a strong one. Set the points to zero to
-          stop counting a category entirely.
-        </p>
-
-        <p className="z-label is-quiet" style={{ marginTop: "var(--z-space-6)" }}>
-          Colour bands
-        </p>
-        {(["exceptional", "strong", "above", "mid"] as const).map((band) => (
-          <div className="z-breakdown-row" key={band}>
-            <span className="z-small" style={{ textTransform: "capitalize" }}>
-              {band}
-            </span>
-            <input
-              className="z-input"
-              type="number"
-              min={0}
-              step={0.5}
-              value={taxonomy.bands[band]}
-              onChange={(e) =>
-                onPatch({
-                  bands: { ...taxonomy.bands, [band]: num(e.target.value, taxonomy.bands[band]) },
-                })
-              }
-              aria-label={`${band} threshold`}
-              style={{ width: 74, padding: "4px 6px", fontSize: "var(--z-fs-micro)" }}
-            />
-          </div>
-        ))}
 
         <div className="z-breakdown-row" style={{ marginTop: "var(--z-space-5)" }}>
           <span className="z-small">Polymath, points in two clusters</span>
