@@ -106,7 +106,16 @@ export type TagRegistry = Record<string, TagDef>;
 /** Bounds the shared document. Far above any realistic vocabulary. */
 export const MAX_TAGS = 4000;
 export const MIN_WEIGHT = 0;
-export const MAX_WEIGHT = 5;
+/**
+ * The ceiling on a single tag, and it is deliberately low.
+ *
+ * Nothing should be able to out-vote everything else. With the whole table repriced
+ * so that the strongest person in a real roster lands near 10, a ceiling of 5 meant
+ * two tags could account for a top score — and made the taxonomy slider spend most
+ * of its travel in a range no tag should ever occupy. Two is the top of the scale
+ * and the slider now has resolution across all of it.
+ */
+export const MAX_WEIGHT = 2;
 
 export function clampWeight(n: number): number {
   if (!Number.isFinite(n)) return 0;

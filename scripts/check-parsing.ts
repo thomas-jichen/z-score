@@ -34,6 +34,7 @@ import {
   unmatchedTerms,
 } from "../lib/tags";
 import { extractTags, inferHomeState } from "../lib/extract";
+import { cleanTaxonomy } from "../lib/team";
 import { START_WEIGHT, assignCluster, round } from "../lib/clusters";
 import {
   containsTokens,
@@ -677,28 +678,53 @@ console.log("\nhydrateTeam — a stored registry keeps up with the seed lists");
    * tuning. Without the second, a deliberate whole-table recalibration only ever
    * applies to documents nobody has written yet, which is no recalibration at all.
    */
-  const tuned = (seedVersion?: number) =>
-    hydrateTeam({
-      taxonomy: {
-        ...emptyTeam().taxonomy,
-        seedVersion,
-        tags: {
-          "jane-street": {
-            id: "jane-street",
-            label: "Jane Street",
-            facet: "company",
-            aliases: [],
-            weight: 3.3,
-            cluster: "quant",
-            promoted: true,
-          },
-        },
+  // A weight nobody's seed table would produce, so it can only survive by being kept.
+  const handTuned = (seedVersion?: number, weight = 1.9): Partial<TaxonomyPrefs> => ({
+    ...emptyTeam().taxonomy,
+    seedVersion,
+    tags: {
+      "jane-street": {
+        id: "jane-street",
+        label: "Jane Street",
+        facet: "company",
+        aliases: [],
+        weight,
+        cluster: "quant",
+        promoted: true,
       },
-    } as Parameters<typeof hydrateTeam>[0]).taxonomy.tags["jane-street"].weight;
+    },
+  });
 
-  check("a current document keeps its own weight", tuned(SEED_VERSION), 3.3);
-  check("a stale one adopts the recalibration", tuned(undefined), 0.7);
+  const weightAfterRead = (tax: Partial<TaxonomyPrefs>) =>
+    hydrateTeam({ taxonomy: tax } as Parameters<typeof hydrateTeam>[0]).taxonomy.tags[
+      "jane-street"
+    ].weight;
+
+  check("a current document keeps its own weight", weightAfterRead(handTuned(SEED_VERSION)), 1.9);
+  check("a stale one adopts the recalibration", weightAfterRead(handTuned(undefined)), 0.7);
   check("and is marked so it only happens once", stale.taxonomy.seedVersion, SEED_VERSION);
+
+  /**
+   * The marker has to survive a save, or "once" becomes "every time".
+   *
+   * `cleanTaxonomy` rebuilds the document field by field, so a field it forgets is a
+   * field the save deletes — and it did forget this one. The next read would then
+   * re-run the recalibration and overwrite exactly the weights the client had just
+   * finished tuning, on every save. Round-tripped through the real validator, with a
+   * weight no seed table produces, so only keeping it can make this pass.
+   */
+  check(
+    "a tuned weight survives a save",
+    weightAfterRead(cleanTaxonomy(handTuned(SEED_VERSION))),
+    1.9
+  );
+
+  // Nothing may out-vote everything else, on the way in as well as in the seeds.
+  check(
+    "and a weight above the ceiling is clamped, not stored",
+    cleanTaxonomy(handTuned(SEED_VERSION, 4.5)).tags["jane-street"].weight,
+    2
+  );
   // One key, one tag — checked on the alias that actually moved. A blanket sweep
   // would fail on the state pairs, where "CA" is deliberately an alias of both
   // California-now and California-home: those ids are facet-qualified and the
@@ -1146,7 +1172,7 @@ console.log("\ncapped counts");
   few.enriched!.projects = [{ title: "One" }, { title: "Two" }];
   const f = scoreOne(few, TAX);
   const prow = f.signals.find((s) => s.label.includes("project"))!;
-  check("under the cap, everything counts", prow.points, 0.3);
+  check("under the cap, everything counts", prow.points, 0.4);
   check("and the label is plain", prow.label, "2 projects");
 }
 

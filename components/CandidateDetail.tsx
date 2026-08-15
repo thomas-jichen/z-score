@@ -103,7 +103,10 @@ export function CandidateDetail({ slug }: { slug: string }) {
     e?.followerCount !== undefined ? ["Followers", String(e.followerCount)] : undefined,
     // Joining LinkedIn at 14 is itself a signal, so the date is worth showing.
     e?.registeredAt ? ["On LinkedIn since", e.registeredAt.slice(0, 4)] : undefined,
-  ].filter(Boolean) as [string, string][];
+    // A row whose value is absent is dropped, not rendered as a dangling label. Half
+    // the roster has no knowable class year, and "Class of" followed by nothing reads
+    // as a bug rather than as an unknown.
+  ].filter((row): row is [string, string] => Boolean(row && row[1]));
 
   // Was "clears +0.5σ". Now "reaches the polymath threshold in points", set in
   // the taxonomy, because there is no sigma left to clear.

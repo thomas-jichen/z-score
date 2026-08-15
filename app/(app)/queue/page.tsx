@@ -5,7 +5,6 @@ import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { useApp } from "@/components/AppState";
 import { estimateCost, formatCost } from "@/lib/enrichment";
-import { allTags } from "@/lib/tags";
 import { emptyFilters, type QueueFilters } from "@/lib/state";
 import type { PersonStatus } from "@/lib/people";
 import {
@@ -24,7 +23,6 @@ import {
   PersonCell,
   Pill,
   PolymathBadge,
-  TagChip,
   ZScoreBadge,
   type MarkChange,
 } from "@/components/primitives";
@@ -335,13 +333,27 @@ function QueueInner() {
               style={{ maxWidth: 260, padding: "7px 10px", fontSize: "var(--z-fs-small)" }}
               aria-label="Search the queue"
             />
-            <button
-              className="z-linkish"
-              onClick={() => setSort(sort === "score" ? "recent" : "score")}
-              title="Change the sort order"
-            >
-              {sort === "score" ? "By score" : "By recency"}
-            </button>
+            {/* A single button labelled "By score" cannot say whether that is the
+                current state or the thing clicking it does. Two states, both
+                visible, and no reading required. */}
+            <div className="z-segmented">
+              <button
+                className="z-segment"
+                aria-pressed={sort === "score"}
+                onClick={() => setSort("score")}
+                title="Highest scoring first"
+              >
+                Score
+              </button>
+              <button
+                className="z-segment"
+                aria-pressed={sort === "recent"}
+                onClick={() => setSort("recent")}
+                title="Most recently surfaced first"
+              >
+                Newest
+              </button>
+            </div>
           </div>
 
           {/* Filters stay collapsed. Six control groups laid flat is clutter;
@@ -512,8 +524,7 @@ function QueueInner() {
                       </th>
                       <th>Person</th>
                       <th style={{ width: 200 }}>Z-score</th>
-                      <th style={{ width: 170 }}>Cluster</th>
-                      <th style={{ width: 70 }}>Class</th>
+                      <th className="z-cell-cluster">Cluster</th>
                       <th style={{ width: 120 }} />
                     </tr>
                   </thead>
@@ -536,7 +547,16 @@ function QueueInner() {
                         onCluster={setCluster}
                         onEnrich={() => enrich([c.slug], { kind: "seed", hop: 0 })}
                         enriching={job.phase === "running"}
-                        tags={allTags(roster[c.slug], team.taxonomy).slice(0, 5)}
+                        /**
+                         * The signals that actually built the number, biggest first.
+                         *
+                         * This used to be the first five tags of any kind, so a row
+                         * could show "Mathematics" and "Computer Science" — worth 0.1
+                         * each — while the Z Fellowship that earned most of the score
+                         * sat off the end. Reading a row should explain the figure
+                         * next to it.
+                         */
+                        signals={c.signals.filter((x) => x.points > 0)}
                         mark={marks[c.slug]}
                         scoreMax={bands.exceptional}
                       />
@@ -580,7 +600,7 @@ function Row({
   onCluster,
   onEnrich,
   enriching,
-  tags,
+  signals,
   mark,
   scoreMax,
 }: {
@@ -592,7 +612,7 @@ function Row({
   onCluster: (slug: string, cluster: Archetype | null) => void;
   onEnrich: () => void;
   enriching: boolean;
-  tags: ReturnType<typeof allTags>;
+  signals: Candidate["signals"];
   mark?: Parameters<typeof MarkControl>[0]["mark"];
   scoreMax: number;
 }) {
@@ -610,12 +630,33 @@ function Row({
         />
       </td>
       <td>
-        <PersonCell candidate={c} />
-        {tags.length > 0 && (
-          <span className="z-row z-row-wrap" style={{ gap: 4, marginTop: 6 }}>
-            {tags.map((t) => (
-              <TagChip key={`${t.kind}-${t.label}`} tag={t} />
+        <PersonCell candidate={c} year={c.graduation_year} />
+        {signals.length > 0 && (
+          /* Three, and then a count. Four fitted until the cluster column widened to
+             hold its badge, and a row that wraps to four lines stops being scannable
+             — which is the only thing this list has to be. The rest is one click
+             away on the profile, in full. */
+          <span className="z-row" style={{ gap: 4, marginTop: 6 }}>
+            {signals.slice(0, 3).map((sg) => (
+              <span className="z-sig" key={sg.id} title={`${sg.label} contributes ${sg.points}`}>
+                {/* The label is what gets truncated, never the number. Bounding the
+                    whole chip clipped the figure instead — "Olentangy Liberty High
+                    School 0" for a signal worth 0.3, which is worse than no number. */}
+                <span className="z-sig-label">{sg.label}</span>
+                <span className="z-sig-n">{sg.points}</span>
+              </span>
             ))}
+            {signals.length > 3 && (
+              <span
+                className="z-sig-more"
+                title={signals
+                  .slice(3)
+                  .map((sg) => `${sg.label} ${sg.points}`)
+                  .join(", ")}
+              >
+                +{signals.length - 3}
+              </span>
+            )}
           </span>
         )}
       </td>
@@ -638,7 +679,11 @@ function Row({
           </button>
         )}
       </td>
-      <td>
+      {/* `z-cell-cluster` refuses to wrap, and the row inside it must not either: a
+          wrapping flex container ignores the cell's `white-space`, which is what kept
+          stacking the Polymath badge under the cluster instead of letting the column
+          take the width it needs. */}
+      <td className="z-cell-cluster">
         {editing ? (
           <select
             className="z-input"
@@ -659,7 +704,7 @@ function Row({
             ))}
           </select>
         ) : (
-          <span className="z-row z-row-wrap" style={{ gap: 4 }}>
+          <span className="z-row" style={{ gap: 4 }}>
             <ArchetypeTag archetype={c.archetype} href={`/queue?archetype=${c.archetype}`} />
             {c.polymath && <PolymathBadge clusters={c.secondary_archetypes} />}
             <button
@@ -673,7 +718,6 @@ function Row({
           </span>
         )}
       </td>
-      <td className="z-num">{c.graduation_year ?? ""}</td>
       <td>
         <MarkControl slug={c.slug} mark={mark} onChange={onMark} />
       </td>

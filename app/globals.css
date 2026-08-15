@@ -820,10 +820,79 @@ a.z-archetype:hover {
   display: block;
   font-size: var(--z-fs-micro);
   color: var(--z-ink-faint);
-  max-width: 34ch;
+  /* Was 34ch, which cut most headlines mid-word in a table with room to spare. */
+  max-width: 52ch;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* Name and class year on one baseline. The name is a block on its own elsewhere,
+   so the row is what makes them sit together rather than stack. */
+.z-person-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--z-space-2);
+  min-width: 0;
+}
+
+.z-person-head .z-person-name {
+  display: inline;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Class year, set as a quiet companion to the name rather than a column. */
+.z-person-year {
+  font-size: var(--z-fs-micro);
+  font-variant-numeric: tabular-nums;
+  color: var(--z-ink-faint);
+  flex: none;
+}
+
+/**
+ * A signal chip: what the score is made of, with what it was worth.
+ *
+ * Deliberately carries its number. The row's whole job is to be scannable, and a
+ * label alone leaves you to guess whether "Stanford" or "Z Fellow" is doing the work.
+ */
+.z-sig {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  padding: 1px 7px 1px 8px;
+  border-radius: var(--z-r-pill);
+  border: 1px solid var(--z-border-soft);
+  background: var(--z-surface);
+  color: var(--z-ink-mid);
+  font-size: var(--z-fs-micro);
+  line-height: 1.5;
+  white-space: nowrap;
+  max-width: 26ch;
+}
+
+.z-sig-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.z-sig-n {
+  font-variant-numeric: tabular-nums;
+  color: var(--z-blue);
+  font-weight: 500;
+  flex: none;
+}
+
+/* How much is not shown. Hover names it, so nothing is hidden without a way back. */
+.z-sig-more {
+  font-size: var(--z-fs-micro);
+  color: var(--z-ink-faint);
+  font-variant-numeric: tabular-nums;
+  padding: 1px 2px;
+  cursor: default;
+  flex: none;
 }
 
 /* ── States ────────────────────────────────────────────────────────────── */
@@ -981,6 +1050,12 @@ a.z-archetype:hover {
 .z-count {
   color: var(--z-ink-faint);
   font-variant-numeric: tabular-nums;
+}
+
+/* Faint grey on a blue pill is invisible, which hid the one count that matters —
+   how many people are in the queue — on the tab that is always selected. */
+.z-pill.is-active .z-count {
+  color: #ffffffb3;
 }
 
 /* Generous page rhythm. Whitespace carries hierarchy here, not rules. */
@@ -1251,9 +1326,13 @@ a.z-archetype:hover {
   font-size: var(--z-fs-micro);
   line-height: 1.5;
   white-space: nowrap;
-  max-width: 18ch;
+  max-width: 22ch;
+}
+
+.z-tag-label {
   overflow: hidden;
   text-overflow: ellipsis;
+  min-width: 0;
 }
 
 /* Read off a profile by the tagger but not yet promoted, so it carries no
@@ -1776,6 +1855,14 @@ tr[data-pinned] td:first-child {
 .z-lead[aria-pressed="true"] .z-lead-n {
   background: #ffffff;
   color: var(--z-blue);
+}
+
+/* The cluster and the Polymath badge belong on one line. Letting the cell refuse to
+   wrap makes the column take the width it needs instead of stacking two pills, which
+   is the awkward look the badge was resized to avoid in the first place. */
+.z-table td.z-cell-cluster,
+.z-table th.z-cell-cluster {
+  white-space: nowrap;
 }
 
 .z-legend-dot {

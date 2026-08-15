@@ -200,7 +200,9 @@ export function defaultCounts(): CountRules {
      * noticeably because for a nineteen-year-old it should.
      */
     experience: { points: 0.1, cap: 6 },
-    project: { points: 0.15, cap: 4 },
+    // One decimal, because that is all a weight can hold: `clampWeight` rounds to
+    // a tenth, so a stored 0.15 silently became 0.2 the first time anyone saved.
+    project: { points: 0.2, cap: 3 },
     publication: { points: 0.4, cap: 3 },
     patent: { points: 0.5, cap: 2 },
     /**

@@ -322,7 +322,10 @@ export function TagChip({ tag, onRemove }: { tag: Tag; onRemove?: () => void }) 
       data-unconfirmed={!tag.confirmed || undefined}
       title={title}
     >
-      {tag.label}
+      {/* The label needs its own box. `text-overflow` cannot apply to a bare text
+          node inside an inline-flex, so a long tag was cut mid-word with no ellipsis
+          to say so — "Electrical Engineering ar". */}
+      <span className="z-tag-label">{tag.label}</span>
       {onRemove && (
         <button
           type="button"
@@ -364,14 +367,32 @@ export function Avatar({ name, size }: { name: string; size?: "lg" }) {
   );
 }
 
-export function PersonCell({ candidate, sub }: { candidate: Candidate; sub?: React.ReactNode }) {
+export function PersonCell({
+  candidate,
+  sub,
+  year,
+}: {
+  candidate: Candidate;
+  sub?: React.ReactNode;
+  /**
+   * Class year, set beside the name rather than in a column of its own.
+   *
+   * Half a roster has no knowable year — nothing on their education rows is dated —
+   * so a dedicated column was mostly an empty stripe with a heading over it. Next to
+   * the name it simply is not there when it is not known.
+   */
+  year?: string;
+}) {
   return (
     <span className="z-person">
       <Avatar name={candidate.name} />
       <span style={{ minWidth: 0 }}>
-        <Link href={`/candidate/${candidate.slug}`} className="z-person-name">
-          {candidate.name}
-        </Link>
+        <span className="z-person-head">
+          <Link href={`/candidate/${candidate.slug}`} className="z-person-name">
+            {candidate.name}
+          </Link>
+          {year && <span className="z-person-year">{year}</span>}
+        </span>
         <span className="z-person-sub">{sub ?? candidate.headline}</span>
       </span>
     </span>
