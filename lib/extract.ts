@@ -253,6 +253,40 @@ function backerInCompanyName(company: string): string | null {
   return null;
 }
 
+/**
+ * The organisation's name, without the tagline people append to it.
+ *
+ * LinkedIn company names routinely carry one: "NASA - National Aeronautics and Space
+ * Administration", "Kairos | Infrastructure for Performance Content". The whole
+ * string matches nothing, so a research post at NASA scored the same as no job at
+ * all. Only the leading segment is taken, and only when what is left still looks like
+ * a name — containment would be the general fix and is far too dangerous on company
+ * names, where "ex-Google intern" must not become a Google role.
+ */
+function orgName(raw: string): string {
+  const head = raw.split(/\s+[-–—|:]\s+/)[0].trim();
+  return head.length >= 2 ? head : raw.trim();
+}
+
+/**
+ * A company that has taken money, in the words founders use to say so.
+ *
+ * Deliberately narrow. "Raised" alone catches "raised awareness"; these are phrases
+ * that only appear when there is a cheque behind them.
+ */
+const IS_FUNDED =
+  /\bbacked by\b|\bfunded by\b|\braised \$|\bpre-?seed\b|\bseed round\b|\bseries [abc]\b|\bventure-backed\b/i;
+
+/**
+ * A top placing, as people actually write one.
+ *
+ * "Finalist", "semifinalist" and "qualifier" are deliberately absent: reaching a
+ * final is already what the competition's own tag means, and treating it as a win is
+ * the mistake this exists to correct.
+ */
+const TOP_PLACING =
+  /\b(1st|2nd|3rd|first|second|third)\s+place\b|\bgrand (award|prize)\b|\b(gold|silver|bronze)\s+medal(l?ist)?\b|\bchampion\b|\bbest in\b|\bwinner\b|\bwon\b/i;
+
 /** The facets an organisation on a profile can turn out to be. */
 export type OrgFacet = "company" | "startup" | "lab" | "club" | "accelerator";
 
@@ -266,8 +300,17 @@ export type OrgLookup = (name: string, guess: OrgFacet) => OrgFacet;
 const LAB_WORDS = /\b(lab|labs|laborator(y|ies)|research (group|centre|center|institute|lab))\b/i;
 const CLUB_WORDS =
   /\b(club|society|association|chapter|council|fraternity|sorority|student government|student union|entrepreneurs?|ases|bases)\b/i;
-/** Founding roles: the person is the company, so the company's facts are theirs. */
-export const FOUNDING_ROLE = /\b(founder|co-?founder|founding|ceo|cto|chief executive)\b/i;
+/**
+ * Actually founded it, as opposed to arriving early.
+ *
+ * "Founding" on its own is deliberately not here. "Founding Growth and Operations
+ * Manager" is employee number five, and reading it as a founder handed Jacob Lee the
+ * full 2.0 for Y Combinator off a job at a YC company — putting an early hire level
+ * with the people who got into the batch. Being early at a good startup is a real
+ * signal and it is scored as one: the company, not the accelerator.
+ */
+export const FOUNDING_ROLE =
+  /\b(founder|co-?founder|founding (partner|member))\b|\b(ceo|cto)\b|\bchief (executive|technology)\b/i;
 
 /**
  * What kind of organisation this is, from its name and the role held there.
@@ -353,16 +396,27 @@ export function extractTags(
   /* Companies and the roles held at them. */
   for (const x of e.experience) {
     if (x.company) {
-      const facet = orgLookup(x.company, classifyOrg(x.company, x.title));
+      const name = orgName(x.company);
+      const facet = orgLookup(name, classifyOrg(name, x.title));
       push(tags, seen, {
-        label: x.company,
+        label: name,
         facet,
         // Only a real employer has a canonical LinkedIn company id worth trusting as
         // an identity; a lab or a club shares its page with the university.
         ...(facet === "company" || facet === "startup" ? { linkedinId: x.companyId } : {}),
       });
+      /**
+       * The batch belongs to the founders.
+       *
+       * "(YC S24)" in a company name says the company got in, and for a founder that
+       * is the same statement about them. For an early employee it is a statement
+       * about their employer — worth something, but not the 2.0 that being selected
+       * by Y Combinator is worth. They still get the company as a startup tag.
+       */
       const backer = backerInCompanyName(x.company);
-      if (backer) push(tags, seen, { label: backer, facet: "accelerator" });
+      if (backer && FOUNDING_ROLE.test(x.title ?? "")) {
+        push(tags, seen, { label: backer, facet: "accelerator" });
+      }
     }
     for (const part of splitCompound(x.title)) {
       const known = seedsIn(part, TITLES);
@@ -393,6 +447,44 @@ export function extractTags(
   if (counts.publication > 0) push(tags, seen, { label: "Published", facet: "flag" });
   if (counts.patent > 0) push(tags, seen, { label: "Patent holder", facet: "flag" });
   if ((e.featured ?? []).length > 0) push(tags, seen, { label: "Has a site", facet: "flag" });
+
+  /**
+   * Won it, rather than went to it.
+   *
+   * The taxonomy has one tag per competition, so "ISEF — 2nd Place Grand Award in
+   * Physics & Astronomy" and "ISEF Finalist" score identically, and the difference
+   * between them is most of what a reader cares about. This is the tier, carried as
+   * one flag: it costs one calibratable row instead of a second tag per competition,
+   * and it stacks with the competition's own weight, so placing at ISEF beats placing
+   * at a weekend hackathon by exactly the gap between the two events.
+   *
+   * Read from honours only. A placing named in prose about a company is marketing.
+   */
+  if (e.honors.some((h) => TOP_PLACING.test(`${h.title} ${h.description ?? ""}`))) {
+    push(tags, seen, { label: "Competition winner", facet: "flag" });
+  }
+
+  /**
+   * Founded something that investors put money into.
+   *
+   * Two facts live in one line of a profile — getting into the batch, and building the
+   * company that got in — and only the first was scored. So a YC founder whose profile
+   * says little else sat below someone with a science-fair award and a pile of
+   * hackathons, which is backwards for a tool that exists to find people worth
+   * funding. The accelerator tag is the filter they cleared; this is the company they
+   * built, and it is the fact this whole product is looking for.
+   *
+   * An early employee at the same company gets neither, which is the point.
+   */
+  if (
+    e.experience.some(
+      (x) =>
+        FOUNDING_ROLE.test(x.title ?? "") &&
+        (backerInCompanyName(x.company ?? "") !== null || IS_FUNDED.test(x.description ?? ""))
+    )
+  ) {
+    push(tags, seen, { label: "Funded founder", facet: "flag" });
+  }
 
   /* Cohort and geography. */
   const year = e.gradYear ?? p.gradYear;

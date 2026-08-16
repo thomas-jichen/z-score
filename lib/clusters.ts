@@ -112,10 +112,8 @@ export const TERM_CLUSTER: Record<string, Archetype | null> = {
   IPhO: "quant",
   IChO: "quant",
   MOP: "quant",
-  AIME: "quant",
-  "Science Bowl": "quant",
-  "Science Olympiad": "research",
   "Breakthrough Junior Challenge": "research",
+  "ISEF Grand Award": "research",
   IBO: "research",
   // Builder
   "Hack Club": "builder",
@@ -124,12 +122,6 @@ export const TERM_CLUSTER: Record<string, Archetype | null> = {
   TreeHacks: "builder",
   CalHacks: "builder",
   HackMIT: "builder",
-  PennApps: "builder",
-  "Hack the North": "builder",
-  HackHarvard: "builder",
-  MHacks: "builder",
-  "LA Hacks": "builder",
-  "Congressional App Challenge": "builder",
   /**
    * Founder — and every accelerator votes here.
    *
@@ -153,6 +145,7 @@ export const TERM_CLUSTER: Record<string, Archetype | null> = {
   Techstars: "founder",
   Antler: "founder",
   "Emergent Ventures": "founder",
+  "Funded founder": "founder",
   // Operator
   "Coca-Cola Scholar": "operator",
   TASP: "operator",
@@ -213,7 +206,8 @@ export const START_WEIGHT: Record<string, number> = {
   "Entrepreneur First": 0.9,
   Techstars: 0.7,
   Antler: 0.6,
-  buildspace: 0.5,
+  // Open enrolment, tens of thousands of people.
+  buildspace: 0.2,
 
   /* ── Competitions and programmes ──────────────────────────────────────── */
   // International olympiad: a few hundred people on earth per year.
@@ -239,7 +233,7 @@ export const START_WEIGHT: Record<string, number> = {
   STS: 1.2,
   "MIT PRIMES": 1.4,
   "Davidson Fellow": 1.3,
-  "Presidential Scholar": 0.9,
+  "Presidential Scholar": 0.5,
   Rise: 1.2,
   "Coolidge Scholar": 1.2,
   // Qualifying *is* the achievement here — a few hundred people a year.
@@ -255,42 +249,43 @@ export const START_WEIGHT: Record<string, number> = {
   "Simons Fellow": 0.9,
   // The semifinal round, which is what a profile usually names. The national teams
   // are IPhO and IBO above, at 2.0.
-  USAPhO: 0.8,
-  USABO: 0.8,
+  USAPhO: 0.5,
+  USABO: 0.5,
   "Garcia Program": 0.8,
   // ~1,800 finalists a year. Real, and not in the same class as MOP.
-  ISEF: 0.8,
+  ISEF: 0.6,
   "Coca-Cola Scholar": 0.7,
   QuestBridge: 0.6,
   /**
-   * Hackathons and open competitions, priced for the median person who lists one.
+   * Hackathons, priced as the activities they are.
    *
-   * TreeHacks admits ~1,500 of several thousand and winning a track is a few dozen
-   * people; one tag covers both, so it sits between. The open-entry ones — DECA,
-   * FBLA, Science Olympiad — are large enough that listing them says little on its
-   * own, and they are here mainly so they stop arriving in the review queue every
-   * time somebody new is enriched.
+   * A weekend build is not a filter someone cleared. At 0.5 each, a profile listing
+   * four of them out-scored a Regeneron STS scholar, which is how a strong builder
+   * ended up third on a list of research prodigies and founders. The winning tier is
+   * carried by the Competition winner flag instead, so placing at ISEF and placing at
+   * a hackathon differ by exactly the gap between the two events.
    */
-  "Breakthrough Junior Challenge": 0.7,
-  "John Locke Institute": 0.6,
-  TreeHacks: 0.5,
-  CalHacks: 0.5,
-  HackMIT: 0.5,
-  PennApps: 0.5,
-  "Hack the North": 0.5,
-  HackHarvard: 0.4,
-  MHacks: 0.4,
-  "LA Hacks": 0.4,
-  AIME: 0.6,
-  "Science Bowl": 0.4,
-  "Congressional App Challenge": 0.3,
-  "Science Olympiad": 0.3,
-  DECA: 0.2,
-  FBLA: 0.2,
-  HOSA: 0.2,
-  "Conrad Challenge": 0.5,
-  "Diamond Challenge": 0.5,
-  "Hack Club": 0.5,
+  TreeHacks: 0.3,
+  CalHacks: 0.3,
+  HackMIT: 0.3,
+  "Breakthrough Junior Challenge": 0.4,
+  /** A few hundred a year across every category, against ~1,800 finalists. */
+  "ISEF Grand Award": 1.2,
+  /** Admitted separately from the university, at a fraction of its rate. */
+  "Berkeley M.E.T.": 1.2,
+  "Penn M&T": 1.2,
+  "Huntsman Program": 1.0,
+  "Vagelos Program": 1.0,
+  /** Whole-profile facts. These two are the ones that mean much. */
+  "Funded founder": 0.8,
+  "Competition winner": 0.5,
+  Influencer: 0.3,
+  "Has a site": 0.1,
+  Published: 0,
+  "Patent holder": 0,
+  "Conrad Challenge": 0.3,
+  "Diamond Challenge": 0.3,
+  "Hack Club": 0.4,
 
   /* ── Employers ────────────────────────────────────────────────────────── */
   // Frontier labs and the elite quant desks hire on raw ability at this age.
@@ -343,10 +338,6 @@ export const START_WEIGHT: Record<string, number> = {
   Founder: 0.3,
   CEO: 0.2,
   CTO: 0.2,
-  Partner: 0.2,
-  Quant: 0.1,
-  Trader: 0.1,
-  Researcher: 0.1,
 };
 
 /** Anything promoted from the review queue without an explicit weight. */

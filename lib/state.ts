@@ -3,6 +3,9 @@ import { US_STATES, type CountKind } from "./extract";
 import {
   ACCELERATORS,
   CLUBS,
+  FLAGS,
+  LOW_SIGNAL,
+  RETIRED,
   COLLEGES,
   COMPANIES,
   LABS,
@@ -198,16 +201,20 @@ export function defaultCounts(): CountRules {
      *
      * These were worth up to 7.6 between them, against a target of about 10 for the
      * strongest person in the roster — so most of a score could come from the least
-     * discriminating thing on a profile. Anyone can list eight experiences. The
-     * ceiling is now 3.4, and a publication or a patent still moves a score
-     * noticeably because for a nineteen-year-old it should.
+     * discriminating thing on a profile. Anyone can list eight experiences.
+     *
+     * Cut again, to a ceiling of 2.4, because counts are breadth by definition and
+     * breadth was still winning: half of a publication-heavy score came from here,
+     * which put it above founders who had been funded. A publication or a patent
+     * still moves a score noticeably, because for a nineteen-year-old it should.
+     *
+     * One decimal throughout, because that is all a weight can hold: `clampWeight`
+     * rounds to a tenth, so a stored 0.15 became 0.2 the first time anyone saved.
      */
-    experience: { points: 0.1, cap: 6 },
-    // One decimal, because that is all a weight can hold: `clampWeight` rounds to
-    // a tenth, so a stored 0.15 silently became 0.2 the first time anyone saved.
-    project: { points: 0.2, cap: 3 },
-    publication: { points: 0.4, cap: 3 },
-    patent: { points: 0.5, cap: 2 },
+    experience: { points: 0.1, cap: 4 },
+    project: { points: 0.1, cap: 3 },
+    publication: { points: 0.3, cap: 3 },
+    patent: { points: 0.4, cap: 2 },
     /**
      * Off by default. An award already scores as its own tag, and a profile with
      * seventeen honors is mostly listing AP Scholar and National Merit — paying
@@ -294,6 +301,7 @@ function seededTags(): TagRegistry {
     startups: STARTUPS,
     labs: LABS,
     clubs: CLUBS,
+    flags: FLAGS,
     colleges: COLLEGES,
     highSchools: HIGH_SCHOOLS,
     titles: TITLES,
@@ -409,6 +417,7 @@ function seedFacets(): Map<string, TagFacet> {
   for (const x of LABS) put(x.label, "lab");
   for (const x of CLUBS) put(x.label, "club");
   for (const x of STARTUPS) put(x.label, "startup");
+  for (const x of FLAGS) put(x.label, "flag");
   for (const x of PROGRAMS) put(x.label, "program");
   for (const x of COLLEGES) put(x.label, "college");
   for (const x of HIGH_SCHOOLS) put(x.label, "highschool");
@@ -429,8 +438,12 @@ function seedFacets(): Map<string, TagFacet> {
  *       ceiling of 7.6 to 3.4, so the strongest person lands near 10.
  *   3 — startups, labs and college clubs split out of "company"; hackathons and open
  *       competitions added, which were missing entirely.
+ *   4 — the open-entry half of that removed again: AIME, DECA, FBLA, HOSA, Science
+ *       Olympiad and the second-tier hackathons say nothing about a person and were
+ *       inflating anyone who listed a lot of activities. Activity-tier weights cut so
+ *       that breadth cannot out-score depth.
  */
-export const SEED_VERSION = 3;
+export const SEED_VERSION = 4;
 
 /**
  * Adopt a recalibrated seed table, once.
@@ -444,9 +457,19 @@ const behindSeeds = (tax: Partial<TaxonomyPrefs>) => (tax.seedVersion ?? 1) < SE
 
 function adoptSeedWeights(tags: TagRegistry): TagRegistry {
   const seeded = seededTags();
+  const retired = new Set(RETIRED.map((label) => seedKey(label)));
   let changed = false;
   const next = { ...tags };
   for (const [id, def] of Object.entries(tags)) {
+    // Withdrawn from the vocabulary: switched off rather than deleted, so it is
+    // visible on the taxonomy screen and one slider from coming back.
+    if (retired.has(id)) {
+      if (def.weight !== 0 || def.promoted) {
+        next[id] = { ...def, weight: 0, promoted: false };
+        changed = true;
+      }
+      continue;
+    }
     const seed = seeded[id];
     if (!seed) continue;
     if (def.weight === seed.weight && (def.cluster ?? null) === (seed.cluster ?? null)) continue;
@@ -583,6 +606,14 @@ export function hydrateTeam(stored: Partial<TeamState> | null): TeamState {
             };
       })(),
       seedVersion: SEED_VERSION,
+      /**
+       * Known noise is declined once, in the seeds, rather than one profile at a time.
+       *
+       * Unioned so nothing a teammate dismissed by hand comes back, and never
+       * subtracted: this is the same list the dismiss button writes to, so anything
+       * seeded here can be brought back on the taxonomy screen.
+       */
+      dismissed: [...new Set([...(tax.dismissed ?? []), ...LOW_SIGNAL])],
       polymathPoints: tax.polymathPoints ?? base.taxonomy.polymathPoints,
     },
     customTerms: { ...base.customTerms, ...(stored.customTerms ?? {}) },

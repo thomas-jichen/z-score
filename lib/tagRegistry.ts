@@ -507,6 +507,7 @@ export function seedRegistry(input: {
   startups: { label: string; aliases?: string[] }[];
   labs: { label: string; aliases?: string[] }[];
   clubs: { label: string; aliases?: string[] }[];
+  flags: { label: string; aliases?: string[] }[];
   colleges: { label: string; aliases?: string[]; state?: string }[];
   highSchools: { label: string; aliases?: string[]; state?: string }[];
   titles: { label: string; aliases?: string[] }[];
@@ -589,11 +590,13 @@ export function seedRegistry(input: {
   for (const c of input.colleges) add(c.label, "college", c.aliases, 0.4, c.state);
   for (const h of input.highSchools) add(h.label, "highschool", h.aliases, 0.3, h.state);
   for (const t of input.titles) add(t.label, "title", t.aliases, 0);
-  for (const m of input.majors) add(m.label, "major", m.aliases, 0.1);
+  // A major is what you study, not how good you are at it.
+  for (const m of input.majors) add(m.label, "major", m.aliases, 0);
   for (const c of input.companies) add(c.label, "company", c.aliases, 0.4);
-  for (const l of input.labs) add(l.label, "lab", l.aliases, 0.5);
-  for (const c of input.clubs) add(c.label, "club", c.aliases, 0.4);
-  for (const st of input.startups) add(st.label, "startup", st.aliases, 0.3);
+  for (const l of input.labs) add(l.label, "lab", l.aliases, 0.4);
+  for (const c of input.clubs) add(c.label, "club", c.aliases, 0.3);
+  for (const st of input.startups) add(st.label, "startup", st.aliases, 0.2);
+  for (const f of input.flags) add(f.label, "flag", f.aliases, 0.2);
 
   return reg;
 }

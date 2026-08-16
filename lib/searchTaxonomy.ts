@@ -75,30 +75,129 @@ export const PROGRAMS: Seed[] = [
   { label: "Rise", aliases: ["Rise Global Winner", "Schmidt Futures Rise"] },
   { label: "Coolidge Scholar", aliases: ["Coolidge Scholarship", "Coolidge Senator"] },
   /**
-   * Hackathons and open competitions.
+   * The three hackathons worth a tag, and nothing else.
    *
-   * Missing entirely, which is how Jacob Lee could win a TreeHacks track, place at
-   * CalHacks and reach the Breakthrough Junior final and score nothing for any of
-   * them. Priced for the median person who lists one: getting into TreeHacks is
-   * selective, winning a track is much more so, and one tag covers both.
+   * These went in as a much longer list — PennApps, MHacks, LA Hacks, HackHarvard,
+   * AIME, DECA, FBLA, HOSA, Science Olympiad, John Locke — because they appeared on a
+   * profile, which is the wrong reason to add anything. Appearing on a profile is not
+   * signal; being hard to get is. AIME passes ten thousand people a year and DECA has
+   * a couple of hundred thousand members, so a tag for either says almost nothing
+   * about the person holding it while still adding to their score.
+   *
+   * What survives is the top of the collegiate hackathon circuit, and even that is
+   * priced as an activity rather than a credential: these are things a good builder
+   * does on a weekend, not filters they cleared.
    */
   { label: "TreeHacks", aliases: ["Stanford TreeHacks"] },
   { label: "CalHacks", aliases: ["Cal Hacks", "Berkeley CalHacks"] },
   { label: "HackMIT" },
-  { label: "PennApps" },
-  { label: "Hack the North" },
-  { label: "LA Hacks", aliases: ["LAHacks"] },
-  { label: "MHacks" },
-  { label: "HackHarvard" },
   { label: "Breakthrough Junior Challenge", aliases: ["Breakthrough Junior"] },
-  { label: "John Locke Institute", aliases: ["John Locke Essay Competition", "John Locke Institute Essay Competition"] },
-  { label: "Congressional App Challenge" },
-  { label: "Science Olympiad" },
-  { label: "Science Bowl", aliases: ["National Science Bowl"] },
-  { label: "DECA", aliases: ["DECA ICDC", "International Career Development Conference"] },
-  { label: "FBLA", aliases: ["Future Business Leaders of America"] },
-  { label: "HOSA" },
-  { label: "AIME", aliases: ["AIME Qualifier", "American Invitational Mathematics Examination"] },
+  /**
+   * The tier above finalist at ISEF, which the ISEF tag alone cannot express.
+   *
+   * There are ~1,800 finalists a year and a few hundred Grand Awards across every
+   * category, so "ISEF — 2nd Place Grand Award in Physics & Astronomy" and "ISEF
+   * Finalist" are two very different results scoring the same 0.6. This is the one
+   * competition worth splitting by tier: it is the largest in the world, so the gap
+   * between its tiers is the widest of any tag here, and its tier names are
+   * unambiguous enough to match on.
+   */
+  {
+    label: "ISEF Grand Award",
+    aliases: ["Grand Award", "Best of Category", "ISEF Best of Category"],
+  },
+  /**
+   * Dual-degree programmes admitted separately from the university, at rates far
+   * below it. Berkeley M.E.T. takes about fifty a year; being in one is a stronger
+   * statement than the school's name on its own, and the school's name is all that
+   * was scoring.
+   */
+  { label: "Berkeley M.E.T.", aliases: ["Management, Entrepreneurship, & Technology", "Berkeley MET", "M.E.T. program"] },
+  { label: "Penn M&T", aliases: ["Jerome Fisher Program", "Management & Technology", "Jerome Fisher"] },
+  { label: "Huntsman Program", aliases: ["Huntsman"] },
+  { label: "Vagelos Program", aliases: ["Vagelos Scholars", "Vagelos"] },
+];
+
+/**
+ * Tags withdrawn from the vocabulary, to be switched off in documents that have them.
+ *
+ * Removing a name from a seed list stops it being *created*; it does nothing about
+ * the copies already stored, so AIME and DECA would have gone on scoring forever on
+ * every profile that already had them. These are zeroed and switched off on the next
+ * read — not deleted, so the history is visible and a slider brings any of them back.
+ *
+ * Only names the seeds themselves introduced. A tag someone promoted by hand is
+ * their decision and is never touched here.
+ */
+export const RETIRED: string[] = [
+  /**
+   * Not a seed — promoted by hand, and switched off anyway.
+   *
+   * "Stealth Startup" is what a profile says when it is declining to say anything, so
+   * a tag for it scores the absence of information. It was carrying 1.0 on three
+   * people, two of them at the top of the list. Visible and one slider from returning,
+   * like everything else here.
+   */
+  "Stealth Startup",
+  "AIME",
+  "DECA",
+  "FBLA",
+  "HOSA",
+  "Science Olympiad",
+  "Science Bowl",
+  "Congressional App Challenge",
+  "John Locke Institute",
+  "PennApps",
+  "MHacks",
+  "LA Hacks",
+  "HackHarvard",
+  "Hack the North",
+];
+
+/**
+ * Things that will keep turning up and are never worth a tag.
+ *
+ * Seeded into `dismissed`, so they stop reaching the review queue at all rather than
+ * being declined one profile at a time. Two kinds: near-automatic academic
+ * recognitions, and open-entry organisations large enough that membership is a
+ * statement about a school district rather than a person.
+ *
+ * Not permanent — it is the same list the dismiss button writes to, so anything here
+ * can be brought back on the taxonomy screen.
+ */
+export const LOW_SIGNAL: string[] = [
+  "AP Scholar",
+  "AP Scholar with Distinction",
+  "National Merit",
+  "National Merit Commended",
+  "National Merit Semifinalist",
+  "National Honor Society",
+  "Dean's List",
+  "Honor Roll",
+  "Presidential Award for Educational Excellence",
+  "Seal of Biliteracy",
+  "AIME",
+  "AIME Qualifier",
+  "DECA",
+  "FBLA",
+  "HOSA",
+  "BPA",
+  "Key Club",
+  "Model UN",
+  "Science Olympiad",
+  "Science Bowl",
+  "Congressional App Challenge",
+  "John Locke Institute",
+  "PennApps",
+  "MHacks",
+  "LA Hacks",
+  "HackHarvard",
+  "Girls Who Code",
+  "Boy Scouts",
+  "Eagle Scout",
+  "Varsity",
+  "Student Council",
+  "Stealth Startup",
 ];
 
 /**
@@ -303,6 +402,22 @@ export const MAJORS: Seed[] = [
 ];
 
 /**
+ * Whole-profile facts, as opposed to a line on it.
+ *
+ * Seeded so they resolve at all — a flag the registry has never heard of is dropped
+ * before it can score, which is why "Influencer" and the rest were computed on every
+ * profile and visible on none.
+ */
+export const FLAGS: Seed[] = [
+  { label: "Funded founder" },
+  { label: "Competition winner" },
+  { label: "Influencer" },
+  { label: "Has a site" },
+  { label: "Published" },
+  { label: "Patent holder" },
+];
+
+/**
  * Named research groups. The signal is doing real research as an undergraduate, and
  * the group's name is what makes it checkable.
  *
@@ -455,4 +570,14 @@ export const COMPANIES: Seed[] = [
   { label: "Regeneron" },
   { label: "Bain & Company", aliases: ["Bain"] },
   { label: "Boston Consulting Group", aliases: ["BCG"] },
+  // Research employers, which were missing: Thomas Wang does ML for asteroid and
+  // black hole discovery at NASA and it counted for nothing.
+  { label: "NASA", aliases: ["National Aeronautics and Space Administration"] },
+  { label: "Tencent" },
+  { label: "IBM", aliases: ["IBM Research"] },
+  { label: "Intel" },
+  { label: "SpaceX" },
+  { label: "Tesla" },
+  { label: "Waymo" },
+  { label: "Bell Labs", aliases: ["Nokia Bell Labs"] },
 ];

@@ -1152,13 +1152,24 @@ console.log("\nlabs, clubs and startups — everything that was filed as a compa
     { title: "Founding Growth Manager", company: "Friday (YC F24)" },
   ];
   const jt = held(jacob);
+  /**
+   * The batch belongs to the founders.
+   *
+   * "Founding Growth Manager" is employee number five. Reading it as a founder gave
+   * Jacob Lee the full 2.0 for Y Combinator off a job at a YC company, which put him
+   * level with the people who actually got into the batch — and third on the list,
+   * where he does not belong.
+   */
+  check("an early hire at a YC company is not YC", jt.includes("Y Combinator[accelerator]"), false);
   check("a student society is a club", jt.includes("Stanford ASES[club]"), true);
   check("a research group is a lab", jt.includes("Stanford Multi-Robot Systems Lab[lab]"), true);
   check("a known early-stage company is a startup", jt.includes("Cluely[startup]"), true);
   check("a hackathon win counts", jt.includes("TreeHacks[program]"), true);
   check("so does a second place", jt.includes("CalHacks[program]"), true);
   check("and a competition final", jt.includes("Breakthrough Junior Challenge[program]"), true);
-  check("the batch is still read off the company name", jt.includes("Y Combinator[accelerator]"), true);
+  const founded = bare("founded");
+  founded.enriched!.experience = [{ title: "Co-Founder & CTO", company: "Willow (YC S24)" }];
+  check("but a co-founder of one is", held(founded).includes("Y Combinator[accelerator]"), true);
 
   /**
    * The pattern only has to be good enough to file a name it has never seen.
@@ -1202,6 +1213,69 @@ console.log("\nlabs, clubs and startups — everything that was filed as a compa
   check("and a job title is not offered at all", offered.some((o) => o.term === "President"), false);
 }
 
+console.log("\ntier and outcome — winning is not attending, and founding is not joining");
+{
+  const held = (p: Person) =>
+    heldTags(p, TAX)
+      .filter((t) => t.def.facet !== "state" && t.def.facet !== "homestate")
+      .map((t) => t.def.label);
+
+  /**
+   * One tag per competition cannot say how well someone did in it.
+   *
+   * "ISEF — 2nd Place Grand Award in Physics & Astronomy" is top-two in a category
+   * against 1,800 finalists, and it scored exactly what "ISEF Finalist" scored. The
+   * flag carries the outcome for every competition at once, and ISEF — much the
+   * largest, so much the widest gap between tiers — also gets a tag for the tier.
+   */
+  const won = bare("won", ["ISEF - 2nd Place Grand Award in Physics & Astronomy"]);
+  const wt = held(won);
+  check("a placing is recognised as a win", wt.includes("Competition winner"), true);
+  check("and ISEF's award tier is its own tag", wt.includes("ISEF Grand Award"), true);
+
+  const reached = bare("reached", ["3x Regeneron ISEF Finalist"]);
+  const rt = held(reached);
+  check("reaching the final is not winning", rt.includes("Competition winner"), false);
+  check("nor is it a Grand Award", rt.includes("ISEF Grand Award"), false);
+  check("but it is still ISEF", rt.includes("ISEF"), true);
+
+  /**
+   * Founding a funded company is two facts, and only one was scored.
+   *
+   * The batch is the filter they cleared; the company is what they built. Scoring only
+   * the first put YC founders whose profiles say little else below people with a
+   * science-fair award and a pile of hackathons — backwards for a tool whose whole
+   * purpose is finding people worth funding.
+   */
+  const founder = bare("f1");
+  founder.enriched!.experience = [{ title: "Co-Founder and CEO", company: "Poth Labs (YC S26)" }];
+  check("founding a batch company is its own signal", held(founder).includes("Funded founder"), true);
+
+  const raised = bare("f2");
+  raised.enriched!.experience = [
+    { title: "CEO", company: "Vela", description: "Backed by a16z (sr007) and Z Fellows" },
+  ];
+  check("so is founding one that raised", held(raised).includes("Funded founder"), true);
+
+  // The distinction the whole thing turns on.
+  const early = bare("f3");
+  early.enriched!.experience = [
+    { title: "Founding Growth Manager", company: "Friday (YC F24)" },
+  ];
+  check("arriving early is neither", held(early).includes("Funded founder"), false);
+
+  const unfunded = bare("f4");
+  unfunded.enriched!.experience = [{ title: "Founder", company: "Some Side Project" }];
+  check("and founding something nobody funded is not it", held(unfunded).includes("Funded founder"), false);
+
+  // "Raised awareness" is not a round.
+  const awareness = bare("f5");
+  awareness.enriched!.experience = [
+    { title: "Founder", company: "A Nonprofit", description: "Raised awareness for clean water" },
+  ];
+  check("nor is raising awareness", held(awareness).includes("Funded founder"), false);
+}
+
 console.log("\nthe score is a sum — the documented worked examples");
 {
   // The score IS the raw total now, so these assert it directly. The three
@@ -1211,18 +1285,18 @@ console.log("\nthe score is a sum — the documented worked examples");
     round(c.signals.reduce((s, x) => s + x.points, 0));
 
   const hackClub = scoreOne(bare("hc", ["Hack Club"]), TAX);
-  check("Hack Club alone", hackClub.score, 0.5);
+  check("Hack Club alone", hackClub.score, 0.4);
 
-  // 1.6 + 0.8 + 1.2. ISEF used to be 1.4, above every accelerator, on ~1,800
+  // 1.6 + 0.6 + 1.2. ISEF used to be 1.4, above every accelerator, on ~1,800
   // finalists a year.
   const three = scoreOne(bare("three", ["RSI", "ISEF", "USAMO"]), TAX);
-  check("RSI + ISEF + USAMO", three.score, 3.6);
+  check("RSI + ISEF + USAMO", three.score, 3.4);
 
   const strong = bare("strong", ["IMO", "IOI", "RSI"]);
   strong.enriched!.publications = ["A paper"];
   const strongScored = scoreOne(strong, TAX);
-  // 2.0 + 2.0 + 1.6 + 0.4.
-  check("IMO+IOI+RSI+1 pub", strongScored.score, 6.0);
+  // 2.0 + 2.0 + 1.6 + 0.3.
+  check("IMO+IOI+RSI+1 pub", strongScored.score, 5.9);
 
   /**
    * Being funded outweighs any single competition.
@@ -1255,17 +1329,17 @@ console.log("\ncapped counts");
   }));
   const scored = scoreOne(many, TAX);
   const row = scored.signals.find((s) => s.label.includes("experience"))!;
-  // 20 experiences, cap 6, 0.1 each. Volume must not beat quality — and it used to:
+  // 20 experiences, cap 4, 0.1 each. Volume must not beat quality — and it did:
   // counts alone could reach 7.6 against a top score of about 10, so most of a
   // ranking came from the one thing anybody can pad.
-  check("counting stops at the cap", row.points, 0.6);
-  check("and the row says what was dropped", row.label, "20 experiences, 6 counted");
+  check("counting stops at the cap", row.points, 0.4);
+  check("and the row says what was dropped", row.label, "20 experiences, 4 counted");
 
   const few = bare("few", []);
   few.enriched!.projects = [{ title: "One" }, { title: "Two" }];
   const f = scoreOne(few, TAX);
   const prow = f.signals.find((s) => s.label.includes("project"))!;
-  check("under the cap, everything counts", prow.points, 0.4);
+  check("under the cap, everything counts", prow.points, 0.2);
   check("and the label is plain", prow.label, "2 projects");
 }
 

@@ -431,8 +431,11 @@ Rules:
 - Only list things the text actually supports. Never infer from a school name alone.
 - SKIP the ordinary. Participation, attendance, honor-roll and near-automatic academic recognitions are not credentials: AP Scholar, National Merit Commended or Semifinalist, National Honor Society, Dean's List, perfect attendance.
 - SKIP state and district academic recognitions given to hundreds or thousands each year: "Georgia Scholar", "Certificate of Merit", "Governor's Scholar", state seals of biliteracy, district service or spirit awards, and school-level awards named after a person.
+- SKIP open-entry organisations and competitions that admit tens of thousands: DECA, FBLA, HOSA, BPA, Key Club, Model UN, Science Olympiad, Science Bowl, AIME, Congressional App Challenge, Girls Who Code, Boy Scouts. Membership in these describes a school district, not a person.
 - Skipped items still appear on the profile. They are simply not tags.
 - KEEP the selective: named competitions and olympiads, research programmes, selective summer programmes, named fellowships and scholarships with a real bar, grants, and published or patented work.
+- KEEP hackathons, which are easy to miss because they are written as a track or a placing rather than a name: "TreeHacks Interaction Track Winner" is TreeHacks, "Second Place CalHacks Audio Track" is CalHacks. Return the event, not the track. Only the major collegiate ones — TreeHacks, CalHacks, HackMIT, Hack the North, PennApps, HackHarvard, MHacks, LA Hacks, and a university's own flagship — and only when the profile shows the person attended or placed.
+- KEEP accelerators, fellowships and funds that put money in: Y Combinator, a16z Speedrun, Z Fellows, Neo, Thiel, Sequoia, Pear, South Park Commons, Emergent Ventures. A YC batch is frequently written only as "YC S26" or inside a company name like "Willow (YC S24)".
 - Do NOT return schools, universities, employers, majors, or job titles. Those are read from structured fields and returning them creates duplicates.
 - At most ${MAX_TERMS} entries. Fewer is better than padded.
 - Keep each evidence quote under 20 words. A long quote costs output budget and adds nothing.
@@ -699,6 +702,10 @@ For calibration: Y Combinator and IMO are 2.0, RSI is 1.6, USAMO is 1.2, ISEF is
 Weigh the thing itself, not what it implies. One company out of a batch is not worth what the
 accelerator is worth — the accelerator is already scored separately, so pricing the company at the
 same number counts it twice. A single startup is rarely above 0.5.
+
+Be hard to impress. Weight is about how *rare* the thing is, not how good it sounds. Above 1.0 means
+a few hundred people a year at most. A hackathon, a club, a job title or a course is an activity, not
+a credential: 0.3 or less. If tens of thousands of people a year hold it, the answer is 0.0.
 
 Reply with JSON only: {"facet":"program","cluster":"quant","weight":1.2,"why":"one short sentence"}`;
 
