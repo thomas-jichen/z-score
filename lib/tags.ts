@@ -1,6 +1,12 @@
 import type { Archetype } from "./clusters";
 import { clusterOf, weightOf } from "./clusters";
-import { extractTags, type SchoolLookup } from "./extract";
+import {
+  FOUNDING_ROLE,
+  extractTags,
+  type OrgFacet,
+  type OrgLookup,
+  type SchoolLookup,
+} from "./extract";
 import type { Person } from "./people";
 import type { TaxonomyPrefs } from "./state";
 import type { Selection } from "./query";
@@ -41,6 +47,9 @@ const FACET_KIND: Record<TagFacet, TagKind> = {
   award: "program",
   accelerator: "program",
   company: "extracted",
+  startup: "extracted",
+  lab: "extracted",
+  club: "extracted",
   org: "extracted",
   college: "school",
   highschool: "school",
@@ -115,7 +124,7 @@ export type MatchedTerm = {
   source: Signal["source"];
 };
 
-type Field = { text: string; source: Signal["source"]; venture?: true };
+type Field = { text: string; source: Signal["source"]; venture?: true; founded?: true };
 
 /**
  * The record's own words, split by section so a breakdown can cite one.
@@ -126,6 +135,12 @@ type Field = { text: string; source: Signal["source"]; venture?: true };
  * fields routinely name other people's backers. Olaoluwa Oguneye is a Partner at Dorm
  * Room Fund, "the original student-run venture fund backed by a16z" — a sentence about
  * the fund, which scored him 1.8 as though a16z had backed *him*.
+ *
+ * `founded` is the exception that makes that rule usable. Tarun Batchu is CEO of Vela,
+ * whose description reads "Backed by a16z (sr007) and Z Fellows" — the same shape of
+ * sentence, and true about him, because when you founded the company its backers are
+ * your backers. The role is what separates the two, and excluding the field outright
+ * threw the real one away with the false one.
  */
 function fieldedText(p: Person): Field[] {
   const e = p.enriched;
@@ -165,6 +180,7 @@ function fieldedText(p: Person): Field[] {
       text: [x.title, x.description].filter(Boolean).join(" "),
       source: "experience" as const,
       venture: true as const,
+      ...(FOUNDING_ROLE.test(x.title ?? "") ? { founded: true as const } : {}),
     })),
     {
       text: [e.headline, e.about, ...e.publications, ...e.patents, ...e.certifications]
@@ -221,6 +237,9 @@ const SOURCE_FOR_FACET: Record<TagFacet, MatchedTerm["source"]> = {
   // Usually read off the education section, where a batch is listed like a degree.
   accelerator: "education",
   company: "experience",
+  startup: "experience",
+  lab: "experience",
+  club: "experience",
   org: "volunteering",
   college: "education",
   highschool: "education",
@@ -258,6 +277,37 @@ const SOURCE_FOR_FACET: Record<TagFacet, MatchedTerm["source"]> = {
  * the Berkeley entry and its state. This is what makes a home state a fact rather
  * than a scan for any state name on the profile.
  */
+/**
+ * Which facet the registry files an organisation under, whatever the name pattern
+ * guessed.
+ *
+ * The same shape as `schoolStateLookup`, and for the same reason: a pattern is right
+ * about the long tail and wrong about every name that does not describe itself.
+ * "Cluely" contains no word meaning startup and "Stanford ASES" contains no word
+ * meaning club, so the curated answer has to be able to overrule the guess.
+ */
+export function orgFacetLookup(tax: TaxonomyPrefs): OrgLookup {
+  const index = indexRegistry(tax.tags);
+  const ALL: OrgFacet[] = ["accelerator", "startup", "lab", "club", "company"];
+  /**
+   * Organisation facets only, deliberately.
+   *
+   * Letting this fall through to the programme vocabulary looked helpful — "Ambassador
+   * @ Conrad Challenge" is the competition, not a job — and quietly reopened a hole:
+   * `normalizeKey` strips "international", so the company "SSP International" collapses
+   * to "SSP" and matched the Summer Science Program. Nothing is lost by refusing.
+   * Someone who really did the programme says so in their honours, which is where that
+   * is read from, and where Conrad Challenge is in fact found.
+   */
+  return (name, guess) => {
+    for (const facet of [guess, ...ALL.filter((f) => f !== guess)]) {
+      const r = resolveTag(index, { label: name, facet });
+      if (r.kind === "exact") return facet;
+    }
+    return guess;
+  };
+}
+
 export function schoolStateLookup(tax: TaxonomyPrefs): SchoolLookup {
   const index = indexRegistry(tax.tags);
   /**
@@ -323,7 +373,7 @@ export function heldTags(p: Person, tax: TaxonomyPrefs): HeldTag[] {
    * Companies, schools, majors, titles, flags and geography. Exact, free, and the
    * bulk of a populated profile.
    */
-  for (const cand of extractTags(p, schoolStateLookup(tax)).tags) {
+  for (const cand of extractTags(p, schoolStateLookup(tax), orgFacetLookup(tax)).tags) {
     const res = resolveTag(index, cand);
     if (res.kind === "exact") {
       take(res.def, SOURCE_FOR_FACET[res.def.facet], {
@@ -353,7 +403,7 @@ export function heldTags(p: Person, tax: TaxonomyPrefs): HeldTag[] {
      */
     const usable =
       def.facet === "accelerator"
-        ? fields.filter((f) => !f.venture && !BORROWED_NAME.test(f.text))
+        ? fields.filter((f) => (!f.venture || f.founded) && !BORROWED_NAME.test(f.text))
         : fields;
     /**
      * Aliases count — "Z-Fellow" in a headline is the Z Fellow tag — but only the
@@ -524,33 +574,77 @@ export function termCounts(people: Person[], tax: TaxonomyPrefs): Record<string,
  * Derived rather than stored: a stored counter drifts away from the people it
  * describes as soon as anyone is removed or re-tagged.
  */
-export function unmatchedTerms(
-  people: Person[],
-  tax: TaxonomyPrefs
-): { term: string; count: number; slugs: string[] }[] {
+export type Unmatched = {
+  term: string;
+  count: number;
+  slugs: string[];
+  /**
+   * What the extractor already believes this is, when it came from a structured
+   * field. Absent for prose, where only the words are known.
+   */
+  facet?: TagFacet;
+};
+
+export function unmatchedTerms(people: Person[], tax: TaxonomyPrefs): Unmatched[] {
   // Resolved through the registry, not compared by lowercase. A term the tagger
   // wrote as "Massachusetts Institute of Technology" is already known as the MIT
   // tag, and offering it again would be offering a duplicate.
   const index = indexRegistry(tax.tags);
+  const schools = schoolStateLookup(tax);
+  const orgs = orgFacetLookup(tax);
   const dismissed = new Set(tax.dismissed.map((t) => normalizeKey(t)));
-  const tally = new Map<string, { term: string; slugs: string[] }>();
+  const tally = new Map<string, { term: string; slugs: string[]; facet?: TagFacet }>();
+
+  const offer = (raw: string, slug: string, facet?: TagFacet) => {
+    const term = raw.trim();
+    if (!term) return;
+    const key = normalizeKey(term);
+    if (!key || resolveAny(index, term) || dismissed.has(key)) return;
+    const entry = tally.get(key) ?? { term, slugs: [], facet };
+    if (!entry.slugs.includes(slug)) entry.slugs.push(slug);
+    // A facet from a structured field beats one guessed from prose, which has none.
+    if (!entry.facet && facet) entry.facet = facet;
+    tally.set(key, entry);
+  };
 
   for (const p of people) {
     // Hand-added terms are reviewable exactly like extracted ones — someone
     // typing "Davidson Fellow" on a row is the same finding as the model
     // reading it, and both should reach the promote queue.
-    for (const raw of [...(p.extractedTerms ?? []), ...(p.manualTerms ?? [])]) {
-      const term = raw.trim();
-      if (!term) continue;
-      const key = normalizeKey(term);
-      if (!key || resolveAny(index, term) || dismissed.has(key)) continue;
-      const entry = tally.get(key) ?? { term, slugs: [] };
-      if (!entry.slugs.includes(p.slug)) entry.slugs.push(p.slug);
-      tally.set(key, entry);
+    for (const raw of [...(p.extractedTerms ?? []), ...(p.manualTerms ?? [])]) offer(raw, p.slug);
+
+    /**
+     * Structured facts the registry does not know yet.
+     *
+     * This was the hole. The queue only ever saw what the tagger read out of prose,
+     * so a research lab, a student society and a seed-stage startup sitting in the
+     * experience section were not tagged, not scored, and — the part that made it
+     * unfixable — never even offered. Jacob Lee's profile named eight of them and
+     * showed none.
+     *
+     * Only the facets a person would actually curate. A job title or a class year
+     * arriving here would bury the queue in noise.
+     */
+    for (const cand of extractTags(p, schools, orgs).tags) {
+      if (!OFFERABLE.has(cand.facet)) continue;
+      if (resolveTag(index, cand).kind === "exact") continue;
+      offer(cand.label, p.slug, cand.facet);
     }
   }
 
   return [...tally.values()]
-    .map((e) => ({ term: e.term, count: e.slugs.length, slugs: e.slugs }))
+    .map((e) => ({ term: e.term, count: e.slugs.length, slugs: e.slugs, facet: e.facet }))
     .sort((a, b) => b.count - a.count || a.term.localeCompare(b.term));
 }
+
+/** Facets worth reviewing by hand. The rest are facts, not judgements. */
+const OFFERABLE = new Set<TagFacet>([
+  "program",
+  "award",
+  "accelerator",
+  "company",
+  "startup",
+  "lab",
+  "club",
+  "org",
+]);

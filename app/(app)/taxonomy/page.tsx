@@ -16,6 +16,7 @@ import {
   resolveAny,
   resolveTag,
   type TagDef,
+  isTagFacet,
   type TagFacet,
   type TagRegistry,
 } from "@/lib/tagRegistry";
@@ -40,7 +41,16 @@ import { Button, Card, EmptyState, Pill } from "@/components/primitives";
 /** A term being promoted, with the suggestion to edit before it lands. */
 type Promoting = {
   term: string;
-  /** Which facet the new tag belongs to. Prose findings are awards by default. */
+  /**
+   * Which section the new tag lands in, and it is now a control rather than an
+   * assumption.
+   *
+   * It was hardcoded to `award` with no way to change it, so everything promoted
+   * from the review queue — programmes, clubs, labs, startups alike — was filed as
+   * an award. Where the finding came from a structured field the extractor already
+   * knows what it is and that answer is pre-selected; where it came from prose,
+   * nothing does, so the model is asked and the default is `program`.
+   */
   facet: TagFacet;
   weight: number;
   cluster: Archetype | null;
@@ -106,12 +116,12 @@ export default function TaxonomyPage() {
    * Asking the model for a cluster and weight happens once per term, here, not
    * once per person. The answer is a starting point you edit before it lands.
    */
-  async function beginPromote(term: string) {
+  async function beginPromote(term: string, known?: TagFacet) {
     setPromoting({
       term,
-      // The review queue is fed by the tagger reading prose, and what it finds
-      // there is a credential. Editable before it lands.
-      facet: "award",
+      // A structured finding already knows what it is. A prose one does not, and
+      // `program` is the right guess there: the tagger reads credentials.
+      facet: known ?? "program",
       weight: DEFAULT_WEIGHT,
       cluster: null,
       why: "",
@@ -133,6 +143,9 @@ export default function TaxonomyPage() {
               ...prev,
               asking: false,
               weight: typeof c?.weight === "number" ? c.weight : prev.weight,
+              // The model's guess never overrides a facet the extractor was certain
+              // of; it only fills in for prose, where nothing else knows.
+              facet: known ?? (isTagFacet(c?.facet) ? c.facet : prev.facet),
               cluster: (c?.cluster ?? null) as Archetype | null,
               why: typeof c?.why === "string" ? c.why : "",
             }
@@ -313,7 +326,7 @@ export default function TaxonomyPage() {
                         </p>
                       </div>
                       <span className="z-spacer" />
-                      <Pill as="button" onClick={() => beginPromote(p.term)}>
+                      <Pill as="button" onClick={() => beginPromote(p.term, p.facet)}>
                         promote
                       </Pill>
                       <button className="z-linkish" onClick={() => dismiss(p.term)}>
@@ -431,6 +444,24 @@ function PromoteForm({
 
       <div>
         <p className="z-label is-quiet" style={{ marginBottom: "var(--z-space-2)" }}>
+          Section
+        </p>
+        <select
+          className="z-input"
+          value={promoting.facet}
+          onChange={(e) => onChange({ ...promoting, facet: e.target.value as TagFacet })}
+          style={{ padding: "6px 8px", fontSize: "var(--z-fs-small)" }}
+        >
+          {PROMOTABLE_FACETS.map((f) => (
+            <option key={f} value={f}>
+              {FACET_LABEL[f]}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      <div>
+        <p className="z-label is-quiet" style={{ marginBottom: "var(--z-space-2)" }}>
           Cluster
         </p>
         <select
@@ -468,7 +499,7 @@ function PromoteForm({
           aria-label={`${promoting.term} weight`}
         />
         <p className="z-micro">
-          For scale, IMO is 2.0 and TASP is 0.6.
+          For scale, Y Combinator and IMO are 2.0, RSI is 1.6, ISEF is 0.8.
           {promoting.cluster
             ? ` Anyone whose top term is this becomes ${archetypeLabel(promoting.cluster)}.`
             : " No cluster means it scores but does not decide the label."}
@@ -678,10 +709,35 @@ function TagRegistryEditor({
   );
 }
 
+/**
+ * What a hand-promoted tag may become.
+ *
+ * Not every facet: a class year, a state and a count are derived facts with no
+ * promote step, and offering them here would only be a way to make a mistake.
+ */
+const PROMOTABLE_FACETS: TagFacet[] = [
+  "program",
+  "award",
+  "accelerator",
+  "startup",
+  "lab",
+  "club",
+  "company",
+  "org",
+  "college",
+  "highschool",
+  "major",
+  "title",
+  "flag",
+];
+
 const FACET_LABEL: Record<TagFacet, string> = {
   program: "Programs",
   award: "Awards",
   accelerator: "Accelerators & funds",
+  startup: "Startups",
+  lab: "Research labs",
+  club: "College clubs",
   company: "Companies",
   org: "Organisations",
   college: "Colleges",

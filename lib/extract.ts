@@ -253,6 +253,41 @@ function backerInCompanyName(company: string): string | null {
   return null;
 }
 
+/** The facets an organisation on a profile can turn out to be. */
+export type OrgFacet = "company" | "startup" | "lab" | "club" | "accelerator";
+
+/**
+ * Asks the registry what an organisation is, given a guess from its name and the
+ * role held there. Mirrors `SchoolLookup`: the registry decides, the guess is the
+ * fallback for anything it has never seen.
+ */
+export type OrgLookup = (name: string, guess: OrgFacet) => OrgFacet;
+
+const LAB_WORDS = /\b(lab|labs|laborator(y|ies)|research (group|centre|center|institute|lab))\b/i;
+const CLUB_WORDS =
+  /\b(club|society|association|chapter|council|fraternity|sorority|student government|student union|entrepreneurs?|ases|bases)\b/i;
+/** Founding roles: the person is the company, so the company's facts are theirs. */
+export const FOUNDING_ROLE = /\b(founder|co-?founder|founding|ceo|cto|chief executive)\b/i;
+
+/**
+ * What kind of organisation this is, from its name and the role held there.
+ *
+ * Everything used to be a company, which is how a research lab, a student society and
+ * a seed-stage startup all ended up unrecognised and unweighted on the same profile.
+ * These are patterns rather than a list because the long tail is the point: the guess
+ * only has to be good enough to file the thing correctly in the review queue, where a
+ * person confirms it once and the registry answers for it ever after.
+ */
+export function classifyOrg(name: string, role = ""): OrgFacet {
+  if (backerInCompanyName(name)) return "startup";
+  if (LAB_WORDS.test(name)) return "lab";
+  if (CLUB_WORDS.test(name)) return "club";
+  // Founding a company is the one case where the role, not the name, says what the
+  // company is: nobody is the co-founder of a bank.
+  if (FOUNDING_ROLE.test(role)) return "startup";
+  return "company";
+}
+
 /* ── The extractor ──────────────────────────────────────────────────────── */
 
 /**
@@ -262,7 +297,8 @@ function backerInCompanyName(company: string): string | null {
  */
 export function extractTags(
   p: Person,
-  lookup: SchoolLookup = (_s, guess) => ({ facet: guess })
+  lookup: SchoolLookup = (_s, guess) => ({ facet: guess }),
+  orgLookup: OrgLookup = (_n, guess) => guess
 ): Extraction {
   const tags: CandidateTag[] = [];
   const seen = new Set<string>();
@@ -317,7 +353,14 @@ export function extractTags(
   /* Companies and the roles held at them. */
   for (const x of e.experience) {
     if (x.company) {
-      push(tags, seen, { label: x.company, facet: "company", linkedinId: x.companyId });
+      const facet = orgLookup(x.company, classifyOrg(x.company, x.title));
+      push(tags, seen, {
+        label: x.company,
+        facet,
+        // Only a real employer has a canonical LinkedIn company id worth trusting as
+        // an identity; a lab or a club shares its page with the university.
+        ...(facet === "company" || facet === "startup" ? { linkedinId: x.companyId } : {}),
+      });
       const backer = backerInCompanyName(x.company);
       if (backer) push(tags, seen, { label: backer, facet: "accelerator" });
     }
@@ -332,7 +375,15 @@ export function extractTags(
 
   /* Organisations someone gave time to rather than worked for. */
   for (const v of e.volunteering) {
-    if (v.organization) push(tags, seen, { label: v.organization, facet: "org" });
+    if (!v.organization) continue;
+    // A student society is a club whether it is listed as a job or as volunteering.
+    const guess = classifyOrg(v.organization, v.role);
+    const facet = orgLookup(v.organization, guess);
+    push(tags, seen, {
+      // An employer read out of volunteering is a nonprofit, not a job.
+      label: v.organization,
+      facet: facet === "company" ? "org" : facet,
+    });
   }
 
   /* Flags: facts about the whole profile rather than a line on it. */

@@ -51,6 +51,20 @@ export const TAG_FACETS = [
    */
   "accelerator",
   "company",
+  /**
+   * Three kinds of thing that were all being filed as "company", which is how a
+   * profile like Jacob Lee's came out almost blank: Tech Lead of Stanford ASES,
+   * researcher at the Stanford Multi-Robot Systems Lab, growth at Cluely and a
+   * founding role at a YC company — none of it tagged, none of it weighted.
+   *
+   * They are separated because they are worth different amounts and are curated
+   * differently. A lab is a named research group at a university; a club is a
+   * selective student organisation, where the signal is usually the leadership role;
+   * a startup is early-stage, where the signal is being there early at all.
+   */
+  "startup",
+  "lab",
+  "club",
   "org",
   "college",
   "highschool",
@@ -295,21 +309,25 @@ const NOT_THE_SAME: Record<string, string[]> = {
 };
 
 /**
- * Resolve a label by containment, for schools only.
+ * Resolve a label by containment, for institutions only.
  *
- * A LinkedIn education record routinely wraps the school in a programme name:
- * "UC Berkeley Management, Entrepreneurship, & Technology (M.E.T.) program". That
- * is Berkeley, and an exact-key match will never see it.
+ * A LinkedIn record routinely wraps the institution in extra words: "UC Berkeley
+ * Management, Entrepreneurship, & Technology (M.E.T.) program" is Berkeley, and
+ * "Stanford Artificial Intelligence Laboratory (SAIL)" is SAIL. An exact-key match
+ * will never see either.
  *
- * Restricted to colleges and high schools because it is only safe where the value
- * names an institution. Applying it to companies would make "ex-Google intern"
- * a Google role, and to titles would make every long role title match three tags.
+ * Restricted to schools and labs because it is only safe where the value names an
+ * institution and the name is long and specific. Applying it to companies would make
+ * "ex-Google intern" a Google role, and to titles would make every long role title
+ * match three tags.
  *
- * Longest label first, so a school whose name contains a shorter one resolves to
- * the more specific of the two.
+ * Longest label first, so an institution whose name contains a shorter one resolves
+ * to the more specific of the two.
  */
+const CONTAINABLE = new Set<TagFacet>(["college", "highschool", "lab"]);
+
 function resolveByContainment(index: RegistryIndex, facet: TagFacet, key: string): TagDef | null {
-  if (facet !== "college" && facet !== "highschool") return null;
+  if (!CONTAINABLE.has(facet)) return null;
 
   const peers = (index.byFacet.get(facet) ?? [])
     .flatMap((def) => [normalizeKey(def.label), ...def.aliases].map((form) => ({ def, form })))
@@ -486,6 +504,9 @@ export function mergeTags(reg: TagRegistry, fromId: string, intoId: string): Tag
 export function seedRegistry(input: {
   programs: { label: string; aliases?: string[] }[];
   accelerators: { label: string; aliases?: string[] }[];
+  startups: { label: string; aliases?: string[] }[];
+  labs: { label: string; aliases?: string[] }[];
+  clubs: { label: string; aliases?: string[] }[];
   colleges: { label: string; aliases?: string[]; state?: string }[];
   highSchools: { label: string; aliases?: string[]; state?: string }[];
   titles: { label: string; aliases?: string[] }[];
@@ -570,6 +591,9 @@ export function seedRegistry(input: {
   for (const t of input.titles) add(t.label, "title", t.aliases, 0);
   for (const m of input.majors) add(m.label, "major", m.aliases, 0.1);
   for (const c of input.companies) add(c.label, "company", c.aliases, 0.4);
+  for (const l of input.labs) add(l.label, "lab", l.aliases, 0.5);
+  for (const c of input.clubs) add(c.label, "club", c.aliases, 0.4);
+  for (const st of input.startups) add(st.label, "startup", st.aliases, 0.3);
 
   return reg;
 }

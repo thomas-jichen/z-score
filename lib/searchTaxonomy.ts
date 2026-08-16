@@ -74,6 +74,31 @@ export const PROGRAMS: Seed[] = [
   { label: "Presidential Scholar", aliases: ["U.S. Presidential Scholar", "United States Presidential Scholar"] },
   { label: "Rise", aliases: ["Rise Global Winner", "Schmidt Futures Rise"] },
   { label: "Coolidge Scholar", aliases: ["Coolidge Scholarship", "Coolidge Senator"] },
+  /**
+   * Hackathons and open competitions.
+   *
+   * Missing entirely, which is how Jacob Lee could win a TreeHacks track, place at
+   * CalHacks and reach the Breakthrough Junior final and score nothing for any of
+   * them. Priced for the median person who lists one: getting into TreeHacks is
+   * selective, winning a track is much more so, and one tag covers both.
+   */
+  { label: "TreeHacks", aliases: ["Stanford TreeHacks"] },
+  { label: "CalHacks", aliases: ["Cal Hacks", "Berkeley CalHacks"] },
+  { label: "HackMIT" },
+  { label: "PennApps" },
+  { label: "Hack the North" },
+  { label: "LA Hacks", aliases: ["LAHacks"] },
+  { label: "MHacks" },
+  { label: "HackHarvard" },
+  { label: "Breakthrough Junior Challenge", aliases: ["Breakthrough Junior"] },
+  { label: "John Locke Institute", aliases: ["John Locke Essay Competition", "John Locke Institute Essay Competition"] },
+  { label: "Congressional App Challenge" },
+  { label: "Science Olympiad" },
+  { label: "Science Bowl", aliases: ["National Science Bowl"] },
+  { label: "DECA", aliases: ["DECA ICDC", "International Career Development Conference"] },
+  { label: "FBLA", aliases: ["Future Business Leaders of America"] },
+  { label: "HOSA" },
+  { label: "AIME", aliases: ["AIME Qualifier", "American Invitational Mathematics Examination"] },
 ];
 
 /**
@@ -275,6 +300,93 @@ export const MAJORS: Seed[] = [
   { label: "Philosophy" },
   { label: "Management Science and Engineering", aliases: ["MS&E"] },
   { label: "Symbolic Systems", aliases: ["SymSys"] },
+];
+
+/**
+ * Named research groups. The signal is doing real research as an undergraduate, and
+ * the group's name is what makes it checkable.
+ *
+ * Filed apart from employers because "Researcher at Stanford Multi-Robot Systems Lab"
+ * and "Intern at Amazon" are not the same claim, and reading both as a company meant
+ * the first one scored nothing at all.
+ */
+export const LABS: Seed[] = [
+  { label: "Stanford AI Lab", aliases: ["SAIL", "Stanford Artificial Intelligence Laboratory"] },
+  { label: "Stanford HAI", aliases: ["Stanford Institute for Human-Centered AI"] },
+  { label: "Stanford AIMI", aliases: ["Stanford Center for AI in Medicine and Imaging"] },
+  { label: "Stanford Vision Lab", aliases: ["SVL"] },
+  { label: "Stanford NLP Group", aliases: ["Stanford NLP"] },
+  { label: "Stanford Multi-Robot Systems Lab", aliases: ["Stanford MSL", "Multi-Robot Systems Lab"] },
+  { label: "MIT CSAIL", aliases: ["CSAIL", "Computer Science and Artificial Intelligence Laboratory"] },
+  { label: "MIT Media Lab", aliases: ["Media Lab"] },
+  { label: "MIT Lincoln Laboratory", aliases: ["Lincoln Lab"] },
+  { label: "Berkeley AI Research", aliases: ["BAIR"] },
+  { label: "CMU Robotics Institute", aliases: ["Robotics Institute"] },
+  { label: "Broad Institute", aliases: ["Broad Institute of MIT and Harvard"] },
+  { label: "Whitehead Institute" },
+  { label: "Cold Spring Harbor Laboratory", aliases: ["CSHL"] },
+  { label: "Jackson Laboratory", aliases: ["JAX"] },
+  { label: "Jet Propulsion Laboratory", aliases: ["JPL", "NASA JPL"] },
+  { label: "Fermilab", aliases: ["Fermi National Accelerator Laboratory"] },
+  { label: "Argonne National Laboratory", aliases: ["Argonne"] },
+  { label: "Oak Ridge National Laboratory", aliases: ["ORNL"] },
+  { label: "Los Alamos National Laboratory", aliases: ["LANL"] },
+  { label: "Sandia National Laboratories", aliases: ["Sandia"] },
+  { label: "LIGO" },
+];
+
+/**
+ * Selective student organisations, mostly the entrepreneurship ones.
+ *
+ * The signal here is usually the role rather than the membership — running ASES is a
+ * different thing from attending it — but the club has to exist as a tag before the
+ * role can mean anything.
+ */
+export const CLUBS: Seed[] = [
+  { label: "Stanford ASES", aliases: ["ASES", "Asia-Pacific Student Entrepreneurship Society"] },
+  { label: "Stanford BASES", aliases: ["BASES", "Business Association of Stanford Entrepreneurial Students"] },
+  { label: "Stanford Blockchain Club" },
+  { label: "Stanford Marketing" },
+  { label: "Stanford Women in Computer Science", aliases: ["Stanford WiCS"] },
+  { label: "Free Ventures", aliases: ["Berkeley Free Ventures"] },
+  { label: "Harvard Ventures" },
+  { label: "MIT Sloan Entrepreneurship Club" },
+  { label: "Cornell eLab" },
+  { label: "Penn Wharton Entrepreneurship", aliases: ["Wharton Entrepreneurship"] },
+  { label: "Duke Innovation and Entrepreneurship", aliases: ["Duke I&E"] },
+  { label: "optiMize", aliases: ["Michigan optiMize"] },
+  { label: "Contrary Campus Venture Partner", aliases: ["Contrary Venture Partner"] },
+  { label: "Kleiner Perkins Fellow", aliases: ["KP Fellows", "Kleiner Perkins Fellows"] },
+  { label: "Rewriting the Code", aliases: ["RTC"] },
+  { label: "ColorStack" },
+  { label: "Management Leadership for Tomorrow", aliases: ["MLT"] },
+];
+
+/**
+ * Early-stage companies whose name alone is signal, because being there early is.
+ *
+ * Deliberately short. Startups are not a curatable universe — there are millions and
+ * the list would rot in a month — so this holds only the ones a reader would
+ * recognise, and everything else arrives in the review queue, correctly filed, to be
+ * promoted or ignored.
+ */
+export const STARTUPS: Seed[] = [
+  { label: "Cluely" },
+  { label: "Cognition", aliases: ["Cognition AI", "Cognition Labs"] },
+  { label: "Perplexity", aliases: ["Perplexity AI"] },
+  { label: "Sierra", aliases: ["Sierra AI"] },
+  { label: "Cursor", aliases: ["Anysphere"] },
+  { label: "Harvey", aliases: ["Harvey AI"] },
+  { label: "Mercor" },
+  { label: "Suno" },
+  { label: "ElevenLabs", aliases: ["Eleven Labs"] },
+  { label: "Replit" },
+  { label: "Vercel" },
+  { label: "Linear" },
+  { label: "Ramp" },
+  { label: "Scale AI", aliases: ["Scale"] },
+  { label: "Figma" },
+  { label: "Notion" },
 ];
 
 /**

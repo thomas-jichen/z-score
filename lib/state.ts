@@ -2,11 +2,14 @@ import { START_WEIGHT, TERM_CLUSTER, type Archetype, type BandThresholds } from 
 import { US_STATES, type CountKind } from "./extract";
 import {
   ACCELERATORS,
+  CLUBS,
   COLLEGES,
   COMPANIES,
+  LABS,
   HIGH_SCHOOLS,
   MAJORS,
   PROGRAMS,
+  STARTUPS,
   TITLES,
 } from "./searchTaxonomy";
 import {
@@ -238,6 +241,16 @@ export function defaultFacetWeights(): Record<TagFacet, number> {
      * "Software Engineer" used to pay 0.6 — more than an ISEF finalist now scores.
      */
     company: 0.2,
+    /**
+     * What an unrecognised one starts at, and the three sit low on purpose.
+     *
+     * The seeded lists are above them and named tunings above that. A startup is
+     * lowest because the long tail is somebody's own side project, and the signal
+     * that they *built* it is already carried by the founding title.
+     */
+    startup: 0.1,
+    lab: 0.3,
+    club: 0.2,
     org: 0.1,
     college: 0.2,
     highschool: 0.1,
@@ -278,6 +291,9 @@ function seededTags(): TagRegistry {
   return seedRegistry({
     programs: PROGRAMS,
     accelerators: ACCELERATORS,
+    startups: STARTUPS,
+    labs: LABS,
+    clubs: CLUBS,
     colleges: COLLEGES,
     highSchools: HIGH_SCHOOLS,
     titles: TITLES,
@@ -390,6 +406,9 @@ function seedFacets(): Map<string, TagFacet> {
   // Accelerators before programmes, matching seedRegistry, so a label in both lists
   // resolves the same way in the migration as it does in a fresh document.
   for (const x of ACCELERATORS) put(x.label, "accelerator");
+  for (const x of LABS) put(x.label, "lab");
+  for (const x of CLUBS) put(x.label, "club");
+  for (const x of STARTUPS) put(x.label, "startup");
   for (const x of PROGRAMS) put(x.label, "program");
   for (const x of COLLEGES) put(x.label, "college");
   for (const x of HIGH_SCHOOLS) put(x.label, "highschool");
@@ -408,8 +427,10 @@ function seedFacets(): Map<string, TagFacet> {
  *   2 — accelerators split out and put at the top; competitions repriced by cohort
  *       size (ISEF 1.4 → 0.8, MOP 1.0 → 1.6); titles zeroed; counts cut from a
  *       ceiling of 7.6 to 3.4, so the strongest person lands near 10.
+ *   3 — startups, labs and college clubs split out of "company"; hackathons and open
+ *       competitions added, which were missing entirely.
  */
-export const SEED_VERSION = 2;
+export const SEED_VERSION = 3;
 
 /**
  * Adopt a recalibrated seed table, once.

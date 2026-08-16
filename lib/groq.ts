@@ -3,6 +3,7 @@ import { ARCHETYPES, isArchetype } from "./clusters";
 import type { Person } from "./people";
 import { log } from "./log";
 import { envNumber } from "./ratelimit";
+import { isTagFacet, type TagFacet } from "./tagRegistry";
 
 /**
  * Groq client for the one job the model is trusted with: reading credential
@@ -676,18 +677,30 @@ export async function resolveAliases(
 
 /* ── Classification, asked once per term ────────────────────────────────── */
 
-const CLASSIFY_SYSTEM = `You assign a talent cluster and a starting weight to one credential.
+const CLASSIFY_SYSTEM = `You file one thing found on a profile: what kind of thing it is, which talent cluster it votes for, and what it is worth.
+
+Sections:
+- program: a selective programme, competition, olympiad or hackathon
+- award: an honour or scholarship
+- accelerator: an accelerator, fellowship or fund that backs people with money
+- startup: an early-stage company
+- lab: a named research group at a university or national laboratory
+- club: a student organisation or society
+- company: an established employer
+- org: a nonprofit or community organisation
 
 Clusters:
 ${ARCHETYPES.map((a) => `- ${a.id}: ${a.blurb}`).join("\n")}
-- null: real signal, but not diagnostic of a talent type. Use for need-based or demographic scholarships.
+- none: real signal, but not diagnostic of a talent type. Use for need-based or demographic scholarships.
 
 Weight is 0.0 to 2.0 and means "how much does holding this predict exceptional early-career talent".
-For calibration: IMO is 2.0, RSI is 1.8, ISEF is 1.4, USAMO is 1.3, Hack Club is 0.7, TASP is 0.6.
+For calibration: Y Combinator and IMO are 2.0, RSI is 1.6, USAMO is 1.2, ISEF is 0.8, TreeHacks is 0.5, an ordinary employer is 0.2.
 
-Use "none" for the cluster when the credential is real signal but not diagnostic of a talent type.
+Weigh the thing itself, not what it implies. One company out of a batch is not worth what the
+accelerator is worth — the accelerator is already scored separately, so pricing the company at the
+same number counts it twice. A single startup is rarely above 0.5.
 
-Reply with JSON only: {"cluster":"olympiad","weight":1.2,"why":"one short sentence"}`;
+Reply with JSON only: {"facet":"program","cluster":"quant","weight":1.2,"why":"one short sentence"}`;
 
 /**
  * "none" rather than a JSON null, because a nullable enum is the corner of strict
@@ -699,16 +712,35 @@ const CLASSIFY_SCHEMA: Schema = {
   schema: {
     type: "object",
     properties: {
+      facet: {
+        type: "string",
+        enum: [
+          "program",
+          "award",
+          "accelerator",
+          "startup",
+          "lab",
+          "club",
+          "company",
+          "org",
+        ],
+      },
       cluster: { type: "string", enum: [...ARCHETYPES.map((a) => a.id), "none"] },
       weight: { type: "number" },
       why: { type: "string" },
     },
-    required: ["cluster", "weight", "why"],
+    required: ["facet", "cluster", "weight", "why"],
     additionalProperties: false,
   },
 };
 
-export type Classification = { cluster: Archetype | null; weight: number; why: string };
+export type Classification = {
+  /** Which section of the taxonomy it belongs in. A suggestion, edited before it lands. */
+  facet: TagFacet | null;
+  cluster: Archetype | null;
+  weight: number;
+  why: string;
+};
 
 function parseClassification(raw: unknown): Classification | null {
   const o = (raw ?? {}) as Record<string, unknown>;
@@ -718,6 +750,7 @@ function parseClassification(raw: unknown): Classification | null {
   if (!Number.isFinite(weight)) return null;
 
   return {
+    facet: isTagFacet(o.facet) ? o.facet : null,
     cluster: isArchetype(o.cluster) ? o.cluster : null,
     // Clamp rather than reject: a model returning 5 means "high", not "invalid".
     weight: Math.min(Math.max(Math.round(weight * 10) / 10, 0), 2),

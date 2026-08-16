@@ -112,11 +112,24 @@ export const TERM_CLUSTER: Record<string, Archetype | null> = {
   IPhO: "quant",
   IChO: "quant",
   MOP: "quant",
+  AIME: "quant",
+  "Science Bowl": "quant",
+  "Science Olympiad": "research",
+  "Breakthrough Junior Challenge": "research",
   IBO: "research",
   // Builder
   "Hack Club": "builder",
   "Conrad Challenge": "builder",
   buildspace: "builder",
+  TreeHacks: "builder",
+  CalHacks: "builder",
+  HackMIT: "builder",
+  PennApps: "builder",
+  "Hack the North": "builder",
+  HackHarvard: "builder",
+  MHacks: "builder",
+  "LA Hacks": "builder",
+  "Congressional App Challenge": "builder",
   /**
    * Founder — and every accelerator votes here.
    *
@@ -249,6 +262,32 @@ export const START_WEIGHT: Record<string, number> = {
   ISEF: 0.8,
   "Coca-Cola Scholar": 0.7,
   QuestBridge: 0.6,
+  /**
+   * Hackathons and open competitions, priced for the median person who lists one.
+   *
+   * TreeHacks admits ~1,500 of several thousand and winning a track is a few dozen
+   * people; one tag covers both, so it sits between. The open-entry ones — DECA,
+   * FBLA, Science Olympiad — are large enough that listing them says little on its
+   * own, and they are here mainly so they stop arriving in the review queue every
+   * time somebody new is enriched.
+   */
+  "Breakthrough Junior Challenge": 0.7,
+  "John Locke Institute": 0.6,
+  TreeHacks: 0.5,
+  CalHacks: 0.5,
+  HackMIT: 0.5,
+  PennApps: 0.5,
+  "Hack the North": 0.5,
+  HackHarvard: 0.4,
+  MHacks: 0.4,
+  "LA Hacks": 0.4,
+  AIME: 0.6,
+  "Science Bowl": 0.4,
+  "Congressional App Challenge": 0.3,
+  "Science Olympiad": 0.3,
+  DECA: 0.2,
+  FBLA: 0.2,
+  HOSA: 0.2,
   "Conrad Challenge": 0.5,
   "Diamond Challenge": 0.5,
   "Hack Club": 0.5,

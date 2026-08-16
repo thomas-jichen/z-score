@@ -33,7 +33,7 @@ import {
   termCounts,
   unmatchedTerms,
 } from "../lib/tags";
-import { extractTags, inferHomeState } from "../lib/extract";
+import { classifyOrg, extractTags, inferHomeState } from "../lib/extract";
 import { cleanTaxonomy } from "../lib/team";
 import { START_WEIGHT, assignCluster, round } from "../lib/clusters";
 import {
@@ -1076,6 +1076,21 @@ console.log("\naccelerators — the signal that was invisible");
   ];
   check("someone else's backers do not transfer", held(aboutTheFund).includes("a16z[accelerator]"), false);
 
+  /**
+   * But a founder's do.
+   *
+   * Tarun Batchu is CEO of Vela, whose description reads "Backed by a16z (sr007) and
+   * Z Fellows" — the same shape of sentence as the one above, and true about him,
+   * because when you founded the company its backers are your backers. Excluding the
+   * field outright threw the real one away with the false one; the role is what tells
+   * them apart.
+   */
+  const ownVenture = bare("own");
+  ownVenture.enriched!.experience = [
+    { title: "CEO", company: "Vela", description: "Backed by a16z (sr007) and Z Fellows" },
+  ];
+  check("a founder's own backing does", held(ownVenture).includes("a16z[accelerator]"), true);
+
   // Their own headline does count: naming it about yourself is the claim.
   const claimed = bare("claimed");
   claimed.enriched!.headline = "CEO, Headstarter | a16z Speedrun Scout";
@@ -1107,6 +1122,84 @@ console.log("\naccelerators — the signal that was invisible");
   const noHome = bare("nohome");
   noHome.enriched!.educations = [{ school: "Y Combinator", degree: "S26" }];
   check("and it sets no home state", inferHomeState(noHome.enriched!, schoolStateLookup(TAX)), undefined);
+}
+
+console.log("\nlabs, clubs and startups — everything that was filed as a company");
+{
+  const held = (p: Person) =>
+    heldTags(p, TAX)
+      .filter((t) => t.def.facet !== "state" && t.def.facet !== "homestate")
+      .map((t) => `${t.def.label}[${t.def.facet}]`);
+
+  /**
+   * Jacob Lee's profile, in miniature.
+   *
+   * Tech Lead of Stanford ASES, researcher at the Stanford Multi-Robot Systems Lab,
+   * growth at Cluely, a founding role at a YC company, a TreeHacks track win and a
+   * Breakthrough Junior final — and none of it scored. The clubs and labs were read
+   * as employers and matched nothing; the hackathons were not in the vocabulary at
+   * all.
+   */
+  const jacob = bare("jacob", [
+    "TreeHacks Interaction Track Winner",
+    "Second Place CalHacks Audio Track",
+    "Breakthrough Junior Challenge Finalist",
+  ]);
+  jacob.enriched!.experience = [
+    { title: "Tech Lead", company: "Stanford ASES" },
+    { title: "Researcher", company: "Stanford Multi-Robot Systems Lab" },
+    { title: "Growth Team", company: "Cluely" },
+    { title: "Founding Growth Manager", company: "Friday (YC F24)" },
+  ];
+  const jt = held(jacob);
+  check("a student society is a club", jt.includes("Stanford ASES[club]"), true);
+  check("a research group is a lab", jt.includes("Stanford Multi-Robot Systems Lab[lab]"), true);
+  check("a known early-stage company is a startup", jt.includes("Cluely[startup]"), true);
+  check("a hackathon win counts", jt.includes("TreeHacks[program]"), true);
+  check("so does a second place", jt.includes("CalHacks[program]"), true);
+  check("and a competition final", jt.includes("Breakthrough Junior Challenge[program]"), true);
+  check("the batch is still read off the company name", jt.includes("Y Combinator[accelerator]"), true);
+
+  /**
+   * The pattern only has to be good enough to file a name it has never seen.
+   *
+   * A curated name overrules it: "Cluely" contains no word meaning startup and
+   * "Stanford ASES" none meaning club, so the registry has the last word — exactly as
+   * it does for schools.
+   */
+  check("a name saying lab is a lab", classifyOrg("Berkeley Robotics Lab", "Intern"), "lab");
+  check("a name saying society is a club", classifyOrg("Entrepreneurship Society", "Chair"), "club");
+  check("a batch marker is a startup", classifyOrg("Willow (YC S24)", "Engineer"), "startup");
+  check("founding one makes it a startup", classifyOrg("Vela", "Co-Founder"), "startup");
+  check("working at one does not", classifyOrg("Vela", "Intern"), "company");
+  check("and an ordinary employer stays one", classifyOrg("Google", "Software Engineer"), "company");
+
+  /**
+   * Everything unresolved reaches the review queue, carrying what it already is.
+   *
+   * The queue only ever saw what the tagger read out of prose, so a lab, a society or
+   * a seed-stage startup in the experience section was not tagged, not scored, and
+   * never even offered — there was no way to fix it from the screen. And an offer with
+   * no facet is why promoting one filed it as an award.
+   */
+  const unknown = bare("unknown");
+  unknown.enriched!.experience = [
+    { title: "Researcher", company: "Some Unheard-Of Research Lab" },
+    { title: "President", company: "Some Unheard-Of Society" },
+  ];
+  const offered = unmatchedTerms([unknown], TAX);
+  check(
+    "an unknown lab is offered as a lab",
+    offered.find((o) => o.term === "Some Unheard-Of Research Lab")?.facet,
+    "lab"
+  );
+  check(
+    "an unknown society as a club",
+    offered.find((o) => o.term === "Some Unheard-Of Society")?.facet,
+    "club"
+  );
+  // A title or a class year arriving here would bury the queue in noise.
+  check("and a job title is not offered at all", offered.some((o) => o.term === "President"), false);
 }
 
 console.log("\nthe score is a sum — the documented worked examples");
