@@ -6,7 +6,7 @@ import {
   mergeTeam,
   type TeamState,
 } from "@/lib/state";
-import { cleanTaxonomy, cleanTerms } from "@/lib/team";
+import { cleanDeleted, cleanTaxonomy, cleanTerms } from "@/lib/team";
 import { migrateIfNeeded, readTeam } from "@/lib/serverState";
 import { get, set } from "@/lib/store";
 import { isBad, readJson } from "@/lib/validate";
@@ -52,8 +52,15 @@ export async function PATCH(req: Request) {
   const patch: Partial<TeamState> = {};
   if (body.taxonomy) patch.taxonomy = cleanTaxonomy(body.taxonomy);
   if (body.customTerms) patch.customTerms = cleanTerms(body.customTerms);
+  /**
+   * Shortening the blocklist, which is the only edit a client makes to it: adding
+   * happens server-side in the delete op, where the roster row is dropped in the same
+   * breath. Accepted here so a deletion can be taken back — the person's data is gone
+   * either way, but they become findable again.
+   */
+  if (body.deleted !== undefined) patch.deleted = cleanDeleted(body.deleted);
 
-  if (!patch.taxonomy && !patch.customTerms) {
+  if (!patch.taxonomy && !patch.customTerms && !patch.deleted) {
     return NextResponse.json({ ok: false, error: "Nothing to change." }, { status: 400 });
   }
 

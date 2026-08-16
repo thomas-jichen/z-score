@@ -384,6 +384,39 @@ export default function TaxonomyPage() {
                   Delete all stored people
                 </button>
               )}
+
+              {/**
+               * Deleting from the Removed queue erases the person and blocks the slug,
+               * so they cannot be found again by a sweep. That has to be visible
+               * somewhere, or one misfire quietly removes someone from the tool for
+               * good with no trace and no way back.
+               */}
+              {team.deleted.length > 0 && (
+                <div className="z-stack" style={{ gap: "var(--z-space-2)" }}>
+                  <p className="z-small">
+                    {team.deleted.length} {team.deleted.length === 1 ? "profile is" : "profiles are"}{" "}
+                    blocked from being added again. Their stored data is already gone —
+                    unblocking only lets a sweep surface them.
+                  </p>
+                  <div className="z-row z-row-wrap" style={{ gap: "var(--z-space-2)" }}>
+                    {team.deleted.map((slug) => (
+                      <span key={slug} className="z-custom-term">
+                        <Pill>{slug}</Pill>
+                        <button
+                          className="z-custom-remove"
+                          title={`Let ${slug} be found again`}
+                          aria-label={`Unblock ${slug}`}
+                          onClick={() =>
+                            patchTeam({ deleted: team.deleted.filter((s) => s !== slug) })
+                          }
+                        >
+                          ×
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           </details>
 

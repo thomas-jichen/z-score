@@ -354,6 +354,13 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
     [op]
   );
 
+  /**
+   * Erase people for good: the roster row, the archived payload, and the mark.
+   *
+   * The server also blocks the slugs so nothing re-adds them, and hands back the fresh
+   * team document with the response — otherwise the restore list on the taxonomy
+   * screen would not show the deletion until a reload. `op` applies the marks.
+   */
   const removePeople = useCallback(
     async (slugs: string[]) => {
       const r = await op({ op: "delete", slugs });
@@ -363,6 +370,7 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
           for (const s of slugs) delete next[s];
           return next;
         });
+        if (r.team) setTeam(r.team as TeamState);
       }
       return Boolean(r);
     },

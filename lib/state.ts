@@ -123,8 +123,32 @@ export type TaxonomyPrefs = {
 export type TeamState = {
   taxonomy: TaxonomyPrefs;
   customTerms: CustomTerms;
+  /**
+   * Slugs erased for good, so they cannot come back.
+   *
+   * Rejecting is personal and reversible — it lives in `marks`, and it suppresses
+   * someone from *your* sweeps by remembering that you said no. Deleting is neither:
+   * it drops the shared roster row and the archived vendor payload, and there is then
+   * nothing left to remember them by. Without this list the next sweep would surface
+   * them as a brand-new face and re-add them, which is the opposite of what the
+   * button says.
+   *
+   * Team-wide, because the roster it guards is team-wide. Reversible from the
+   * taxonomy screen, since the alternative is that one misfire bans someone forever
+   * with no way to see it happened.
+   */
+  deleted: string[];
   updatedAt: string;
 };
+
+/**
+ * Blocklist cap.
+ *
+ * Bounded because this document is read on every page load. Well above any real
+ * amount of deleting, and oldest-first eviction is the right end to lose: a slug
+ * deleted long ago is one nothing is still trying to re-add.
+ */
+export const MAX_DELETED = 2000;
 
 export type QueueFilters = {
   cluster: Archetype | "all";
@@ -341,6 +365,7 @@ export function emptyTeam(): TeamState {
       states: [],
       homeStates: [],
     },
+    deleted: [],
     updatedAt: new Date().toISOString(),
   };
 }
@@ -642,6 +667,11 @@ export function hydrateTeam(stored: Partial<TeamState> | null): TeamState {
       polymathPoints: tax.polymathPoints ?? base.taxonomy.polymathPoints,
     },
     customTerms: { ...base.customTerms, ...(stored.customTerms ?? {}) },
+    // Written before the blocklist existed, so a missing field is "nobody", not a
+    // read of `undefined.includes` on the add path.
+    deleted: Array.isArray(stored.deleted)
+      ? stored.deleted.filter((s): s is string => typeof s === "string")
+      : base.deleted,
   };
 }
 

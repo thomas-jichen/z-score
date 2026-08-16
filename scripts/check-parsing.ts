@@ -23,7 +23,15 @@ import {
   type Provenance,
 } from "../lib/enrichment";
 import { capRoster, hopAfter, isSuppressed, migrateLegacy, neighborsFrom, nextHopFrom, withEnriched, MAX_PEOPLE, type Person } from "../lib/people";
-import { SEED_VERSION, emptyTeam, hydrateTeam, type TaxonomyPrefs } from "../lib/state";
+import {
+  MAX_DELETED,
+  SEED_VERSION,
+  emptyTeam,
+  hydrateTeam,
+  mergeTeam,
+  type TaxonomyPrefs,
+  type TeamState,
+} from "../lib/state";
 import { scoreOne, toCandidates } from "../lib/candidates";
 import {
   buildSearchLabels,
@@ -34,7 +42,7 @@ import {
   unmatchedTerms,
 } from "../lib/tags";
 import { classifyOrg, extractTags, inferHomeState } from "../lib/extract";
-import { cleanTaxonomy } from "../lib/team";
+import { cleanDeleted, cleanTaxonomy } from "../lib/team";
 import { START_WEIGHT, assignCluster, round } from "../lib/clusters";
 import {
   containsTokens,
@@ -733,6 +741,70 @@ console.log("\nhydrateTeam — a stored registry keeps up with the seed lists");
     "exactly one tag answers to the moved alias",
     Object.values(stale.taxonomy.tags).filter((d) => d.aliases.includes("amp")).map((d) => d.id),
     ["jane-street-amp"]
+  );
+}
+
+// ── Permanent deletion ───────────────────────────────────────────────────
+
+console.log("\ndeleting for good is a blocklist, not just a missing row");
+{
+  /**
+   * Rejecting works by *remembering* someone: the mark is what keeps them out of the
+   * next sweep. Deleting throws that memory away along with everything else, so
+   * without a list of its own "permanently" would last exactly until the next sweep
+   * ran and re-added them as a new face.
+   */
+  check("a fresh team blocks nobody", emptyTeam().deleted, []);
+  check(
+    "a document written before the blocklist reads as empty, not undefined",
+    hydrateTeam({ taxonomy: emptyTeam().taxonomy } as Partial<TeamState>).deleted,
+    []
+  );
+  check(
+    "a stored blocklist survives a read",
+    hydrateTeam({ deleted: ["ada-chen-7a12"] } as Partial<TeamState>).deleted,
+    ["ada-chen-7a12"]
+  );
+
+  // Slugs, normalised the same way the add path normalises them. A profile URL and a
+  // bare slug have to land on the same key, or one trailing slash undoes a deletion.
+  check(
+    "a URL and a slug are the same block",
+    cleanDeleted(["https://www.linkedin.com/in/ada-chen-7a12/", "ada-chen-7a12"]),
+    ["ada-chen-7a12"]
+  );
+  check("junk is dropped rather than stored", cleanDeleted(["", "   ", 7, null]), []);
+  check(
+    "the list is capped, keeping the newest",
+    (() => {
+      const many = Array.from({ length: MAX_DELETED + 5 }, (_, i) => `person-${i}`);
+      const out = cleanDeleted(many);
+      return [out.length, out[out.length - 1]];
+    })(),
+    [MAX_DELETED, `person-${MAX_DELETED + 4}`]
+  );
+
+  /**
+   * The blocklist is not part of the taxonomy, and a taxonomy save must not touch it.
+   *
+   * They share one document and `cleanTaxonomy` rebuilds its half field by field, so
+   * the only thing keeping a deletion alive through a slider drag is that the two are
+   * separate keys at the top level.
+   */
+  check(
+    "a taxonomy save leaves the blocklist alone",
+    mergeTeam(
+      { ...emptyTeam(), deleted: ["ada-chen-7a12"] },
+      { taxonomy: cleanTaxonomy(emptyTeam().taxonomy) }
+    ).deleted,
+    ["ada-chen-7a12"]
+  );
+  // And unblocking the last one has to be expressible, so an empty list is a real
+  // value rather than "no change".
+  check(
+    "clearing the blocklist is a patch, not a no-op",
+    mergeTeam({ ...emptyTeam(), deleted: ["ada-chen-7a12"] }, { deleted: [] }).deleted,
+    []
   );
 }
 

@@ -1,6 +1,8 @@
 import { isArchetype, type Archetype } from "./clusters";
+import { toSlug } from "./enrichment";
 import { COUNT_KINDS } from "./extract";
 import {
+  MAX_DELETED,
   SEED_VERSION,
   emptyTeam,
   type CustomTerms,
@@ -145,6 +147,25 @@ export function cleanTaxonomy(raw: Partial<TaxonomyPrefs>): TaxonomyPrefs {
       mid: bandOf(raw.bands?.mid, base.bands.mid),
     },
   };
+}
+
+/**
+ * The blocklist, normalised through the same slug rule as everything else.
+ *
+ * A slug is the only safe key here: comparing what someone typed against what a SERP
+ * returned would let one trailing slash undo a deletion. Newest last, so the cap
+ * evicts the oldest — a slug deleted long ago is one nothing is still trying to
+ * re-add.
+ */
+export function cleanDeleted(raw: unknown): string[] {
+  // Trimmed from the front before validating, not after. `strList` stops once it has
+  // its quota, so capping there would keep the *oldest* entries and silently drop
+  // every deletion made after the list filled up.
+  const tail = Array.isArray(raw) ? raw.slice(-MAX_DELETED) : raw;
+  const list = strList(tail, MAX_DELETED, 200)
+    .map((s) => toSlug(s))
+    .filter((s): s is string => Boolean(s));
+  return [...new Set(list)];
 }
 
 export function cleanTerms(raw: Partial<CustomTerms>): CustomTerms {

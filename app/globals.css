@@ -702,7 +702,9 @@ a.z-archetype:hover {
   transition: all var(--z-t-base);
 }
 
-.z-mark.is-compact .z-mark-btn {
+.z-mark.is-compact .z-mark-btn,
+/* Also when the button sits outside the group, as delete does. */
+.z-mark-btn.is-compact {
   width: 1.75rem;
   height: 1.75rem;
 }
@@ -1378,6 +1380,46 @@ a.z-archetype:hover {
   border: 1px solid var(--z-border);
   border-radius: var(--z-r-card);
   background: var(--z-surface-blue);
+}
+
+/**
+ * Irreversible, said without a red.
+ *
+ * Nothing in this palette is red — even the error banner is navy — so weight does
+ * the job colour would do elsewhere: full ink against the faint grey every other
+ * small action uses, and a thicker underline on hover. It reads as the heaviest
+ * thing in the row, which is the point, without turning a queue screen into an
+ * alert.
+ */
+.z-linkish.is-danger {
+  color: var(--z-ink);
+}
+
+.z-linkish.is-danger:hover {
+  color: var(--z-navy);
+  text-decoration-thickness: 2px;
+}
+
+/**
+ * The same treatment on a triage button.
+ *
+ * Delete sits in the mark group so the row keeps one baseline instead of growing a
+ * stray link underneath it — but it is not a triage state, so it is held apart by a
+ * hairline and darkens rather than turning blue. Blue is what every reversible
+ * control here does on hover, and this one is not reversible.
+ */
+.z-mark-btn.is-danger:hover {
+  border-color: var(--z-navy);
+  background: var(--z-navy);
+  color: var(--z-bg);
+}
+
+.z-mark-sep {
+  width: 1px;
+  align-self: stretch;
+  margin: 2px 0;
+  background: var(--z-border);
+  flex: none;
 }
 
 /* An action that should be reachable but not compete with the row's content. */

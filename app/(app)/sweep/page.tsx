@@ -122,15 +122,21 @@ export default function SweepPage() {
 
   const busy = job.phase === "running";
 
-  /** Anyone the viewer has already triaged out. Ticking them again wastes money. */
+  /**
+   * Everyone the team has erased for good. A search engine does not know they were
+   * deleted, so a sweep keeps returning them and the row has to say why it is inert.
+   */
+  const erased = useMemo(() => new Set(team.deleted), [team.deleted]);
+
+  /** Anyone already triaged out, or deleted. Ticking them again wastes money. */
   const skipReason = useCallback(
-    (slug: string) => suppressionReason(marks[slug]),
-    [marks]
+    (slug: string) => (erased.has(slug) ? "deleted permanently" : suppressionReason(marks[slug])),
+    [marks, erased]
   );
 
   const tickable = useCallback(
-    (slugs: string[]) => slugs.filter((s) => !isSuppressed(marks[s])),
-    [marks]
+    (slugs: string[]) => slugs.filter((s) => !isSuppressed(marks[s]) && !erased.has(s)),
+    [marks, erased]
   );
 
   /**
@@ -284,9 +290,15 @@ export default function SweepPage() {
         setPicked(new Set(tickable(found.map((h) => h.slug))));
 
         const already = found.filter((h) => isSuppressed(marks[h.slug])).length;
-        if (already > 0) {
+        const gone = found.filter((h) => erased.has(h.slug)).length;
+        if (already > 0 || gone > 0) {
           setNotice(
-            `${already} of these you have already triaged, so they start unticked.`
+            [
+              already > 0 && `${already} of these you have already triaged`,
+              gone > 0 && `${gone} ${gone === 1 ? "was" : "were"} deleted permanently`,
+            ]
+              .filter(Boolean)
+              .join(", and ") + ", so they start unticked."
           );
         }
 

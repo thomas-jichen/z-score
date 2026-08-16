@@ -48,6 +48,7 @@ function QueueInner() {
     analyze,
     analyzing,
     taggerEnabled,
+    removePeople,
     job,
     error,
     ephemeral,
@@ -63,6 +64,19 @@ function QueueInner() {
     null
   );
   const [notice, setNotice] = useState<string | null>(null);
+  /**
+   * Who is one click from being erased.
+   *
+   * Deleting is the only control on this screen with no undo, so it asks first — and
+   * it asks in the banner rather than on the row. There is no room beside a 2rem
+   * button to say what deleting actually does, and "delete?" next to a name is not
+   * the same warning as "this erases their stored profile and blocks them from
+   * sweeps". Same slot the undo banner uses, which is where this screen already puts
+   * a decision that has to be read.
+   */
+  const [pendingDelete, setPendingDelete] = useState<{ slugs: string[]; label: string } | null>(
+    null
+  );
 
   // Deep link from an archetype tag anywhere in the app.
   const linked = params.get("archetype");
@@ -180,6 +194,9 @@ function QueueInner() {
       const next = new Set([...prev].filter((s) => visibleSlugs.includes(s)));
       return next.size === prev.size ? prev : next;
     });
+    // An unanswered "delete permanently?" must not survive the list changing
+    // underneath it — the confirm button would then name a row that has moved.
+    setPendingDelete(null);
   }, [visibleSlugs]);
 
   async function applyMark(slug: string, change: MarkChange) {
@@ -204,6 +221,42 @@ function QueueInner() {
     }
     await mark(slugs, change);
     setChecked(new Set());
+  }
+
+  /** Ask before erasing. The banner carries the consequence; this only names who. */
+  function askDelete(slugs: string[]) {
+    if (slugs.length === 0) return;
+    setUndo(null);
+    setNotice(null);
+    setPendingDelete({
+      slugs,
+      label:
+        slugs.length === 1
+          ? (roster[slugs[0]]?.name ?? slugs[0])
+          : `${slugs.length} people`,
+    });
+  }
+
+  /**
+   * Erase for good. No undo banner afterwards, because there is nothing to undo to.
+   *
+   * The outcome is spelled out rather than left to the row disappearing: a row
+   * vanishing is also what rejecting looks like, and these two need to feel different.
+   */
+  async function erase() {
+    const pending = pendingDelete;
+    if (!pending) return;
+    setPendingDelete(null);
+    const ok = await removePeople(pending.slugs);
+    if (!ok) return;
+    setChecked((prev) => {
+      const next = new Set(prev);
+      for (const s of pending.slugs) next.delete(s);
+      return next;
+    });
+    setNotice(
+      `${pending.label} deleted permanently. Their stored profile is gone, and a sweep will not bring them back.`
+    );
   }
 
   async function bulkEnrich() {
@@ -279,6 +332,24 @@ function QueueInner() {
       )}
       {error && <div className="z-banner is-error">{error}</div>}
       {notice && <div className="z-banner">{notice}</div>}
+
+      {/* Reads before it acts: the two buttons sit after the sentence, not beside a
+          name with no room to explain what the click costs. */}
+      {pendingDelete && (
+        <div className="z-banner is-error z-row z-row-wrap">
+          <span>
+            Delete <strong>{pendingDelete.label}</strong> permanently? This erases the stored
+            profile for everyone and blocks the link, so a sweep will not surface them again.
+          </span>
+          <span className="z-spacer" />
+          <button className="z-linkish is-danger" onClick={erase}>
+            Delete
+          </button>
+          <button className="z-linkish" onClick={() => setPendingDelete(null)}>
+            Cancel
+          </button>
+        </div>
+      )}
 
       {undo && (
         <div className="z-banner z-row">
@@ -490,6 +561,18 @@ function QueueInner() {
                   Restore
                 </button>
               )}
+              {/* Only from Removed. Erasing someone should take two decisions —
+                  remove, then delete — and never be adjacent to a triage click in
+                  the list you work through every day. */}
+              {view === "rejected" && (
+                <button
+                  className="z-linkish is-danger"
+                  onClick={() => askDelete(checkedRows.map((r) => r.slug))}
+                  title="Erase these people and their stored profiles. Cannot be undone."
+                >
+                  Delete
+                </button>
+              )}
               <button className="z-linkish" onClick={() => setChecked(new Set())}>
                 Clear
               </button>
@@ -525,7 +608,9 @@ function QueueInner() {
                       <th>Person</th>
                       <th style={{ width: 200 }}>Z-score</th>
                       <th className="z-cell-cluster">Cluster</th>
-                      <th style={{ width: 120 }} />
+                      {/* Wider only where the delete control is offered, so the other
+                          two views do not carry an empty gutter for it. */}
+                      <th style={{ width: view === "rejected" ? 168 : 120 }} />
                     </tr>
                   </thead>
                   <tbody>
@@ -559,6 +644,8 @@ function QueueInner() {
                         signals={c.signals.filter((x) => x.points > 0)}
                         mark={marks[c.slug]}
                         scoreMax={bands.exceptional}
+                        // Offered only where someone has already said no once.
+                        onDelete={view === "rejected" ? () => askDelete([c.slug]) : undefined}
                       />
                     ))}
                   </tbody>
@@ -579,6 +666,19 @@ function QueueInner() {
                         onChange={applyMark}
                         compact
                       />
+                      {view === "rejected" && (
+                        <>
+                          <span className="z-mark-sep" aria-hidden />
+                          <button
+                            type="button"
+                            className="z-mark-btn is-danger is-compact"
+                            onClick={() => askDelete([c.slug])}
+                            aria-label={`Delete ${c.name} permanently`}
+                          >
+                            ⊘
+                          </button>
+                        </>
+                      )}
                     </div>
                   </div>
                 ))}
@@ -603,6 +703,7 @@ function Row({
   signals,
   mark,
   scoreMax,
+  onDelete,
 }: {
   candidate: Candidate;
   checked: boolean;
@@ -615,6 +716,8 @@ function Row({
   signals: Candidate["signals"];
   mark?: Parameters<typeof MarkControl>[0]["mark"];
   scoreMax: number;
+  /** Absent outside the Removed view, where erasing is not on offer. */
+  onDelete?: () => void;
 }) {
   const [editing, setEditing] = useState(false);
 
@@ -718,8 +821,27 @@ function Row({
           </span>
         )}
       </td>
+      {/* One row of controls, one baseline. The delete sits in the same group as the
+          triage buttons rather than hanging under them as a stray link — but behind a
+          hairline, because it is not a triage state, it is the end of the record. */}
       <td>
-        <MarkControl slug={c.slug} mark={mark} onChange={onMark} />
+        <span className="z-row" style={{ gap: "var(--z-space-2)" }}>
+          <MarkControl slug={c.slug} mark={mark} onChange={onMark} />
+          {onDelete && (
+            <>
+              <span className="z-mark-sep" aria-hidden />
+              <button
+                type="button"
+                className="z-mark-btn is-danger"
+                onClick={onDelete}
+                aria-label={`Delete ${c.name} permanently`}
+                title="Erase this person and their stored profile. Cannot be undone."
+              >
+                ⊘
+              </button>
+            </>
+          )}
+        </span>
       </td>
     </tr>
   );

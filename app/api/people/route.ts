@@ -13,15 +13,19 @@ import {
   type PersonStatus,
 } from "@/lib/people";
 import {
+  MAX_DELETED,
   ROSTER_KEY,
+  TEAM_KEY,
   hydrate,
   mergeState,
+  rawKey,
   stateKey,
   type ProfileState,
+  type TeamState,
 } from "@/lib/state";
 import { migrateIfNeeded, readRoster, readTeam, writePeople } from "@/lib/serverState";
 import { buildSearchLabels } from "@/lib/tags";
-import { get, hdel, set } from "@/lib/store";
+import { del, get, hdel, set } from "@/lib/store";
 import { extractSlug } from "@/lib/search";
 import { toSlug } from "@/lib/enrichment";
 import type { ProfileId } from "@/lib/profiles";
@@ -179,14 +183,22 @@ async function addHits(profile: ProfileId, body: Extract<Body, { op: "addHits" }
   const query = str(body.query, 500);
   const selection = normaliseSelection(body.selection);
 
-  const roster = await readRoster();
+  const [roster, team] = await Promise.all([readRoster(), readTeam()]);
+  const erased = new Set(team.deleted);
   const fresh: Person[] = [];
   const slugs: string[] = [];
+  let blocked = 0;
 
   for (const item of raw) {
     const h = (item ?? {}) as Partial<Hit>;
     const slug = toSlug(str(h.slug, 200)) ?? extractSlug(str(h.url, 500));
     if (!slug || slugs.includes(slug)) continue;
+    // Deleted for good. A sweep will keep finding them — the search engine does not
+    // know — so the refusal has to live here, at the door to the roster.
+    if (erased.has(slug)) {
+      blocked++;
+      continue;
+    }
     slugs.push(slug);
 
     // Already in the roster? Keep the richer record; only marks change below.
@@ -209,14 +221,30 @@ async function addHits(profile: ProfileId, body: Extract<Body, { op: "addHits" }
   }
 
   if (slugs.length === 0) {
-    return NextResponse.json({ ok: false, error: "No valid people in that list." }, { status: 400 });
+    return NextResponse.json(
+      {
+        ok: false,
+        error: blocked > 0 ? blockedMessage(blocked) : "No valid people in that list.",
+      },
+      { status: 400 }
+    );
   }
 
   const marks = await patchMarks(profile, (m) => queued(m, slugs));
   await addPeople(fresh, marks);
 
-  log.info("people.added", { source: "serp", added: fresh.length, queued: slugs.length });
-  return NextResponse.json({ ok: true, added: fresh.length, queued: slugs.length, marks });
+  log.info("people.added", { source: "serp", added: fresh.length, queued: slugs.length, blocked });
+  return NextResponse.json({ ok: true, added: fresh.length, queued: slugs.length, blocked, marks });
+}
+
+/**
+ * Said plainly, because the alternative is a silent shortfall.
+ *
+ * Ticking eight people and being told eight were added when one was refused is the
+ * kind of quiet lie that makes someone stop trusting the count.
+ */
+function blockedMessage(n: number): string {
+  return `${n} ${n === 1 ? "person was" : "people were"} deleted permanently and cannot be re-added. Restore them under Stored data on the taxonomy screen.`;
 }
 
 /**
@@ -288,9 +316,17 @@ async function addSlugs(profile: ProfileId, body: Extract<Body, { op: "addSlugs"
       seedName: fallbackSeedName,
     }));
 
-  const all = [...incoming, ...bare].slice(0, MAX_ADD);
-  if (all.length === 0) {
+  const everything = [...incoming, ...bare].slice(0, MAX_ADD);
+  if (everything.length === 0) {
     return NextResponse.json({ ok: false, error: "No valid profiles." }, { status: 400 });
+  }
+
+  // A neighbour of someone still in the roster is the likeliest way a deleted person
+  // walks back in: People Also Viewed keeps offering them.
+  const { allowed, blocked } = await partitionBlocked(everything.map((p) => p.slug));
+  const all = everything.filter((p) => allowed.includes(p.slug));
+  if (all.length === 0) {
+    return NextResponse.json({ ok: false, error: blockedMessage(blocked.length) }, { status: 400 });
   }
   const list = all.map((p) => p.slug);
 
@@ -310,8 +346,20 @@ async function addSlugs(profile: ProfileId, body: Extract<Body, { op: "addSlugs"
   const marks = await patchMarks(profile, (m) => queued(m, list));
   await addPeople(fresh, marks);
 
-  log.info("people.added", { source: "slug", added: fresh.length, queued: list.length, hop });
-  return NextResponse.json({ ok: true, added: fresh.length, queued: list.length, marks });
+  log.info("people.added", {
+    source: "slug",
+    added: fresh.length,
+    queued: list.length,
+    blocked: blocked.length,
+    hop,
+  });
+  return NextResponse.json({
+    ok: true,
+    added: fresh.length,
+    queued: list.length,
+    blocked: blocked.length,
+    marks,
+  });
 }
 
 /* ── Mark ───────────────────────────────────────────────────────────────── */
@@ -418,6 +466,18 @@ async function editTerms(body: Extract<Body, { op: "terms" }>) {
  * Hard delete from the shared roster, as opposed to rejecting, which is
  * personal and reversible. This is the control that answers "erase this
  * person's data".
+ *
+ * Three things go, and the fourth is what makes it stick:
+ *
+ *   the roster row      shared, so they leave everyone's queue at once
+ *   the raw payload     the vendor's own copy of a real person, at its own key
+ *   the caller's mark   nothing left to triage
+ *   the slug is blocked so the next sweep does not read them as a new face
+ *
+ * The block is the whole difference between this and rejecting. Rejection works by
+ * *remembering* the person; deleting removes the thing that was doing the
+ * remembering, so without a list of its own, "delete permanently" would mean "delete
+ * until the next sweep runs".
  */
 async function remove(profile: ProfileId, body: Extract<Body, { op: "delete" }>) {
   const list = strList(body.slugs, MAX_MARK, 200)
@@ -428,13 +488,65 @@ async function remove(profile: ProfileId, body: Extract<Body, { op: "delete" }>)
   }
 
   await hdel(ROSTER_KEY, list);
+
+  // The archive is a copy of a real person's profile, so it goes with them. Best
+  // effort: a store hiccup here must not leave the roster row deleted and the
+  // request reported as failed, which would read as "nothing happened".
+  await Promise.all(
+    list.map((slug) =>
+      del(rawKey(slug)).catch((e) =>
+        log.warn("people.raw.deleteFailed", {
+          slug,
+          error: e instanceof Error ? e.message : "unknown",
+        })
+      )
+    )
+  );
+
+  const team = await block(list);
   const marks = await patchMarks(profile, (m) => {
     for (const slug of list) delete m[slug];
     return m;
   });
 
-  log.info("people.deleted", { count: list.length });
-  return NextResponse.json({ ok: true, deleted: list.length, marks });
+  log.info("people.deleted", { count: list.length, blocked: team.deleted.length });
+  return NextResponse.json({ ok: true, deleted: list.length, marks, team });
+}
+
+/**
+ * Add slugs to the shared blocklist.
+ *
+ * Read-modify-write against the live document rather than one loaded earlier in the
+ * request: this is the same key the taxonomy screen writes, and a delete taking
+ * several seconds must not hand back a taxonomy from before whatever a teammate
+ * changed in the meantime.
+ */
+async function block(slugs: string[]): Promise<TeamState> {
+  const current = await readTeam();
+  const next: TeamState = {
+    ...current,
+    deleted: [...new Set([...current.deleted, ...slugs])].slice(-MAX_DELETED),
+    updatedAt: new Date().toISOString(),
+  };
+  await set(TEAM_KEY, next);
+  return next;
+}
+
+/**
+ * Split an incoming batch into what may be added and what was erased for good.
+ *
+ * Enforced on the server because the roster is shared: a client with a stale team
+ * document, or a sweep whose results were fetched before the deletion, would
+ * otherwise walk someone straight back in.
+ */
+async function partitionBlocked(slugs: string[]): Promise<{ allowed: string[]; blocked: string[] }> {
+  const team = await readTeam();
+  if (team.deleted.length === 0) return { allowed: slugs, blocked: [] };
+  const gone = new Set(team.deleted);
+  return {
+    allowed: slugs.filter((s) => !gone.has(s)),
+    blocked: slugs.filter((s) => gone.has(s)),
+  };
 }
 
 /**
@@ -448,6 +560,22 @@ async function resetEverything(profile: ProfileId) {
   const roster = await readRoster();
   const slugs = Object.keys(roster);
   if (slugs.length > 0) await hdel(ROSTER_KEY, slugs);
+
+  // The archived vendor payloads are the same data at a different key, so an erase
+  // that left them behind would not be one.
+  await Promise.all(
+    slugs.map((slug) =>
+      del(rawKey(slug)).catch((e) =>
+        log.warn("people.raw.deleteFailed", {
+          slug,
+          error: e instanceof Error ? e.message : "unknown",
+        })
+      )
+    )
+  );
+
+  // Nobody is blocked. "Erase what we hold" is not "never look at these people
+  // again" — that is a judgement about a person, and it is made one at a time.
   const marks = await patchMarks(profile, () => ({}));
 
   log.warn("people.reset", { deleted: slugs.length });

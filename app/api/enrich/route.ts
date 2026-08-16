@@ -19,7 +19,7 @@ import {
   stateKey,
   type ProfileState,
 } from "@/lib/state";
-import { migrateIfNeeded, readRoster, writePeople } from "@/lib/serverState";
+import { migrateIfNeeded, readRoster, readTeam, writePeople } from "@/lib/serverState";
 import { newJobId, readJob, writeJob, type EnrichJob } from "@/lib/jobs";
 import { reserveProfiles } from "@/lib/ratelimit";
 import { get, set } from "@/lib/store";
@@ -69,8 +69,26 @@ export async function POST(req: Request) {
   const body = await readJson<StartBody>(req);
   if (isBad(body)) return NextResponse.json({ ok: false, error: body.error }, { status: body.status });
 
-  const slugs = cleanSlugs(body.slugs, MAX_PROFILES_PER_RUN);
-  if (isBad(slugs)) return NextResponse.json({ ok: false, error: slugs.error }, { status: slugs.status });
+  const requested = cleanSlugs(body.slugs, MAX_PROFILES_PER_RUN);
+  if (isBad(requested))
+    return NextResponse.json({ ok: false, error: requested.error }, { status: requested.status });
+
+  /**
+   * Never pay for someone deleted for good.
+   *
+   * The enrich path takes slugs from the caller, so it is a way into the roster that
+   * does not go through /api/people — and this is the one that costs money. Checked
+   * before the spend is reserved, not after.
+   */
+  await migrateIfNeeded();
+  const erased = new Set((await readTeam()).deleted);
+  const slugs = requested.filter((s) => !erased.has(s));
+  if (slugs.length === 0) {
+    return NextResponse.json(
+      { ok: false, error: "Those profiles were deleted permanently. Restore them first." },
+      { status: 400 }
+    );
+  }
 
   const kind = body.kind === "seed" ? "seed" : "serp";
   const hop = Number.isFinite(Number(body.hop)) ? Math.max(0, Math.min(Number(body.hop), 5)) : 0;
