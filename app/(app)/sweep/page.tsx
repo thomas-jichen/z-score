@@ -38,7 +38,7 @@ const CATEGORIES: {
   {
     key: "programs",
     label: "Programs & backers",
-    facets: ["accelerator", "program", "award"],
+    facets: ["accelerator", "program"],
     builtIn: [],
   },
   { key: "titles", label: "Title keywords", facets: ["title"], builtIn: [] },

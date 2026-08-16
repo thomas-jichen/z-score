@@ -207,7 +207,7 @@ const FACETS_FOR_SOURCE: Record<Exclude<EdgeSource, "discovery">, TagFacet[]> = 
    * never behaves like a hub.
    */
   backing: ["accelerator"],
-  program: ["program", "award"],
+  program: ["program"],
   company: ["company", "org"],
   highschool: ["highschool"],
   college: ["college"],
@@ -223,7 +223,6 @@ const FACETS_FOR_SOURCE: Record<Exclude<EdgeSource, "discovery">, TagFacet[]> = 
  */
 export const SWEEP_KEY_FOR_FACET: Partial<Record<TagFacet, string>> = {
   program: "programs",
-  award: "programs",
   accelerator: "programs",
   college: "colleges",
   highschool: "highSchools",

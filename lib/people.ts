@@ -50,6 +50,18 @@ export type Person = {
   extractedTerms?: string[];
   /** Terms added by hand, for something the tagger missed. Promotable like any other. */
   manualTerms?: string[];
+  /**
+   * Tags this person should not hold, whatever the profile says.
+   *
+   * The × on a tag chip used to write only to `manualTerms` and `extractedTerms`, so
+   * it silently did nothing to anything read from a structured field — which is most
+   * of them. Ishan Ramrakhiani attended Yale Young Global Scholars, was tagged Yale,
+   * and there was no way to say otherwise.
+   *
+   * Per person, not per taxonomy: "this tag is wrong about *him*" is a different
+   * statement from "this tag is worthless", and the second one is `taxonomy.dismissed`.
+   */
+  suppressedTags?: string[];
   /** When the tagger last ran, so it is not paid for twice. */
   taggedAt?: string;
   location?: string;

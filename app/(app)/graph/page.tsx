@@ -93,7 +93,6 @@ const GROUP_HINT: Record<GroupBy, string> = {
 const FACET_FAMILY: Partial<Record<TagFacet, string>> = {
   accelerator: "backing",
   program: "program",
-  award: "program",
   company: "company",
   org: "company",
   college: "school",
@@ -103,7 +102,6 @@ const FACET_FAMILY: Partial<Record<TagFacet, string>> = {
 const FACET_NOUN: Partial<Record<TagFacet, string>> = {
   accelerator: "Backed by",
   program: "Program",
-  award: "Award",
   company: "Company",
   org: "Organisation",
   college: "College",

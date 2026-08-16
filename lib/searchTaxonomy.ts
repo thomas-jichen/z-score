@@ -92,6 +92,8 @@ export const PROGRAMS: Seed[] = [
   { label: "CalHacks", aliases: ["Cal Hacks", "Berkeley CalHacks"] },
   { label: "HackMIT" },
   { label: "Breakthrough Junior Challenge", aliases: ["Breakthrough Junior"] },
+  // Named so it stops being read as the university that hosts it.
+  { label: "Yale Young Global Scholars", aliases: ["YYGS"] },
   /**
    * The tier above finalist at ISEF, which the ISEF tag alone cannot express.
    *
@@ -129,24 +131,32 @@ export const PROGRAMS: Seed[] = [
  * Only names the seeds themselves introduced. A tag someone promoted by hand is
  * their decision and is never touched here.
  */
-export const RETIRED: string[] = [
-  /**
-   * Not a seed — promoted by hand, and switched off anyway.
-   *
-   * "Stealth Startup" is what a profile says when it is declining to say anything, so
-   * a tag for it scores the absence of information. It was carrying 1.0 on three
-   * people, two of them at the top of the list. Visible and one slider from returning,
-   * like everything else here.
-   */
-  "Stealth Startup",
-  "AIME",
+/**
+ * Deleted outright on the next read, not parked at zero.
+ *
+ * `RETIRED` switches a tag off and leaves it on the screen; these do not deserve the
+ * row. DECA has a couple of hundred thousand members, AIME passes ten thousand a year
+ * — a tag for either says nothing about the person holding it, and leaving them
+ * visible invites someone to switch them back on.
+ */
+export const PURGED: string[] = [
   "DECA",
+  "AIME",
   "FBLA",
   "HOSA",
+  "BPA",
   "Science Olympiad",
   "Science Bowl",
   "Congressional App Challenge",
   "John Locke Institute",
+  "Key Club",
+  "Model UN",
+  "National Honor Society",
+  "AP Scholar",
+  "National Merit",
+];
+
+export const RETIRED: string[] = [
   "PennApps",
   "MHacks",
   "LA Hacks",
@@ -541,6 +551,17 @@ export const ACCELERATORS: Seed[] = [
   { label: "Techstars" },
   { label: "Antler" },
   { label: "buildspace", aliases: ["buildspace n&w", "Buildspace"] },
+  { label: "Afore Capital", aliases: ["Afore"] },
+  { label: "Battery Ventures", aliases: ["Battery"] },
+  { label: "645 Ventures" },
+  { label: "Lightspeed", aliases: ["Lightspeed Venture Partners"] },
+  { label: "General Catalyst", aliases: ["GC"] },
+  { label: "Khosla Ventures", aliases: ["Khosla"] },
+  { label: "Index Ventures", aliases: ["Index"] },
+  { label: "Accel" },
+  { label: "Greylock" },
+  { label: "Benchmark" },
+  { label: "Bessemer", aliases: ["Bessemer Venture Partners", "BVP"] },
 ];
 
 /**
@@ -580,4 +601,10 @@ export const COMPANIES: Seed[] = [
   { label: "Tesla" },
   { label: "Waymo" },
   { label: "Bell Labs", aliases: ["Nokia Bell Labs"] },
+  { label: "Bloomberg", aliases: ["Bloomberg LP", "Bloomberg L.P."] },
+  { label: "Citadel Securities" },
+  { label: "D. E. Shaw", aliases: ["DE Shaw", "D.E. Shaw"] },
+  { label: "Susquehanna", aliases: ["SIG", "Susquehanna International Group"] },
+  { label: "Databricks" },
+  { label: "Snowflake" },
 ];

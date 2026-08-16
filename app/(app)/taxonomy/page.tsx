@@ -717,7 +717,6 @@ function TagRegistryEditor({
  */
 const PROMOTABLE_FACETS: TagFacet[] = [
   "program",
-  "award",
   "accelerator",
   "startup",
   "lab",
@@ -732,8 +731,7 @@ const PROMOTABLE_FACETS: TagFacet[] = [
 ];
 
 const FACET_LABEL: Record<TagFacet, string> = {
-  program: "Programs",
-  award: "Awards",
+  program: "Programs & awards",
   accelerator: "Accelerators & funds",
   startup: "Startups",
   lab: "Research labs",

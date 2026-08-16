@@ -680,11 +680,10 @@ export async function resolveAliases(
 
 /* ── Classification, asked once per term ────────────────────────────────── */
 
-const CLASSIFY_SYSTEM = `You file one thing found on a profile: what kind of thing it is, which talent cluster it votes for, and what it is worth.
+const CLASSIFY_SYSTEM = `You file one thing found on a profile: what kind of thing it is, which talent cluster it votes for, what it is worth, and whether you are sure.
 
 Sections:
-- program: a selective programme, competition, olympiad or hackathon
-- award: an honour or scholarship
+- program: anything selective that picked you — a programme, competition, olympiad, hackathon, award or scholarship
 - accelerator: an accelerator, fellowship or fund that backs people with money
 - startup: an early-stage company
 - lab: a named research group at a university or national laboratory
@@ -696,24 +695,37 @@ Clusters:
 ${ARCHETYPES.map((a) => `- ${a.id}: ${a.blurb}`).join("\n")}
 - none: real signal, but not diagnostic of a talent type. Use for need-based or demographic scholarships.
 
-Weight is 0.0 to 2.0 and means "how much does holding this predict exceptional early-career talent".
-For calibration: Y Combinator and IMO are 2.0, RSI is 1.6, USAMO is 1.2, ISEF is 0.8, TreeHacks is 0.5, an ordinary employer is 0.2.
+Weight is 0.0 to 2.0. This taxonomy values real-world validation above competitions,
+and competitions above school. Match these anchors:
 
-Weigh the thing itself, not what it implies. One company out of a batch is not worth what the
-accelerator is worth — the accelerator is already scored separately, so pricing the company at the
-same number counts it twice. A single startup is rarely above 0.5.
+  2.0  Y Combinator, a16z, Sequoia, Founders Fund, Thiel Fellowship, Z Fellows,
+       IMO/IOI — a top fund backing you, or the global ceiling of a competition
+  1.5  Neo, Pear, South Park Commons, Afore Capital, Battery Ventures, a named
+       venture fund most people in tech would recognise
+  1.4  Google, Meta, OpenAI, Anthropic, Jane Street, Citadel, McKinsey, NASA,
+       Palantir, Bloomberg — a company anyone in the industry knows
+  1.2  a real funded startup; a national programme taking a few hundred a year
+  1.0  a student-run fund, USACO Platinum, PROMYS
+  0.7  a named research lab; a selective student society; a strong regional employer
+  0.5  a semifinalist round, QuestBridge, an unremarkable startup
+  0.3  a hackathon, an activity, a weekend build
+  0.2  a major, a job title, a two-week summer course
+  0.0  anything tens of thousands of people a year hold
 
-Be hard to impress. Weight is about how *rare* the thing is, not how good it sounds. Above 1.0 means
-a few hundred people a year at most. A hackathon, a club, a job title or a course is an activity, not
-a credential: 0.3 or less. If tens of thousands of people a year hold it, the answer is 0.0.
+Be hard to impress. Weight is about how rare the thing is, not how good it sounds.
+DECA, FBLA, AIME, Science Olympiad, National Honor Society, AP Scholar and anything
+like them are 0.0 — a tag for them says nothing about the person holding it.
 
-Reply with JSON only: {"facet":"program","cluster":"quant","weight":1.2,"why":"one short sentence"}`;
+Weigh the thing itself, not what it implies. One company out of a batch is not worth
+what the accelerator is worth: the accelerator is scored separately, so pricing the
+company the same counts it twice.
 
-/**
- * "none" rather than a JSON null, because a nullable enum is the corner of strict
- * schema support most likely to differ between providers. `parseClassification`
- * already maps anything that is not a known cluster id to null.
- */
+Set "sure" to true only when you recognise the thing by name and would defend the
+weight. A name you are guessing at goes to a human instead, so false is the safe
+answer and costs nothing.
+
+Reply with JSON only: {"facet":"company","cluster":"quant","weight":1.4,"sure":true,"why":"one short sentence"}`;
+
 const CLASSIFY_SCHEMA: Schema = {
   name: "classification",
   schema: {
@@ -723,7 +735,6 @@ const CLASSIFY_SCHEMA: Schema = {
         type: "string",
         enum: [
           "program",
-          "award",
           "accelerator",
           "startup",
           "lab",
@@ -734,9 +745,10 @@ const CLASSIFY_SCHEMA: Schema = {
       },
       cluster: { type: "string", enum: [...ARCHETYPES.map((a) => a.id), "none"] },
       weight: { type: "number" },
+      sure: { type: "boolean" },
       why: { type: "string" },
     },
-    required: ["facet", "cluster", "weight", "why"],
+    required: ["facet", "cluster", "weight", "sure", "why"],
     additionalProperties: false,
   },
 };
@@ -746,6 +758,14 @@ export type Classification = {
   facet: TagFacet | null;
   cluster: Archetype | null;
   weight: number;
+  /**
+   * Whether the model recognised the thing by name and would defend the weight.
+   *
+   * The gate on adding a tag without a human. False is the safe answer and costs
+   * nothing: the term goes to the review queue instead of into the scoring
+   * vocabulary, which is where a guess belongs.
+   */
+  sure: boolean;
   why: string;
 };
 
@@ -758,6 +778,7 @@ function parseClassification(raw: unknown): Classification | null {
 
   return {
     facet: isTagFacet(o.facet) ? o.facet : null,
+    sure: o.sure === true,
     cluster: isArchetype(o.cluster) ? o.cluster : null,
     // Clamp rather than reject: a model returning 5 means "high", not "invalid".
     weight: Math.min(Math.max(Math.round(weight * 10) / 10, 0), 2),

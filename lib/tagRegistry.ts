@@ -34,8 +34,16 @@ import type { Archetype } from "./clusters";
  * as two lists. Collapsing them would have merged those menus.
  */
 export const TAG_FACETS = [
+  /**
+   * Programmes, competitions, olympiads, awards and scholarships — one facet.
+   *
+   * There used to be an `award` beside this and the line between them was never
+   * real: a Palantir Meritocracy Fellowship and a Bank of America Student Leader
+   * award are the same kind of thing as RSI, which is that somebody selective picked
+   * you. Splitting them only ever produced two sections to look in and a coin flip
+   * about which one a new tag landed in.
+   */
   "program",
-  "award",
   /**
    * An accelerator, fellowship or fund that selected them — YC, a16z Speedrun,
    * Z Fellows, Thiel, Neo.
@@ -326,8 +334,20 @@ const NOT_THE_SAME: Record<string, string[]> = {
  */
 const CONTAINABLE = new Set<TagFacet>(["college", "highschool", "lab"]);
 
+/**
+ * A programme *at* a university is not the university.
+ *
+ * Containment is what lets "UC Berkeley M.E.T. program" resolve to Berkeley, and it
+ * is also what let "Yale Young Global Scholars" resolve to Yale — a two-week summer
+ * course for high-schoolers, read as an Ivy League degree. These are the words that
+ * mean "hosted here", and their presence disqualifies the whole match: the campus is
+ * the venue, not the credential.
+ */
+const HOSTED_AT = /\byoung (global )?scholars?\b|\bpre-?college\b|\bsummer (program|academy|session|institute|scholars?)\b|\bhigh school program\b|\byouth\b|\bonline high school\b/i;
+
 function resolveByContainment(index: RegistryIndex, facet: TagFacet, key: string): TagDef | null {
   if (!CONTAINABLE.has(facet)) return null;
+  if (HOSTED_AT.test(key.replace(/-/g, " "))) return null;
 
   const peers = (index.byFacet.get(facet) ?? [])
     .flatMap((def) => [normalizeKey(def.label), ...def.aliases].map((form) => ({ def, form })))

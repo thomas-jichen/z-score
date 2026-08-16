@@ -14,6 +14,7 @@ import {
   normalizeKey,
   tagId,
   type TagDef,
+  type TagFacet,
   type TagRegistry,
 } from "./tagRegistry";
 import { str, strList } from "./validate";
@@ -156,4 +157,56 @@ export function cleanTerms(raw: Partial<CustomTerms>): CustomTerms {
     states: strList(raw.states, MAX_MENU_ITEMS, TERM_LEN),
     homeStates: strList(raw.homeStates, MAX_MENU_ITEMS, TERM_LEN),
   };
+}
+
+/* ── Automatic promotion ────────────────────────────────────────────────── */
+
+/**
+ * The bar a classification has to clear to enter the vocabulary unattended.
+ *
+ * Two conditions, both necessary. The model has to say it recognised the thing, and
+ * the thing has to be worth something — a confident 0.0 is a confident "this is
+ * noise", which is a reason to leave it out, not to add it at zero.
+ */
+export function worthPromoting(c: { sure: boolean; weight: number; facet: TagFacet | null }): boolean {
+  return c.sure && c.weight >= AUTO_PROMOTE_FLOOR && c.facet !== null;
+}
+
+/**
+ * Below this, a tag would not change any ranking and is not worth a row.
+ *
+ * Set at the activity tier rather than at zero on purpose: the review queue is the
+ * right home for anything marginal, and a screen full of 0.2 rows nobody chose is how
+ * a taxonomy stops being read.
+ */
+export const AUTO_PROMOTE_FLOOR = 0.5;
+
+/**
+ * Fold newly classified tags into a registry.
+ *
+ * Never overwrites: a label already present keeps whatever the team set, because the
+ * whole point of the taxonomy screen is that a human's number wins. Returns the same
+ * object when nothing was added, so callers can skip the write.
+ */
+export function withPromoted(
+  tags: TagRegistry,
+  additions: { label: string; facet: TagFacet; weight: number; cluster: Archetype | null }[]
+): TagRegistry {
+  let changed = false;
+  const next = { ...tags };
+  for (const a of additions) {
+    const id = tagId(a.label, a.facet);
+    if (!id || next[id]) continue;
+    next[id] = {
+      id,
+      label: a.label,
+      facet: a.facet,
+      aliases: [],
+      weight: clampWeight(a.weight),
+      cluster: a.cluster,
+      promoted: true,
+    };
+    changed = true;
+  }
+  return changed ? next : tags;
 }

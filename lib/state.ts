@@ -5,6 +5,7 @@ import {
   CLUBS,
   FLAGS,
   LOW_SIGNAL,
+  PURGED,
   RETIRED,
   COLLEGES,
   COMPANIES,
@@ -235,7 +236,6 @@ export function defaultCounts(): CountRules {
 export function defaultFacetWeights(): Record<TagFacet, number> {
   return {
     program: 0.8,
-    award: 0.6,
     // The heaviest default in the table. Somebody wrote a cheque.
     accelerator: 1.2,
     /**
@@ -395,6 +395,14 @@ export function hydrate(stored: Partial<ProfileState> | null): ProfileState {
  * were seeded, then by name.
  */
 const LEGACY_SCHOOL = "school";
+/**
+ * Retired. A programme and an award were never two different kinds of thing — a
+ * Palantir Meritocracy Fellowship and a Bank of America Student Leader award are
+ * both "somebody selective picked you", which is what `program` means. Two sections
+ * only ever meant two places to look and a coin flip about which one a new tag
+ * landed in.
+ */
+const LEGACY_AWARD = "award";
 
 /**
  * The facet a seed list assigns, keyed by canonical id.
@@ -502,6 +510,19 @@ function adoptSeedWeights(tags: TagRegistry): TagRegistry {
  * tuning, and a seed list has no business overwriting them.
  */
 function migrateFacets(tags: TagRegistry): TagRegistry {
+  /**
+   * Deleted, not switched off.
+   *
+   * `RETIRED` leaves a row on the taxonomy screen at zero, which is right for a
+   * judgement call someone might reverse. These are not judgement calls — a tag for
+   * an organisation with two hundred thousand members is noise, and leaving the row
+   * there only invites somebody to switch it back on.
+   */
+  const purged = new Set(PURGED.map((label) => seedKey(label)));
+  if (Object.keys(tags).some((id) => purged.has(id))) {
+    tags = Object.fromEntries(Object.entries(tags).filter(([id]) => !purged.has(id)));
+  }
+
   const colleges = new Set(COLLEGES.map((c) => c.label.toLowerCase()));
   const authoritative = seedFacets();
   const seeded = seededTags();
@@ -522,6 +543,10 @@ function migrateFacets(tags: TagRegistry): TagRegistry {
 
   for (const def of Object.values(tags)) {
     let updated = def;
+
+    if ((updated.facet as string) === LEGACY_AWARD) {
+      updated = { ...updated, facet: "program" };
+    }
 
     if ((updated.facet as string) === LEGACY_SCHOOL) {
       const label = updated.label.toLowerCase();

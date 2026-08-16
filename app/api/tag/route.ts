@@ -3,7 +3,12 @@ import { resolveProfile } from "@/lib/auth";
 import { extractMany, hasGroq, groqModel, suggestClassification } from "@/lib/groq";
 import type { Person } from "@/lib/people";
 import { migrateIfNeeded, readRoster, readTeam, writePeople } from "@/lib/serverState";
-import { vocabulary } from "@/lib/tags";
+import { unmatchedTerms, vocabulary } from "@/lib/tags";
+import { withPromoted, worthPromoting } from "@/lib/team";
+import { TEAM_KEY, type TeamState } from "@/lib/state";
+import { set } from "@/lib/store";
+import type { Archetype } from "@/lib/clusters";
+import type { TagFacet } from "@/lib/tagRegistry";
 import { reserveTagging } from "@/lib/ratelimit";
 import { cleanSlugs, isBad, readJson, str } from "@/lib/validate";
 import { log, timed } from "@/lib/log";
@@ -107,11 +112,30 @@ export async function POST(req: Request) {
 
     await writePeople(updated);
 
+    /**
+     * Add what the model is sure about, and only that.
+     *
+     * Without this, every finding waits for someone to click promote — so a batch of
+     * twenty people lands with Palantir, a YC company and two venture funds all
+     * sitting in a queue, scoring nothing, and the roster ranks as though none of it
+     * were there. The classifier is given the taxonomy's own anchors and has to say it
+     * recognised the thing; anything it is guessing at stays in the queue, which is
+     * what the queue is for.
+     */
+    const promoted = await autoPromote(updated, team).catch((e) => {
+      // Best effort, always. The people are already written; a rate limit or a bad
+      // response here must not turn a successful tagging run into a 500 and have the
+      // client report that nothing happened.
+      log.warn("tag.autopromote.failed", { error: e instanceof Error ? e.message : "unknown" });
+      return [] as string[];
+    });
+
     const termCount = results.reduce((n, x) => n + x.terms.length, 0);
     return NextResponse.json({
       ok: true,
       tagged: updated.length,
       terms: termCount,
+      promoted,
       people: updated,
       // Partial failure is reported rather than swallowed: some people did get
       // tagged, and the caller should be able to say so.
@@ -132,3 +156,62 @@ export async function GET() {
   if ("error" in r) return NextResponse.json({ ok: false, error: r.error }, { status: r.status });
   return NextResponse.json({ ok: true, enabled: hasGroq(), model: hasGroq() ? groqModel() : null });
 }
+
+/**
+ * Classify every unresolved finding across a batch and add the confident ones.
+ *
+ * One call per label, once ever: a promoted tag resolves next time, and one left in
+ * the queue is remembered as unmatched rather than re-asked. Capped, because a first
+ * enrichment of a large batch can surface a lot at once and the point is to clear the
+ * obvious names, not to spend a rate limit on a long tail nobody will read.
+ */
+const MAX_AUTO_PROMOTE = 8;
+
+async function autoPromote(people: Person[], team: TeamState): Promise<string[]> {
+  const pending = unmatchedTerms(people, team.taxonomy)
+    .filter((u) => u.facet && PROMOTABLE.has(u.facet))
+    .slice(0, MAX_AUTO_PROMOTE);
+  if (pending.length === 0) return [];
+
+  const additions: { label: string; facet: TagFacet; weight: number; cluster: Archetype | null }[] =
+    [];
+  for (const u of pending) {
+    const res = await suggestClassification(u.term);
+    if (!res.ok || !worthPromoting(res.value)) continue;
+    additions.push({
+      label: u.term,
+      // The extractor's facet wins where it has one: it read a structured field, and
+      // the model is working from the words alone.
+      facet: u.facet ?? res.value.facet!,
+      weight: res.value.weight,
+      cluster: res.value.cluster,
+    });
+  }
+  if (additions.length === 0) return [];
+
+  /**
+   * Re-read before writing.
+   *
+   * The taxonomy is one shared document and this runs after a slow batch of model
+   * calls, so the copy loaded at the top of the request is stale by now — writing it
+   * back would silently undo anything a teammate changed in between.
+   */
+  const fresh = await readTeam();
+  const tags = withPromoted(fresh.taxonomy.tags, additions);
+  if (tags === fresh.taxonomy.tags) return [];
+  await set(TEAM_KEY, { ...fresh, taxonomy: { ...fresh.taxonomy, tags } });
+
+  const labels = additions.map((a) => a.label);
+  log.info("tag.autopromote", { count: labels.length });
+  return labels;
+}
+
+/** Facets a machine may add unattended. The rest are facts, or need a human. */
+const PROMOTABLE = new Set<TagFacet>([
+  "program",
+  "accelerator",
+  "startup",
+  "lab",
+  "club",
+  "company",
+]);

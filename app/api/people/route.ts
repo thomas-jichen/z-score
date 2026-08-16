@@ -389,10 +389,24 @@ async function editTerms(body: Extract<Body, { op: "terms" }>) {
   // tagger run and the removal reads as broken.
   const extracted = (person.extractedTerms ?? []).filter((t) => !drop.has(t.toLowerCase()));
 
+  /**
+   * Removal has to work on tags read from structured fields too, and those are not in
+   * either list above — so dropping one did nothing at all. Recorded per person, and
+   * cleared by adding the same label back.
+   */
+  const added = new Set(add.map((t) => t.toLowerCase()));
+  const suppressed = [
+    ...new Set([
+      ...(person.suppressedTags ?? []).filter((t) => !added.has(t.toLowerCase())),
+      ...strList(body.remove, 20, 60),
+    ]),
+  ];
+
   const next: Person = {
     ...person,
     manualTerms: manual.length ? manual : undefined,
     extractedTerms: extracted.length ? extracted : undefined,
+    suppressedTags: suppressed.length ? suppressed : undefined,
     updatedAt: new Date().toISOString(),
   };
   await writePeople([next]);

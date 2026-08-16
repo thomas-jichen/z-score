@@ -44,7 +44,6 @@ export type TagKind = "program" | "school" | "year" | "state" | "extracted";
  */
 const FACET_KIND: Record<TagFacet, TagKind> = {
   program: "program",
-  award: "program",
   accelerator: "program",
   company: "extracted",
   startup: "extracted",
@@ -197,11 +196,15 @@ function fieldedText(p: Person): Field[] {
  *
  * "Y Combinator Startup School" is a free online course with open enrolment. It read
  * as YC itself and put a 2.0 — the heaviest weight in the taxonomy — on someone whose
- * honour was literally "Y Combinator Startup School 2026 Admit". The list is short and
- * specific by design: each entry is a real product whose whole problem is that it
- * borrows a famous name.
+ * honour was literally "Y Combinator Startup School 2026 Admit". The YC Summer
+ * Fellowship is the same shape of problem: a grant, not a batch, and holding the Y
+ * Combinator tag has to mean being funded as a founder.
+ *
+ * The list is short and specific by design: each entry is a real thing whose whole
+ * problem is that it borrows a famous name.
  */
-const BORROWED_NAME = /startup school|startup library|\bcohort\s+guest\b|newsletter/i;
+const BORROWED_NAME =
+  /startup school|startup library|\bcohort\s+guest\b|newsletter|\bsummer fellow\b|\bfellowship grant\b|\bconference\b|\bmeetup\b/i;
 
 /**
  * The scoring vocabulary: every tag switched on, by display label.
@@ -228,12 +231,11 @@ export function vocabulary(tax: TaxonomyPrefs): string[] {
  * a Google role — does not apply, because naming an accelerator in your own headline
  * *is* the claim.
  */
-const TEXT_FACETS = new Set<TagFacet>(["program", "award", "accelerator"]);
+const TEXT_FACETS = new Set<TagFacet>(["program", "accelerator"]);
 
 /** Which part of a record a facet is understood to have come from. */
 const SOURCE_FOR_FACET: Record<TagFacet, MatchedTerm["source"]> = {
   program: "honors",
-  award: "honors",
   // Usually read off the education section, where a batch is listed like a degree.
   accelerator: "education",
   company: "experience",
@@ -361,8 +363,20 @@ export function heldTags(p: Person, tax: TaxonomyPrefs): HeldTag[] {
   const out: HeldTag[] = [];
   const seen = new Set<string>();
 
+  /**
+   * Tags a person has been told not to hold, whatever the profile says.
+   *
+   * Resolved through the registry rather than compared as strings, so removing
+   * "Yale" removes the Yale tag however the profile happened to spell it.
+   */
+  const suppressed = new Set<string>();
+  for (const label of p.suppressedTags ?? []) {
+    const def = resolveAny(index, label);
+    suppressed.add(def ? def.id : normalizeKey(label));
+  }
+
   const take = (def: TagDef, source: Signal["source"], extra?: Partial<HeldTag>) => {
-    if (seen.has(def.id)) return;
+    if (seen.has(def.id) || suppressed.has(def.id)) return;
     seen.add(def.id);
     out.push({ def, source, ...extra });
   };
@@ -640,7 +654,6 @@ export function unmatchedTerms(people: Person[], tax: TaxonomyPrefs): Unmatched[
 /** Facets worth reviewing by hand. The rest are facts, not judgements. */
 const OFFERABLE = new Set<TagFacet>([
   "program",
-  "award",
   "accelerator",
   "company",
   "startup",

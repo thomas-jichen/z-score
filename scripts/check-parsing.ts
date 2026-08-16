@@ -701,7 +701,7 @@ console.log("\nhydrateTeam — a stored registry keeps up with the seed lists");
     ].weight;
 
   check("a current document keeps its own weight", weightAfterRead(handTuned(SEED_VERSION)), 1.9);
-  check("a stale one adopts the recalibration", weightAfterRead(handTuned(undefined)), 0.7);
+  check("a stale one adopts the recalibration", weightAfterRead(handTuned(undefined)), 1.4);
   check("and is marked so it only happens once", stale.taxonomy.seedVersion, SEED_VERSION);
 
   /**
@@ -832,7 +832,7 @@ console.log("\npromoting a term actually makes it score");
       ...TAX.tags,
       "brooke-owens": makeTag({
         label: "Brooke Owens Fellow",
-        facet: "award",
+        facet: "program",
         weight: 1.9,
         cluster: "research",
         promoted: true,
@@ -1287,10 +1287,9 @@ console.log("\nthe score is a sum — the documented worked examples");
   const hackClub = scoreOne(bare("hc", ["Hack Club"]), TAX);
   check("Hack Club alone", hackClub.score, 0.4);
 
-  // 1.6 + 0.6 + 1.2. ISEF used to be 1.4, above every accelerator, on ~1,800
-  // finalists a year.
+  // 1.6 + 0.7 + 1.2.
   const three = scoreOne(bare("three", ["RSI", "ISEF", "USAMO"]), TAX);
-  check("RSI + ISEF + USAMO", three.score, 3.4);
+  check("RSI + ISEF + USAMO", three.score, 3.5);
 
   const strong = bare("strong", ["IMO", "IOI", "RSI"]);
   strong.enriched!.publications = ["A paper"];

@@ -190,22 +190,35 @@ export const TERM_CLUSTER: Record<string, Archetype | null> = {
  */
 export const START_WEIGHT: Record<string, number> = {
   /* ── Accelerators, fellowships, funds ─────────────────────────────────── */
+  // The ceiling. Somebody wrote a cheque, which is the hardest filter there is.
   "Y Combinator": 2.0,
   "Thiel Fellow": 2.0,
-  a16z: 1.8,
-  "Z Fellow": 1.6,
+  a16z: 2.0,
+  "Z Fellow": 2.0,
+  Sequoia: 2.0,
+  "Founders Fund": 2.0,
   "Neo Scholar": 1.5,
-  Sequoia: 1.5,
-  "Founders Fund": 1.4,
-  "Pear VC": 1.2,
-  "South Park Commons": 1.2,
-  "1517 Fund": 1.2,
-  "Emergent Ventures": 1.1,
-  Contrary: 1.0,
+  "Pear VC": 1.5,
+  "South Park Commons": 1.5,
+  "1517 Fund": 1.5,
+  "Afore Capital": 1.5,
+  "Battery Ventures": 1.5,
+  Lightspeed: 1.5,
+  "General Catalyst": 1.5,
+  "Khosla Ventures": 1.5,
+  "Index Ventures": 1.5,
+  Accel: 1.5,
+  Greylock: 1.5,
+  Benchmark: 1.5,
+  Bessemer: 1.4,
+  "645 Ventures": 1.2,
+  "Emergent Ventures": 1.2,
+  Contrary: 1.2,
+  "Entrepreneur First": 1.2,
+  // A student-run fund is real but junior to the firms above it.
   "Dorm Room Fund": 1.0,
-  "Entrepreneur First": 0.9,
   Techstars: 0.7,
-  Antler: 0.6,
+  Antler: 0.7,
   // Open enrolment, tens of thousands of people.
   buildspace: 0.2,
 
@@ -216,30 +229,21 @@ export const START_WEIGHT: Record<string, number> = {
   IPhO: 2.0,
   IBO: 2.0,
   IChO: 2.0,
-  // National, and genuinely tiny: MOP takes ~60, RSI ~80, STS ~40 finalists.
   MOP: 1.6,
   RSI: 1.6,
-  /**
-   * Priced for the tier that actually matches, not the best tier that exists.
-   *
-   * There is one tag per programme, not one per round, so "Regeneron STS Scholar"
-   * and "STS Finalist" land on the same tag — and there are ~300 scholars to ~40
-   * finalists, so the common match is the weaker one. Same shape for Presidential
-   * Scholar, where semifinalists outnumber scholars roughly thirty to one, and for
-   * the USA olympiad semifinal rounds. The team can split a tier out on the taxonomy
-   * screen when it wants to; until then these are honest averages rather than
-   * flattering ones.
-   */
-  STS: 1.2,
+  "Palantir Meritocracy Fellow": 1.5,
+  "ISEF Grand Award": 1.4,
   "MIT PRIMES": 1.4,
   "Davidson Fellow": 1.3,
-  "Presidential Scholar": 0.5,
+  "Berkeley M.E.T.": 1.3,
+  "Penn M&T": 1.3,
   Rise: 1.2,
   "Coolidge Scholar": 1.2,
-  // Qualifying *is* the achievement here — a few hundred people a year.
   USAMO: 1.2,
   "Jane Street AMP": 1.2,
-  // Selective, but hundreds rather than dozens.
+  STS: 1.2,
+  "Huntsman Program": 1.1,
+  "Vagelos Program": 1.1,
   "USACO Platinum": 1.0,
   PROMYS: 1.0,
   SSP: 0.9,
@@ -247,84 +251,87 @@ export const START_WEIGHT: Record<string, number> = {
   TASP: 0.9,
   SPARC: 0.9,
   "Simons Fellow": 0.9,
-  // The semifinal round, which is what a profile usually names. The national teams
-  // are IPhO and IBO above, at 2.0.
+  "Coca-Cola Scholar": 0.8,
+  "Garcia Program": 0.8,
+  ISEF: 0.7,
+  "Presidential Scholar": 0.5,
   USAPhO: 0.5,
   USABO: 0.5,
-  "Garcia Program": 0.8,
-  // ~1,800 finalists a year. Real, and not in the same class as MOP.
-  ISEF: 0.6,
-  "Coca-Cola Scholar": 0.7,
-  QuestBridge: 0.6,
-  /**
-   * Hackathons, priced as the activities they are.
-   *
-   * A weekend build is not a filter someone cleared. At 0.5 each, a profile listing
-   * four of them out-scored a Regeneron STS scholar, which is how a strong builder
-   * ended up third on a list of research prodigies and founders. The winning tier is
-   * carried by the Competition winner flag instead, so placing at ISEF and placing at
-   * a hackathon differ by exactly the gap between the two events.
-   */
+  QuestBridge: 0.5,
+  // Activities. A good builder does one on a weekend.
+  "Hack Club": 0.4,
   TreeHacks: 0.3,
   CalHacks: 0.3,
   HackMIT: 0.3,
-  "Breakthrough Junior Challenge": 0.4,
-  /** A few hundred a year across every category, against ~1,800 finalists. */
-  "ISEF Grand Award": 1.2,
-  /** Admitted separately from the university, at a fraction of its rate. */
-  "Berkeley M.E.T.": 1.2,
-  "Penn M&T": 1.2,
-  "Huntsman Program": 1.0,
-  "Vagelos Program": 1.0,
-  /** Whole-profile facts. These two are the ones that mean much. */
-  "Funded founder": 0.8,
-  "Competition winner": 0.5,
-  Influencer: 0.3,
-  "Has a site": 0.1,
-  Published: 0,
-  "Patent holder": 0,
+  "Breakthrough Junior Challenge": 0.3,
   "Conrad Challenge": 0.3,
   "Diamond Challenge": 0.3,
-  "Hack Club": 0.4,
+  "Bank of America Student Leader": 0.3,
+  // A two-week summer course, and it was scoring as a Yale degree.
+  "Yale Young Global Scholars": 0.2,
 
-  /* ── Employers ────────────────────────────────────────────────────────── */
-  // Frontier labs and the elite quant desks hire on raw ability at this age.
-  OpenAI: 0.7,
-  Anthropic: 0.7,
-  DeepMind: 0.7,
-  "Jane Street": 0.7,
-  Citadel: 0.6,
-  "Hudson River Trading": 0.6,
-  "Two Sigma": 0.6,
-  "Jump Trading": 0.6,
-  Nvidia: 0.5,
-  Palantir: 0.5,
-  Stripe: 0.5,
-  Google: 0.4,
-  Meta: 0.4,
-  Apple: 0.4,
-  Microsoft: 0.4,
-  "McKinsey & Company": 0.4,
-  "Bain & Company": 0.4,
-  "Boston Consulting Group": 0.4,
-  "Goldman Sachs": 0.4,
-  Amazon: 0.3,
-  Regeneron: 0.3,
+  /**
+   * ── Employers ────────────────────────────────────────────────────────────
+   *
+   * A name anyone in the industry would recognise is 1.4 — a long way above where
+   * these started, and deliberately close to the competition tier. Getting hired by
+   * one of these at nineteen is a harder filter than most awards.
+   */
+  Google: 1.4,
+  Meta: 1.4,
+  Apple: 1.4,
+  Microsoft: 1.4,
+  Amazon: 1.4,
+  Nvidia: 1.4,
+  OpenAI: 1.4,
+  Anthropic: 1.4,
+  DeepMind: 1.4,
+  Palantir: 1.4,
+  Stripe: 1.4,
+  SpaceX: 1.4,
+  Tesla: 1.4,
+  IBM: 1.4,
+  Bloomberg: 1.4,
+  "Jane Street": 1.4,
+  Citadel: 1.4,
+  "Citadel Securities": 1.4,
+  "Hudson River Trading": 1.4,
+  "Two Sigma": 1.4,
+  "Jump Trading": 1.4,
+  "D. E. Shaw": 1.4,
+  Susquehanna: 1.4,
+  "McKinsey & Company": 1.4,
+  "Bain & Company": 1.4,
+  "Boston Consulting Group": 1.4,
+  "Goldman Sachs": 1.4,
+  NASA: 1.4,
+  Databricks: 1.2,
+  Snowflake: 1.2,
+  // Real, and a rung below the names above.
+  Tencent: 0.7,
+  Intel: 0.7,
+  Waymo: 0.7,
+  Regeneron: 0.7,
+  "Bell Labs": 0.7,
 
   /* ── Universities ─────────────────────────────────────────────────────── */
-  MIT: 0.6,
-  Stanford: 0.6,
-  Caltech: 0.6,
-  Harvard: 0.6,
-  Princeton: 0.5,
-  Berkeley: 0.5,
-  "Carnegie Mellon": 0.5,
-  Yale: 0.5,
-  Oxford: 0.5,
-  Cambridge: 0.5,
+  MIT: 0.8,
+  Stanford: 0.8,
+  Caltech: 0.8,
+  Harvard: 0.8,
+  Princeton: 0.6,
+  Berkeley: 0.6,
+  "Carnegie Mellon": 0.6,
+  Yale: 0.6,
+  Columbia: 0.6,
+  Oxford: 0.6,
+  Cambridge: 0.6,
+  UChicago: 0.6,
+  UPenn: 0.6,
+  Cornell: 0.4,
 
   /* ── High schools ─────────────────────────────────────────────────────── */
-  // The rest of the curated list starts at 0.3 and anything discovered at 0.1.
+  // A feeder is worth a little; where someone went to school is mostly not the point.
   TJHSST: 0.4,
   "Phillips Exeter": 0.4,
   "Phillips Andover": 0.4,
@@ -333,11 +340,19 @@ export const START_WEIGHT: Record<string, number> = {
   NCSSM: 0.4,
   Harker: 0.4,
 
+  /* ── Whole-profile facts ──────────────────────────────────────────────── */
+  // The single most predictive flag here: they founded it and someone funded it.
+  "Funded founder": 1.2,
+  "Competition winner": 0.4,
+  Influencer: 0.3,
+  "Has a site": 0.1,
+  Published: 0,
+  "Patent holder": 0,
+
   /* ── Titles ───────────────────────────────────────────────────────────── */
-  // A fact about what you did, not what you were called.
-  Founder: 0.3,
-  CEO: 0.2,
+  Founder: 0.2,
   CTO: 0.2,
+  CEO: 0.1,
 };
 
 /** Anything promoted from the review queue without an explicit weight. */
