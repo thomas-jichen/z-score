@@ -22,7 +22,7 @@ import {
   type EnrichedProfile,
   type Provenance,
 } from "../lib/enrichment";
-import { capRoster, hopAfter, isSuppressed, migrateLegacy, neighborsFrom, nextHopFrom, withEnriched, MAX_PEOPLE, type Person } from "../lib/people";
+import { capRoster, hopAfter, isSuppressed, migrateLegacy, neighborsFrom, nextHopFrom, refreshDerived, withEnriched, MAX_PEOPLE, type Person } from "../lib/people";
 import {
   MAX_DELETED,
   SEED_VERSION,
@@ -34,6 +34,7 @@ import {
 } from "../lib/state";
 import { scoreOne, toCandidates } from "../lib/candidates";
 import {
+  allTags,
   buildSearchLabels,
   heldTags,
   matchedTerms,
@@ -744,6 +745,65 @@ console.log("\nhydrateTeam — a stored registry keeps up with the seed lists");
     "exactly one tag answers to the moved alias",
     Object.values(stale.taxonomy.tags).filter((d) => d.aliases.includes("amp")).map((d) => d.id),
     ["jane-street-amp"]
+  );
+}
+
+// ── Removing a tag has to remove it ──────────────────────────────────────
+
+console.log("\nthe x on a chip removes the chip");
+{
+  /**
+   * Removal was recorded and never read for three of them. School, class year and
+   * state are built straight off the person by `attributeTags`, which never saw
+   * `suppressedTags` — so the chip came back on the next render however many times
+   * it was deleted. Max Fan was carrying "Ad Astra School" and "Class of 2029" in
+   * his removals and displaying both.
+   */
+  const p: Person = {
+    ...bare("removals"),
+    school: "Ad Astra School",
+    gradYear: 2029,
+    state: "CA",
+  };
+  const labels = (x: Person) => allTags(x, TAX).map((t) => t.label);
+
+  check("the school shows before removal", labels(p).includes("Ad Astra School"), true);
+  check("and the class year", labels(p).includes("Class of 2029"), true);
+
+  const cleaned = { ...p, suppressedTags: ["Ad Astra School", "Class of 2029"] };
+  check("the removed school is gone", labels(cleaned).includes("Ad Astra School"), false);
+  check("and the removed class year", labels(cleaned).includes("Class of 2029"), false);
+  check("and only those two went", labels(p).length - labels(cleaned).length, 2);
+
+  /**
+   * Geography ids carry their facet, so `state:california` and
+   * `homestate:california` are two tags with one name. Clicking × on that name
+   * plainly means the name, which is why a removal is matched on the bare label as
+   * well as the resolved id.
+   */
+  const stateChip = allTags(p, TAX).find((t) => t.kind === "state")!;
+  check(
+    "removing a state by name removes it whichever facet it came from",
+    allTags({ ...p, suppressedTags: [stateChip.label] }, TAX).some(
+      (t) => t.kind === "state" && t.label === stateChip.label
+    ),
+    false
+  );
+
+  /**
+   * The correction has to live on the tag rather than the stored field.
+   * `refreshDerived` recomputes school and grad year from the profile on every read
+   * and is deliberately authoritative, so blanking the field would be undone by the
+   * next page load and the removal would look broken again for a different reason.
+   */
+  const withProfile: Person = {
+    ...cleaned,
+    enriched: { ...cleaned.enriched!, educations: [{ school: "Ad Astra School", degree: "High School Diploma" }] },
+  };
+  check(
+    "and it survives the derivation being recomputed",
+    labels(refreshDerived(withProfile)).includes("Ad Astra School"),
+    false
   );
 }
 

@@ -358,25 +358,42 @@ export type HeldTag = {
   selfReported?: boolean;
 };
 
+/**
+ * The keys a person's removals stand for.
+ *
+ * Both the registry id and the bare normalised label, because the two answer
+ * different questions and a removal means both of them. Resolving through the
+ * registry is what makes removing "Yale" remove the Yale tag however the profile
+ * spelled it; keeping the bare label is what makes it work for a chip that is not a
+ * registry entry at all, and for the geography facets, whose ids carry the facet —
+ * `state:massachusetts` and `homestate:massachusetts` are two tags with one name, and
+ * clicking × on one of them plainly means that name.
+ */
+function suppressedKeys(p: Person, index: ReturnType<typeof indexRegistry>): Set<string> {
+  const out = new Set<string>();
+  for (const label of p.suppressedTags ?? []) {
+    const def = resolveAny(index, label);
+    if (def) out.add(def.id);
+    const bare = normalizeKey(label);
+    if (bare) out.add(bare);
+  }
+  return out;
+}
+
+function isSuppressedTag(keys: Set<string>, id: string, label: string): boolean {
+  if (keys.size === 0) return false;
+  return keys.has(id) || keys.has(normalizeKey(label));
+}
+
 export function heldTags(p: Person, tax: TaxonomyPrefs): HeldTag[] {
   const index = indexRegistry(tax.tags);
   const out: HeldTag[] = [];
   const seen = new Set<string>();
 
-  /**
-   * Tags a person has been told not to hold, whatever the profile says.
-   *
-   * Resolved through the registry rather than compared as strings, so removing
-   * "Yale" removes the Yale tag however the profile happened to spell it.
-   */
-  const suppressed = new Set<string>();
-  for (const label of p.suppressedTags ?? []) {
-    const def = resolveAny(index, label);
-    suppressed.add(def ? def.id : normalizeKey(label));
-  }
+  const suppressed = suppressedKeys(p, index);
 
   const take = (def: TagDef, source: Signal["source"], extra?: Partial<HeldTag>) => {
-    if (seen.has(def.id) || suppressed.has(def.id)) return;
+    if (seen.has(def.id) || isSuppressedTag(suppressed, def.id, def.label)) return;
     seen.add(def.id);
     out.push({ def, source, ...extra });
   };
@@ -475,13 +492,35 @@ export function matchedTerms(p: Person, tax: TaxonomyPrefs): MatchedTerm[] {
   return out.sort((a, b) => b.weight - a.weight);
 }
 
-/** Facts about a person rather than credentials. Used to group, not to score. */
-export function attributeTags(p: Person): Tag[] {
+/**
+ * Facts about a person rather than credentials. Used to group, not to score.
+ *
+ * Removals apply here too, and this is where the × on a profile was silently doing
+ * nothing. These three chips are built straight off the person, so a school or a
+ * class year came back on the next render however many times it was deleted —
+ * Max Fan carried "Ad Astra School" and "Class of 2029" in `suppressedTags` and
+ * displayed both. The record of the removal was being kept and never read.
+ *
+ * The suppression has to live at this layer rather than on the stored field.
+ * `refreshDerived` recomputes `school` and `gradYear` from the profile on every read
+ * and is deliberately authoritative — so clearing the field would be undone by the
+ * next page load, and only the tag layer can hold the correction.
+ */
+export function attributeTags(p: Person, suppressed?: Set<string>): Tag[] {
   const out: Tag[] = [];
   const year = p.gradYear ? String(p.gradYear) : p.inferredYear;
-  if (p.school) out.push({ label: p.school, kind: "school", origin: "attribute", confirmed: true });
-  if (year) out.push({ label: `Class of ${year}`, kind: "year", origin: "attribute", confirmed: true });
-  if (p.state) out.push({ label: p.state, kind: "state", origin: "attribute", confirmed: true });
+  const keep = (label: string) =>
+    !suppressed || !isSuppressedTag(suppressed, normalizeKey(label), label);
+
+  if (p.school && keep(p.school)) {
+    out.push({ label: p.school, kind: "school", origin: "attribute", confirmed: true });
+  }
+  if (year && keep(`Class of ${year}`)) {
+    out.push({ label: `Class of ${year}`, kind: "year", origin: "attribute", confirmed: true });
+  }
+  if (p.state && keep(p.state)) {
+    out.push({ label: p.state, kind: "state", origin: "attribute", confirmed: true });
+  }
   return out;
 }
 
@@ -530,7 +569,7 @@ export function allTags(p: Person, tax: TaxonomyPrefs): Tag[] {
     });
   }
 
-  for (const t of attributeTags(p)) take(t);
+  for (const t of attributeTags(p, suppressedKeys(p, index))) take(t);
 
   for (const label of p.manualTerms ?? []) {
     const def = resolveAny(index, label);
