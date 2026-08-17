@@ -315,8 +315,6 @@ export default function TaxonomyPage() {
           <div>
             <div className="z-col-head">
               <p className="z-label is-quiet">Unmatched, but notable</p>
-              <span className="z-spacer" />
-              {pending.length > 0 && <span className="z-count">{pending.length}</span>}
             </div>
             <Card size="lg">
               {promoting ? (
@@ -350,7 +348,6 @@ export default function TaxonomyPage() {
                           {/* A real count over real people, each one reachable by
                               name, so a term can be checked before it is trusted.
                               This used to print their usernames. */}
-                          {p.count} {p.count === 1 ? "profile" : "profiles"} —{" "}
                           <Link href={`/candidate/${p.slugs[0]}`}>{nameOf(p.slugs[0])}</Link>
                           {p.slugs.length > 1 && ` +${p.slugs.length - 1}`}
                         </span>
@@ -368,7 +365,7 @@ export default function TaxonomyPage() {
                   ))}
                   {pending.length > 12 && (
                     <p className="z-micro" style={{ marginTop: "var(--z-space-3)" }}>
-                      {pending.length - 12} more, ranked by how many profiles carry them.
+                      {pending.length - 12} more
                     </p>
                   )}
                 </div>
@@ -541,11 +538,18 @@ function TagList({
       list.push(def);
       byFacet.set(def.facet, list);
     }
+    /**
+     * Heaviest first.
+     *
+     * It sorted by holder count, which put a 0.3 hackathon three people share above
+     * the 2.0 accelerator one of them cleared — on a screen whose entire subject is
+     * the ordering of weights. The number the list is about is the number it sorts on.
+     */
     for (const list of byFacet.values()) {
       list.sort(
         (a, b) =>
-          (holders.get(b.id) ?? 0) - (holders.get(a.id) ?? 0) ||
           b.weight - a.weight ||
+          (holders.get(b.id) ?? 0) - (holders.get(a.id) ?? 0) ||
           a.label.localeCompare(b.label)
       );
     }
@@ -620,18 +624,12 @@ function TagList({
         <div className="z-tune">
           {shown.map(({ facet: f, list }) => {
             const held = list.filter((d) => (holders.get(d.id) ?? 0) > 0);
-            const on = held.filter((d) => d.promoted).length;
             return (
               <section className="z-tune-sec" key={f}>
                 <div className="z-tune-head">
+                  {/* Just the name. The count was printed on the facet capsule
+                      directly above it, so the header was saying it twice. */}
                   <h2 className="z-tune-title">{FACET_LABEL[f]}</h2>
-                  {/* Held first, because that is the number a bulk switch acts on.
-                      "23/23" alone read as a total, which in All mode it is not. */}
-                  <span className="z-count">
-                    {held.length > 0
-                      ? `${held.length} held, ${on} scoring`
-                      : `${list.length} unheld`}
-                  </span>
                   <span className="z-spacer" />
                   {held.length > 1 && (
                     <>
@@ -699,12 +697,16 @@ function TuneRow({
   return (
     <div className="z-tune-row" data-idle={people === 0 || undefined}>
       <span className="z-tune-name-cell" style={{ minWidth: 0 }}>
-        <span className="z-tune-name">{def.label}</span>
-        {def.aliases.length > 0 && (
-          <span className="z-tune-alias" title={def.aliases.join(", ")}>
-            {def.aliases.slice(0, 3).join(", ")}
-          </span>
-        )}
+        {/* The other spellings that resolve here live in the tooltip. As a second
+            line under every name they were a hundred rows of grey subtext, which is
+            most of what made this list heavy to look at. Search still matches them. */}
+        <span
+          className="z-tune-name"
+          title={def.aliases.length > 0 ? `Also ${def.aliases.join(", ")}` : undefined}
+        >
+          {def.label}
+        </span>
+
       </span>
 
       <span className="z-tune-range-cell">
@@ -806,6 +808,7 @@ function PromoteForm({
       {/* Grid, not a flex row: "Accelerators & funds" is the longest option in the
           first select and an even split truncated it. */}
       <div
+        className="z-promote-selects"
         style={{
           display: "grid",
           gridTemplateColumns: "1.4fr 1fr",

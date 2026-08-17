@@ -25,7 +25,6 @@ import { EMPTY_SELECTION } from "@/lib/query";
 import { ARCHETYPES, archetypeLabel, formatSigma } from "@/lib/zscore";
 import type { TagFacet } from "@/lib/tagRegistry";
 import {
-  ArchetypeTag,
   EmptyState,
   MarkControl,
   Pill,
@@ -338,7 +337,7 @@ export default function GraphPage() {
               gutter so their pills start on the same line. Packing the mode switch
               and the link types onto one row read as one control with a divider in
               it, which is not what it is. */}
-          <div className="z-graph-controls z-hide-mobile">
+          <div className="z-graph-controls">
             <div className="z-row" style={{ gap: "var(--z-space-3)" }}>
               <div className="z-segmented">
                 <button
@@ -425,7 +424,7 @@ export default function GraphPage() {
             </div>
           </div>
 
-          <div className="z-graph-wrap z-hide-mobile">
+          <div className="z-graph-wrap">
             {!mounted ? (
               <div className="z-graph-loading z-small">Laying out the graph</div>
             ) : (
@@ -675,7 +674,7 @@ export default function GraphPage() {
               including the ones too broad to draw, which are often the best of
               them. Click to isolate, click again for the sweep. */}
           {graph.hubs.length > 0 && (
-            <div className="z-leads z-hide-mobile">
+            <div className="z-leads">
               <span className="z-label is-quiet">Where to look next</span>
               <div className="z-row z-row-wrap" style={{ gap: 6 }}>
                 {graph.hubs.map((h) => (
@@ -724,30 +723,6 @@ export default function GraphPage() {
             </p>
           )}
 
-          {/* Mobile: a ranked list. A pinch-zoom force graph on a phone is
-              unusable, so this degrades to the information the graph conveys. */}
-          <div className="z-show-mobile z-stack">
-            {queued
-              .slice()
-              .sort((a, b) => b.score - a.score)
-              .map((c) => (
-                <div className="z-card" key={c.slug}>
-                  <Link href={`/candidate/${c.slug}`} className="z-person-name">
-                    {c.name}
-                  </Link>
-                  <div className="z-row z-row-wrap" style={{ marginTop: 6, gap: 6 }}>
-                    <ZScoreBadge candidate={c} />
-                    {c.polymath && <PolymathBadge clusters={c.secondary_archetypes} />}
-                  </div>
-                  <div className="z-row z-row-wrap" style={{ marginTop: 6, gap: 4 }}>
-                    <ArchetypeTag archetype={c.archetype} />
-                    {c.graduation_year && (
-                      <span className="z-micro">Class of {c.graduation_year}</span>
-                    )}
-                  </div>
-                </div>
-              ))}
-          </div>
         </>
       )}
     </div>

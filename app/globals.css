@@ -2160,7 +2160,9 @@ tr[data-pinned] td:first-child {
   grid-template-columns: minmax(0, 1fr) minmax(180px, 1.35fr) 3.25rem 2.75rem 2.25rem;
   align-items: center;
   gap: var(--z-space-4);
-  padding: var(--z-space-3) var(--z-space-5);
+  /* One line per tag, so the padding that used to carry an alias line goes with
+     it. A hundred rows at 55px was most of why this list felt heavy. */
+  padding: 0.55rem var(--z-space-5);
   border-bottom: 1px solid var(--z-border-soft);
   transition: background-color var(--z-t-fast);
 }
@@ -2187,16 +2189,6 @@ tr[data-pinned] td:first-child {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.z-tune-alias {
-  display: block;
-  font-size: 0.75rem;
-  color: var(--z-ink-faint);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  margin-top: 1px;
 }
 
 .z-tune-people {
@@ -2488,4 +2480,289 @@ tr[data-pinned] td:first-child {
   .z-tune-name-cell { grid-area: name; }
   .z-tune-range-cell { grid-area: range; }
   .z-tune-head { top: 0; }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Phone
+
+   The app was built desktop-first and the narrow view had been left as a set of
+   patches: a nav that overflowed into a hidden scroller, a graph switched off
+   entirely, and three-column grids squeezed into 400px. Everything below is one
+   pass over that.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ── The bottom tab bar ────────────────────────────────────────────────── */
+
+.z-tabbar {
+  display: none;
+}
+
+@media (max-width: 720px) {
+  .z-tabbar {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 60;
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: 1fr;
+    align-items: stretch;
+    background: #ffffffeb;
+    /* The blur is doing real work here: content scrolls under the bar, and a flat
+       fill makes the page look like it ends early. */
+    backdrop-filter: blur(14px) saturate(1.4);
+    border-top: 1px solid var(--z-border-soft);
+    padding-bottom: env(safe-area-inset-bottom, 0);
+  }
+
+  .z-tab {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--z-space-1);
+    min-height: 52px;
+    text-decoration: none;
+    font-size: var(--z-fs-micro);
+    font-weight: 500;
+    letter-spacing: -0.02rem;
+    color: var(--z-ink-faint);
+    transition: color var(--z-t-fast);
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .z-tab[aria-current="page"] {
+    color: var(--z-blue);
+    font-weight: 600;
+  }
+
+  /* The active mark is a short rule at the top edge of the tab, on the side the
+     content is. A pill behind the label would fight the bar's own border. */
+  .z-tab[aria-current="page"]::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 22px;
+    height: 2px;
+    border-radius: 0 0 2px 2px;
+    background: var(--z-blue);
+  }
+
+  .z-tab:active {
+    color: var(--z-blue);
+  }
+
+  .z-tab-count {
+    font-size: 0.6875rem;
+    font-variant-numeric: tabular-nums;
+    color: var(--z-bg);
+    background: var(--z-blue);
+    border-radius: var(--z-r-pill);
+    padding: 0 5px;
+    min-width: 17px;
+    text-align: center;
+    line-height: 16px;
+  }
+
+  .z-tab[aria-current="page"] .z-tab-count {
+    background: var(--z-blue);
+  }
+
+  /* Room for the bar, plus the home indicator on a modern phone. */
+  .z-page {
+    padding-bottom: calc(72px + env(safe-area-inset-bottom, 0px));
+  }
+
+  /* The top bar keeps the wordmark and the identity, and the links have left. */
+  .z-nav-inner {
+    justify-content: space-between;
+  }
+
+  .z-sweep-cta {
+    padding: var(--z-space-2) var(--z-space-5);
+  }
+}
+
+/* ── Touch ─────────────────────────────────────────────────────────────── */
+
+@media (hover: none) {
+  /**
+   * A 32px circle is comfortable with a mouse and small under a fingertip. The
+   * visual size is unchanged; the target grows past the paint.
+   */
+  .z-mark-btn::after,
+  .z-switch::before {
+    content: "";
+    position: absolute;
+    inset: -6px;
+  }
+
+  .z-mark-btn,
+  .z-switch {
+    position: relative;
+  }
+
+  /* Restore the knob, which the rule above would otherwise have replaced. */
+  .z-switch::after {
+    content: "";
+    inset: auto;
+    top: 2px;
+    left: 2px;
+  }
+}
+
+/* ── Narrow layouts, screen by screen ──────────────────────────────────── */
+
+@media (max-width: 720px) {
+  /* Sliders and switches need a real target, so the row gives them their own
+     line rather than four columns inside 400px. */
+  .z-tune-head {
+    top: 56px;
+  }
+
+  /**
+   * The facet rail is one swipeable line, not six stacked ones.
+   *
+   * Fourteen capsules wrapped to six rows, which put 300px of navigation between
+   * the title and the first tag. Edge-to-edge so it reads as scrollable, with the
+   * page padding restored inside.
+   */
+  .z-rail {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+    margin-left: calc(-1 * var(--z-space-4));
+    margin-right: calc(-1 * var(--z-space-4));
+    padding: 0 var(--z-space-4);
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .z-rail::-webkit-scrollbar {
+    display: none;
+  }
+
+  .z-rail > * {
+    flex: none;
+  }
+
+  /**
+   * The digest row is a table, because the digest is also an email.
+   *
+   * A table does not reflow, so three cells sized for 900px became three columns
+   * of 130px and every name broke across two lines. On a phone the cells stack.
+   */
+  .z-digest-card td {
+    display: block;
+    width: auto !important;
+    padding-left: 0 !important;
+    text-align: left !important;
+  }
+
+  .z-digest-card td:not(:first-child) {
+    margin-top: var(--z-space-3);
+  }
+
+  /**
+   * A label-and-number row stays a row; a title-and-issuer row stacks.
+   *
+   * Both were the same class, so "'23-24 U.S. National Economics Team" and
+   * "Council for Economic Education" each got half of 370px and both wrapped to
+   * three lines. Only the prose pairs change.
+   */
+  .z-breakdown-row.is-prose {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 1px;
+  }
+
+  .z-breakdown-row.is-prose > :last-child {
+    text-align: left !important;
+  }
+
+  /* The bulk bar is an action strip; on a phone it belongs above the thumb bar
+     rather than scrolled off the top of a long list. */
+  .z-bulkbar {
+    position: sticky;
+    bottom: calc(64px + env(safe-area-inset-bottom, 0px));
+    z-index: 40;
+    box-shadow: var(--z-shadow-lift);
+    background: var(--z-surface-blue);
+  }
+}
+
+@media (max-width: 720px) {
+  /**
+   * The graph works on a phone. It used to be switched off entirely — canvas,
+   * controls and leads all hidden — and what showed instead was the queue sorted
+   * by score with the cluster printed twice. A graph that cannot show a connection
+   * is not a degraded graph, it is a different screen with a bug.
+   *
+   * The canvas already scales: it has a viewBox and `touch-action: none`, so pan
+   * works under a finger. Only the hiding had to go.
+   *
+   * Each control row swipes instead of wrapping. Three rows of pills wrap to seven
+   * lines at this width, which puts the canvas below the fold on its own screen.
+   */
+  .z-graph-line {
+    overflow-x: auto;
+    scrollbar-width: none;
+    padding-bottom: 2px;
+  }
+
+  .z-graph-line::-webkit-scrollbar {
+    display: none;
+  }
+
+  .z-graph-line > * {
+    flex: none;
+  }
+
+  .z-graph-key {
+    /* Sticks to the left edge so a swiped row still says what it controls. */
+    position: sticky;
+    left: 0;
+    z-index: 1;
+    background: var(--z-bg);
+    min-width: 52px;
+  }
+
+  .z-graph-find {
+    max-width: none;
+    width: 100%;
+  }
+
+  /* Taller than the desktop 1000:620, because the width is fixed and the height is
+     the only axis left to give it. The layout letterboxes rather than distorts. */
+  .z-graph,
+  .z-graph-loading {
+    aspect-ratio: 1 / 1;
+  }
+
+  /**
+   * The tag wall on a profile: 25 chips each carrying a remove control is the
+   * densest block in the app. Capped height with its own scroll, so it stops
+   * being the whole screen.
+   */
+  .z-tagwall {
+    max-height: 190px;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    padding-right: 2px;
+  }
+
+  /* Two selects side by side inside 370px truncate both. */
+  .z-promote-selects {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+}
+
+@media (max-width: 720px) {
+  /* Inside a swipeable row, a wrapping segmented control stacks its two halves
+     into a column. It is one control and it stays on one line. */
+  .z-graph-line .z-segmented {
+    flex-wrap: nowrap;
+  }
 }

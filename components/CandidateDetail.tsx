@@ -287,7 +287,10 @@ export function CandidateDetail({ slug }: { slug: string }) {
             {tags.length === 0 ? (
               <p className="z-small">No tags yet.</p>
             ) : (
-              <div className="z-row z-row-wrap" style={{ gap: 4 }}>
+              /* `z-tagwall`: on a phone twenty-five chips each carrying a remove
+                 control is the densest block in the app, so it gets a capped
+                 height and its own scroll instead of the whole screen. */
+              <div className="z-row z-row-wrap z-tagwall" style={{ gap: 4 }}>
                 {tags.map((t) => (
                   <TagChip
                     key={`${t.kind}-${t.label}`}
@@ -507,7 +510,9 @@ function Section({ title, items }: { title: string; items: (string | undefined)[
         {title}
       </p>
       {rows.slice(0, 12).map((r, i) => (
-        <div className="z-breakdown-row" key={i}>
+        /* `is-prose`: both halves are sentences, so on a phone they stack rather
+           than each taking half the width and wrapping to three lines. */
+        <div className="z-breakdown-row is-prose" key={i}>
           <span className="z-breakdown-term">{r[0]}</span>
           <span className="z-small" style={{ color: "var(--z-ink-faint)", textAlign: "right" }}>
             {r[1] ?? ""}

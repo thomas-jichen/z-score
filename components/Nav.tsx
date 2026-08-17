@@ -7,12 +7,22 @@ import { findProfile, PROFILE_COOKIE, type Profile } from "@/lib/profiles";
 import { useApp } from "@/components/AppState";
 
 /**
- * Top horizontal nav: wordmark left, links centre, identity and CTA right.
- * Derived from how zfellows.com structures its own navigation, deliberately not
- * a sidebar.
+ * Wordmark left, links centre, identity and CTA right. Derived from how
+ * zfellows.com structures its own navigation, deliberately not a sidebar.
  *
  * The run indicator is the reason this reads app state: enrichment now continues
  * across navigation, so there has to be somewhere that says so from every screen.
+ *
+ * ── On a phone the links move to the bottom ───────────────────────────────
+ * One row could not hold them. The wordmark, four links and the identity needed
+ * 437px of a 402px screen, and the overflow went to a scroll container with its
+ * scrollbar hidden — so Taxonomy was cut to a stray "T" and reachable only by
+ * guessing that the strip could be dragged. A destination you cannot see is a
+ * destination you do not have.
+ *
+ * A bottom bar fixes it twice over: the row is no longer competing for width, and
+ * the four things you switch between all day sit under the thumb rather than at
+ * the far top corner of the screen.
  */
 
 const LINKS = [
@@ -42,17 +52,19 @@ export function Nav() {
   }
 
   const running = job.phase === "running";
+  const isActive = (href: string) => pathname === href || pathname.startsWith(href + "/");
 
   return (
+    <>
     <header className="z-nav">
       <nav className="z-nav-inner">
         <Link href="/digest" className="z-wordmark">
           Z-Score
         </Link>
 
-        <div className="z-nav-links">
+        <div className="z-nav-links z-hide-mobile">
           {LINKS.map((l) => {
-            const active = pathname === l.href || pathname.startsWith(l.href + "/");
+            const active = isActive(l.href);
             return (
               <Link
                 key={l.href}
@@ -92,11 +104,32 @@ export function Nav() {
               </span>
             </button>
           )}
-          <Link href="/sweep" className="z-btn is-sm z-hide-mobile">
-            Run sweep
+          {/* "Run sweep" on a wide screen, "Sweep" on a narrow one. The verb is
+              carried by the button being a button. */}
+          <Link href="/sweep" className="z-btn is-sm z-sweep-cta">
+            <span className="z-hide-mobile">Run sweep</span>
+            <span className="z-show-mobile">Sweep</span>
           </Link>
         </div>
       </nav>
     </header>
+
+    {/* Phone only. Four destinations, thumb height, and none of them clipped. */}
+    <nav className="z-tabbar z-show-mobile" aria-label="Sections">
+      {LINKS.map((l) => (
+        <Link
+          key={l.href}
+          href={l.href}
+          className="z-tab"
+          aria-current={isActive(l.href) ? "page" : undefined}
+        >
+          <span className="z-tab-label">{l.label}</span>
+          {l.href === "/queue" && queue.length > 0 && (
+            <span className="z-tab-count">{queue.length}</span>
+          )}
+        </Link>
+      ))}
+    </nav>
+    </>
   );
 }

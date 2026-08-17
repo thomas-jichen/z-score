@@ -93,8 +93,12 @@ export default function DigestPage() {
                       padding: "20px 24px",
                     }}
                   >
+                    {/* A table because this layout is also the email. `z-digest-card`
+                        is what lets the cells stack on a phone, where three fixed
+                        columns became 130px each and broke every name in half. */}
                     <table
                       role="presentation"
+                      className="z-digest-card"
                       cellPadding={0}
                       cellSpacing={0}
                       style={{ width: "100%", borderCollapse: "collapse" }}
