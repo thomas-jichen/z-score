@@ -555,8 +555,137 @@ export async function extractTerms(
   );
 
   if (!r.ok) return r;
-  return { ok: true, value: { slug: p.slug, terms: r.value } };
+
+  /**
+   * Check the citation before keeping the claim.
+   *
+   * The model was already required to quote the text for every term, and nothing
+   * ever looked at the quote — the route kept the label and dropped the evidence on
+   * the floor. So the one guard the design had against invention was never armed,
+   * and Max Fan, a pianist and linguist, was tagged USACO Platinum and USAPhO. Those
+   * strings appear nowhere on his profile, nor in the vendor's raw payload. They are
+   * both in the KNOWN list the prompt supplies, which is the shape of the failure: a
+   * strong STEM profile, a menu of credentials, and a model filling in what such a
+   * person usually has.
+   *
+   * Ungrounded terms are dropped here rather than reported, because there is nothing
+   * for a human to adjudicate: the profile does not say it.
+   */
+  const kept = r.value.filter((t) => groundedIn(text, t.evidence));
+  if (kept.length !== r.value.length) {
+    log.warn("groq.extract.ungrounded", {
+      slug: p.slug,
+      dropped: r.value
+        .filter((t) => !kept.includes(t))
+        .map((t) => t.label)
+        .join(", "),
+    });
+  }
+  return { ok: true, value: { slug: p.slug, terms: kept } };
 }
+
+/** Lowercase, unaccent, and reduce every run of punctuation or space to one space. */
+function flatten(s: string): string {
+  return s
+    .normalize("NFKD")
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+/**
+ * Does this quote actually come from the profile?
+ *
+ * Deliberately tolerant, because a model quoting honestly still does not quote
+ * cleanly. Measured against real output it stitches two spans with an em dash
+ * ("NACLO Invitational Round (2024 & 2025) — Bronze 2025", where the round and the
+ * medal are separate lines), prefixes the field it read ("HEADLINE: Stanford CS &
+ * Physics"), and elides the middle. Requiring the whole string verbatim would throw
+ * away true findings, which is a worse failure than the one being fixed — a dropped
+ * credential is invisible, and nobody reviews what they never see.
+ *
+ * So the quote is split on the joins a model makes, and one usable fragment
+ * appearing verbatim is enough. Fabrication has nothing to offer here: an invented
+ * credential has no line to cite, so every fragment fails.
+ */
+export function groundedIn(text: string, evidence: string): boolean {
+  const haystack = flatten(text);
+  if (!haystack) return false;
+
+  // A leading "HEADLINE:" or "About:" names where the model looked; it is not
+  // part of the quotation.
+  const body = evidence.replace(/^\s*[a-z ]{3,20}:\s*/i, "");
+
+  const fragments = body
+    .split(/\s+[—–-]\s+|[|;•]|\.{3}|…/)
+    .map(flatten)
+    .filter(usableFragment);
+
+  // Nothing quotable in the quote. The term stands on no evidence at all.
+  if (fragments.length === 0) return false;
+  return fragments.some((f) => haystack.includes(f));
+}
+
+/**
+ * Enough of a quote to be evidence of something.
+ *
+ * Not a length rule, which was the first attempt and was wrong in the direction that
+ * matters: it needed twelve characters, and "Z-Fellow" is eight. Tarun Batchu's
+ * headline reads "CEO @ Vela | Z-Fellow" and Matthew Wong's says "Y Combinator S26",
+ * both verbatim, both real, and both would have been silently discarded — a dropped
+ * credential is invisible, so nobody would ever have reviewed it.
+ *
+ * Two words is enough, however short. One word is enough only when the word
+ * distinguishes something: "RSI" does, "Winner" does not, and every profile in this
+ * corpus is full of the second kind.
+ */
+function usableFragment(f: string): boolean {
+  const words = f.split(" ").filter(Boolean);
+  if (words.length >= 2) return true;
+  if (words.length === 0) return false;
+  return words[0].length >= 3 && !GENERIC_QUOTE.has(words[0]);
+}
+
+/** Words that describe any result rather than name a particular one. */
+const GENERIC_QUOTE = new Set([
+  "winner",
+  "won",
+  "finalist",
+  "semifinalist",
+  "qualifier",
+  "place",
+  "first",
+  "second",
+  "third",
+  "gold",
+  "silver",
+  "bronze",
+  "medal",
+  "medalist",
+  "medallist",
+  "award",
+  "awards",
+  "prize",
+  "scholar",
+  "scholarship",
+  "fellow",
+  "fellowship",
+  "member",
+  "national",
+  "international",
+  "honors",
+  "honours",
+  "champion",
+  "top",
+  "recipient",
+  "participant",
+  "competition",
+  "challenge",
+  "research",
+  "intern",
+  "internship",
+]);
 
 /** Bounded-concurrency map, so a wide batch does not stampede the API. */
 export async function extractMany(

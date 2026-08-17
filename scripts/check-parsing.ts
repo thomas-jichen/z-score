@@ -42,6 +42,7 @@ import {
   unmatchedTerms,
 } from "../lib/tags";
 import { classifyOrg, extractTags, inferHomeState } from "../lib/extract";
+import { extractTerms, groundedIn } from "../lib/groq";
 import { cleanDeleted, cleanTaxonomy } from "../lib/team";
 import { START_WEIGHT, assignCluster, round } from "../lib/clusters";
 import {
@@ -743,6 +744,76 @@ console.log("\nhydrateTeam — a stored registry keeps up with the seed lists");
     "exactly one tag answers to the moved alias",
     Object.values(stale.taxonomy.tags).filter((d) => d.aliases.includes("amp")).map((d) => d.id),
     ["jane-street-amp"]
+  );
+}
+
+// ── The tagger has to cite its source ────────────────────────────────────
+
+console.log("\na credential the profile does not mention is not a credential");
+{
+  /**
+   * The model was always required to quote the text for every term it returned, and
+   * nothing ever read the quote — the route kept the label and dropped the evidence.
+   * So the one guard the design had against invention was never armed.
+   *
+   * Max Fan is a pianist and a linguist. He was tagged USACO Platinum and USAPhO,
+   * worth 1.5 between them. Neither string is anywhere on his profile or in the
+   * vendor's raw payload. The only "platinum" he has is in a cancer-research
+   * abstract, which is the whole mechanism in one word: a strong STEM profile, a
+   * KNOWN list of credentials in the prompt, and a model filling in what such a
+   * person usually has.
+   */
+  const profile = [
+    "Stanford CS & Physics | Research @ Harvard PhonLab, MIT, SAIL",
+    "National YoungArts 2024 Winner in Classical Music / Piano",
+    "NACLO Invitational Round (2024 & 2025)",
+    "Platinum-based chemotherapy drugs kill cancer cells by damaging DNA.",
+  ].join("\n");
+
+  check("the fabrication is refused", groundedIn(profile, "USACO Platinum"), false);
+  check("and so is a fabricated sentence around it", groundedIn(profile, "Placed Platinum in USACO 2025"), false);
+  check("one with no text behind it at all", groundedIn(profile, "USAPhO Semifinalist"), false);
+  check("an empty citation cites nothing", groundedIn(profile, ""), false);
+
+  /**
+   * A word that describes any result grounds no particular one. Every profile here
+   * says "Winner" somewhere, so accepting it would re-open the hole.
+   */
+  check("a generic word is not a citation", groundedIn(profile, "Winner"), false);
+
+  // Quoted honestly, in the three shapes the model actually produces: verbatim,
+  // two spans stitched with a dash, and prefixed with the field it read.
+  check("a verbatim quote is kept", groundedIn(profile, "National YoungArts 2024 Winner in Classical Music"), true);
+  check("stitched spans are kept", groundedIn(profile, "NACLO Invitational Round (2024 & 2025) — Bronze 2025"), true);
+  check("and a field prefix is not part of the quote", groundedIn(profile, "HEADLINE: Stanford CS & Physics"), true);
+
+  /**
+   * The check must not be a length rule, which was the first attempt and failed in
+   * the direction that matters. "Z-Fellow" is eight characters and is the only place
+   * that fellowship is named; dropping it would be invisible, because nobody reviews
+   * a credential they never see.
+   */
+  check(
+    "a short real credential survives",
+    groundedIn("CEO @ Vela | Z-Fellow", "Z-Fellow"),
+    true
+  );
+  check(
+    "as does a batch written only inside a company name",
+    groundedIn("Co-Founder and CEO Poth Labs (YC S26) Building the internal voice", "Poth Labs (YC S26)"),
+    true
+  );
+  /**
+   * The limit, stated rather than discovered later: the quote has to be a span, not
+   * a summary. A model that compresses "Poth Labs | ex-Palantir | YC S26" down to
+   * "Poth Labs (YC S26)" has skipped over text in the middle, and that reads the same
+   * as an invention from here. It costs a true finding occasionally; the alternative
+   * is matching on scattered words, which is how a fabrication gets back in.
+   */
+  check(
+    "a quote that skips over the middle of a line does not ground",
+    groundedIn("Founder, Poth Labs | ex-Palantir | YC S26", "Poth Labs (YC S26)"),
+    false
   );
 }
 
@@ -2062,6 +2133,51 @@ void (async () => {
   check("result order preserved", res.hits.map((h) => h.slug), ["ada-chen-7a12", "ravi-patel-99"]);
 
   globalThis.fetch = realFetch;
+
+  /**
+   * The guard has to be wired up, not merely written.
+   *
+   * `groundedIn` is checked on its own above, and that is exactly the coverage the
+   * original bug already had: the model was required to cite the text, the citation
+   * was parsed, and the route then kept the label and threw the evidence away. A
+   * mechanism nobody calls is the same as no mechanism, so this drives the real
+   * extraction path against a mocked Groq reply and asserts the fabrication does not
+   * survive the trip.
+   */
+  console.log("\nextractTerms — the citation is checked, not just requested");
+  process.env.ZSCORE_GROQ_API_KEY = "test-key";
+
+  const reply = (terms: { label: string; evidence: string }[]) =>
+    (async () =>
+      new Response(
+        JSON.stringify({
+          choices: [{ message: { content: JSON.stringify({ terms }) } }],
+          usage: { total_tokens: 100 },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      )) as unknown as typeof fetch;
+
+  const pianist: Person = {
+    ...bare("pianist", [
+      "National YoungArts 2024 Winner in Classical Music / Piano",
+      "Platinum-based chemotherapy drugs kill cancer cells by damaging DNA.",
+    ]),
+    headline: "Stanford CS & Physics",
+  };
+
+  globalThis.fetch = reply([
+    { label: "National YoungArts", evidence: "National YoungArts 2024 Winner in Classical Music" },
+    { label: "USACO Platinum", evidence: "USACO Platinum division qualifier" },
+    { label: "USAPhO", evidence: "USAPhO Semifinalist" },
+  ]);
+  const extracted = await extractTerms(pianist, ["USACO Platinum", "USAPhO"]);
+  globalThis.fetch = realFetch;
+
+  check(
+    "the cited term survives and the invented ones do not",
+    extracted.ok ? extracted.value.terms.map((t) => t.label) : extracted.error,
+    ["National YoungArts"]
+  );
 
   console.log(failures === 0 ? "\nAll checks passed.\n" : `\n${failures} check(s) failed.\n`);
   process.exit(failures === 0 ? 0 : 1);
