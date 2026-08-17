@@ -1064,7 +1064,7 @@ console.log("\nplaced at ISEF, as opposed to placed at something");
    * round is what the competition's own tag already means, so semifinalist and
    * qualifier are pointedly not tiers.
    */
-  const camp = (p: Person) => heldTags(p, TAX).some((t) => t.def.label === "Olympiad finalist");
+  const camp = (p: Person) => heldTags(p, TAX).some((t) => t.def.label === "Olympiad camper");
 
   check(
     "a camp invitation is the tier",
@@ -1657,14 +1657,36 @@ console.log("\ntier and outcome — winning is not attending, and founding is no
    */
   const won = bare("won", ["ISEF - 2nd Place Grand Award in Physics & Astronomy"]);
   const wt = held(won);
-  check("a placing is recognised as a win", wt.includes("Competition winner"), true);
-  check("and ISEF's award tier is its own tag", wt.includes("ISEF Grand Award"), true);
+  check("ISEF's award tier is its own tag", wt.includes("ISEF Grand Award"), true);
+  /**
+   * A placing at a science fair is not a hackathon win.
+   *
+   * The flag used to be "Competition winner" and fired on any placing in any honour,
+   * which made it true of thirteen people and specific about none: a piano
+   * competition, a business case, a state science fair and three actual hackathons
+   * all carried it. Named for hackathons, it requires one.
+   */
+  check("and not a hackathon win", wt.includes("Hackathon winner"), false);
 
   const reached = bare("reached", ["3x Regeneron ISEF Finalist"]);
   const rt = held(reached);
-  check("reaching the final is not winning", rt.includes("Competition winner"), false);
-  check("nor is it a Grand Award", rt.includes("ISEF Grand Award"), false);
+  check("reaching the final is not a Grand Award", rt.includes("ISEF Grand Award"), false);
   check("but it is still ISEF", rt.includes("ISEF"), true);
+
+  // The three spellings that actually appear, and the two that must not count.
+  for (const [title, want] of [
+    ["TreeHacks 2026 Winner: Build with Poke Track", true],
+    ["Second Place CalHacks Audio Track", true],
+    ["Stanford First Place Hackathon Winner", true],
+    ["TreeHacks 2026 Finalist", false],
+    ["Fidelity Investments Young Artists Competition Grand Prize Winner", false],
+  ] as [string, boolean][]) {
+    check(
+      `${want ? "counts" : "does not count"}: ${title.slice(0, 44)}`,
+      held(bare(`hack-${title.length}-${String(want)}`, [title])).includes("Hackathon winner"),
+      want
+    );
+  }
 
   /**
    * Founding a funded company is two facts, and only one was scored.

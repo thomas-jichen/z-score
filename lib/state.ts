@@ -6,6 +6,7 @@ import {
   FLAGS,
   LOW_SIGNAL,
   PURGED,
+  RENAMED,
   RETIRED,
   COLLEGES,
   COMPANIES,
@@ -535,7 +536,35 @@ function adoptSeedWeights(tags: TagRegistry): TagRegistry {
  * Weights, clusters and promoted state are never touched: those are the team's
  * tuning, and a seed list has no business overwriting them.
  */
+/**
+ * Carry a stored entry to its new name.
+ *
+ * A label change moves the id, so without this the old row keeps the old name, the
+ * seed list adds a second one beside it, and the team's tuning sits on the row nobody
+ * holds. "Olympiad finalist" had already been moved off its seeded 1.0 by hand, and
+ * that number is the point: the weight, the cluster and the switch travel, only the
+ * name changes.
+ *
+ * A no-op once the rename has been applied, and skipped entirely if the new name is
+ * somehow already present — an existing entry is never overwritten by an old one.
+ */
+function renameTags(tags: TagRegistry): TagRegistry {
+  let next = tags;
+  for (const [oldId, label] of Object.entries(RENAMED)) {
+    const old = next[oldId];
+    if (!old) continue;
+    const id = seedKey(label);
+    if (!id || id === oldId) continue;
+    next = { ...next };
+    if (!next[id]) next[id] = { ...old, id, label };
+    delete next[oldId];
+  }
+  return next;
+}
+
 function migrateFacets(tags: TagRegistry): TagRegistry {
+  tags = renameTags(tags);
+
   /**
    * Deleted, not switched off.
    *

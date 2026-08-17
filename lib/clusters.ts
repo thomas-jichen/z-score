@@ -343,13 +343,13 @@ export const START_WEIGHT: Record<string, number> = {
   /* ── Whole-profile facts ──────────────────────────────────────────────── */
   // The single most predictive flag here: they founded it and someone funded it.
   "Funded founder": 1.2,
-  "Competition winner": 0.4,
+  "Hackathon winner": 0.4,
   /**
    * A camp invitation is roughly the top twenty in the country, where a semifinal is
    * the top few hundred. Stacked on USABO at 0.5 that puts a camper at 1.5, between
    * USAMO and MOP, and leaves the semifinalist where they were.
    */
-  "Olympiad finalist": 1,
+  "Olympiad camper": 1,
   Influencer: 0.3,
   "Has a site": 0.1,
   Published: 0,

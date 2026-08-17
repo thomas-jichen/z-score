@@ -294,6 +294,16 @@ const TOP_PLACING =
 const ISEF = /\bisef\b|\binternational science (and|&) engineering fair\b/i;
 
 /**
+ * A hackathon, however it is spelled.
+ *
+ * `hacks\b` without a leading boundary is deliberate: TreeHacks and CalHacks have no
+ * word break before the suffix. "Hack Club" is an organisation rather than an event
+ * and does not contain it.
+ */
+const HACKATHON =
+  /\bhackathon\b|hacks\b|\bhackmit\b|\bhack the north\b|\bpennapps\b/i;
+
+/**
  * The named olympiads, by acronym or by the words people write instead.
  *
  * Deliberately a list rather than the bare word "olympiad": Science Olympiad is a
@@ -490,19 +500,28 @@ export function extractTags(
   if ((e.featured ?? []).length > 0) push(tags, seen, { label: "Has a site", facet: "flag" });
 
   /**
-   * Won it, rather than went to it.
+   * Won a hackathon, rather than went to one.
    *
-   * The taxonomy has one tag per competition, so "ISEF — 2nd Place Grand Award in
-   * Physics & Astronomy" and "ISEF Finalist" score identically, and the difference
-   * between them is most of what a reader cares about. This is the tier, carried as
-   * one flag: it costs one calibratable row instead of a second tag per competition,
-   * and it stacks with the competition's own weight, so placing at ISEF beats placing
-   * at a weekend hackathon by exactly the gap between the two events.
+   * This was "Competition winner" and fired on a placing in any honour at all, which
+   * made it true of thirteen people and specific about none of them: a piano
+   * competition, a business case, a state science fair and three actual hackathons
+   * all carried it. A flag that means "did well at something" adds a constant to
+   * almost everybody and separates nobody.
+   *
+   * Hackathons are the case where the tier carries the most: the taxonomy prices
+   * TreeHacks and CalHacks at 0.3 as things a good builder does on a weekend, and
+   * winning one is a different claim. The two tiers that used to lean on the general
+   * flag have their own tags now — ISEF Grand Award and Olympiad camper.
    *
    * Read from honours only. A placing named in prose about a company is marketing.
    */
-  if (e.honors.some((h) => TOP_PLACING.test(`${h.title} ${h.description ?? ""}`))) {
-    push(tags, seen, { label: "Competition winner", facet: "flag" });
+  if (
+    e.honors.some((h) => {
+      const line = `${h.title} ${h.description ?? ""}`;
+      return HACKATHON.test(line) && TOP_PLACING.test(line);
+    })
+  ) {
+    push(tags, seen, { label: "Hackathon winner", facet: "flag" });
   }
 
   /**
@@ -540,7 +559,7 @@ export function extractTags(
       return OLYMPIAD.test(line) && OLYMPIAD_ELITE.test(line);
     })
   ) {
-    push(tags, seen, { label: "Olympiad finalist", facet: "flag" });
+    push(tags, seen, { label: "Olympiad camper", facet: "flag" });
   }
 
   /**

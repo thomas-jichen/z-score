@@ -125,6 +125,22 @@ export const PROGRAMS: Seed[] = [
 ];
 
 /**
+ * Tags that changed their name, keyed by the old key.
+ *
+ * A label change moves the id — `normalizeKey` strips "winner" and "finalist" as
+ * noise, so "Competition winner" was stored as `competition` and "Hackathon winner"
+ * is `hackathon`. Without this the stored row keeps the old name, the seed list adds
+ * a second one beside it, and the team's tuning stays on the row nobody holds.
+ *
+ * That tuning is the whole reason this exists rather than a purge: "Olympiad
+ * finalist" had already been moved off its seeded 1.0 by hand.
+ */
+export const RENAMED: Record<string, string> = {
+  competition: "Hackathon winner",
+  olympiad: "Olympiad camper",
+};
+
+/**
  * Tags withdrawn from the vocabulary, to be switched off in documents that have them.
  *
  * Removing a name from a seed list stops it being *created*; it does nothing about
@@ -424,13 +440,22 @@ export const MAJORS: Seed[] = [
  */
 export const FLAGS: Seed[] = [
   { label: "Funded founder" },
-  { label: "Competition winner" },
   /**
-   * Reached the national round of an olympiad, rather than sat the exam. Stacks with
-   * the olympiad's own weight, so a USABO camper and a USABO semifinalist stop
-   * scoring the same 0.5.
+   * Won a hackathon, rather than placed at something.
+   *
+   * This was "Competition winner" and fired on any placing in any honour, which made
+   * it true of thirteen people and specific about none of them: a piano competition,
+   * a business case, a state science fair and three actual hackathons all carried the
+   * same flag. Named for hackathons, it now requires one — and the tiers that used to
+   * lean on it have their own tags, ISEF Grand Award and Olympiad camper.
    */
-  { label: "Olympiad finalist" },
+  { label: "Hackathon winner" },
+  /**
+   * Reached the national training camp of an olympiad, rather than sat the exam.
+   * Stacks with the olympiad's own weight, so a USABO camper and a USABO semifinalist
+   * stop scoring the same 0.8.
+   */
+  { label: "Olympiad camper" },
   { label: "Influencer" },
   { label: "Has a site" },
   { label: "Published" },
