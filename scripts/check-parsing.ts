@@ -45,11 +45,13 @@ import { classifyOrg, extractTags, inferHomeState } from "../lib/extract";
 import { cleanDeleted, cleanTaxonomy } from "../lib/team";
 import { START_WEIGHT, assignCluster, round } from "../lib/clusters";
 import {
+  aliasIsUsable,
   containsTokens,
   indexRegistry,
   makeTag,
   resolveAny,
   resolveTag,
+  usableAliases,
 } from "../lib/tagRegistry";
 import { buildGraph, edgePath, DEFAULT_MIN_HOLDERS } from "../lib/graph";
 
@@ -741,6 +743,116 @@ console.log("\nhydrateTeam — a stored registry keeps up with the seed lists");
     "exactly one tag answers to the moved alias",
     Object.values(stale.taxonomy.tags).filter((d) => d.aliases.includes("amp")).map((d) => d.id),
     ["jane-street-amp"]
+  );
+}
+
+// ── Aliases that identify nothing ────────────────────────────────────────
+
+console.log("\nan alias has to mean something standing alone");
+{
+  /**
+   * `normalizeKey` deletes the words that carry no meaning in a key, which is right
+   * for a key and wrong for an alias when the deleted word was the noun. "Grand
+   * Award" became `grand`, so a piano competition's Grand Prize and a business-plan
+   * contest's Grand Prize both scored 1.4 for an ISEF award neither had won — and
+   * the two people who *had* won one matched by the same accident, never by name.
+   */
+  check("the alias that caused it is gone", usableAliases(["Grand Award"], "isef-grand"), []);
+  check("and so is the one that made VEX read as CMU", usableAliases(["Robotics Institute"], "cmu-robotics"), []);
+
+  // Not a length rule. Plenty of one-word aliases name exactly one thing.
+  check("a one-word proper name still counts", usableAliases(["Thiel Fellowship"], "thiel-fellow"), ["thiel"]);
+  check("as does an acronym", usableAliases(["YYGS"], "yale-young-global-scholars"), ["yygs"]);
+  check(
+    "and a two-token alias is untouched",
+    usableAliases(["Best of Category"], "isef-grand"),
+    ["best-category"]
+  );
+
+  /**
+   * Filtering a stored registry must not re-normalise it. `normalizeKey` is not
+   * idempotent — it splits on punctuation, so the stored key `hand-added-by-a-teammate`
+   * comes back as `hand-added-by-teammate` once "a" is stripped a second time, and a
+   * migration meant only to inspect aliases would quietly rename them.
+   */
+  check("the key-level test leaves a stored key alone", aliasIsUsable("hand-added-by-a-teammate", "x"), true);
+  check("while still refusing the ambiguous one", aliasIsUsable("grand", "isef-grand"), false);
+
+  // A document written before the seed was corrected heals on read, rather than
+  // waiting for someone to re-seed from scratch.
+  const stored = hydrateTeam({
+    taxonomy: {
+      ...emptyTeam().taxonomy,
+      tags: {
+        "isef-grand": {
+          id: "isef-grand",
+          label: "ISEF Grand Award",
+          facet: "program",
+          aliases: ["grand", "best-category"],
+          weight: 1.4,
+          cluster: "research",
+          promoted: true,
+        },
+      },
+    },
+  } as Parameters<typeof hydrateTeam>[0]);
+  check(
+    "a stored bad alias is dropped on read",
+    stored.taxonomy.tags["isef-grand"].aliases.includes("grand"),
+    false
+  );
+  check(
+    "and the good one beside it survives",
+    stored.taxonomy.tags["isef-grand"].aliases.includes("best-category"),
+    true
+  );
+}
+
+console.log("\nplaced at ISEF, as opposed to placed at something");
+{
+  /**
+   * Two facts in one line, which text matching cannot express: the fair, and the
+   * placing. Read per honour, so an ISEF row and an unrelated grand prize elsewhere
+   * on the profile cannot combine into a credential neither one is.
+   */
+  const grand = (p: Person) => heldTags(p, TAX).some((t) => t.def.id === "isef-grand");
+  const isef = (p: Person) => heldTags(p, TAX).some((t) => t.def.id === "isef");
+
+  check(
+    "a grand award at ISEF is the tier",
+    grand(bare("won", ["International Science and Engineering Fair (ISEF) - 2nd Place Grand Award in Physics"])),
+    true
+  );
+  check(
+    "a grand prize somewhere else is not",
+    grand(bare("piano", ["Fidelity Investments Young Artists Competition Grand Prize Winner"])),
+    false
+  );
+  check(
+    "nor is a grand prize at a business-plan contest",
+    grand(bare("pitch", ["Diamond Challenge Grand Prize Finalist"])),
+    false
+  );
+  check(
+    "an ISEF finalist keeps the fair without the tier",
+    (() => {
+      const p = bare("finalist", ["Regeneron ISEF Finalist"]);
+      return [isef(p), grand(p)];
+    })(),
+    [true, false]
+  );
+  /**
+   * The two facts have to be in the same honour, not merely both on the profile.
+   *
+   * The second honour here does match the tier on its own — "1st Place" is one of
+   * the forms ISEF itself uses — so this passes only because the two are read per
+   * row. Pair it with a grand prize that matches nothing and the check would go
+   * green whether the scoping worked or not.
+   */
+  check(
+    "two separate honours do not add up to one award",
+    grand(bare("split", ["Regeneron ISEF Finalist", "State Math League — 1st Place"])),
+    false
   );
 }
 

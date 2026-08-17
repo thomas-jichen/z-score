@@ -101,13 +101,17 @@ export const PROGRAMS: Seed[] = [
    * category, so "ISEF — 2nd Place Grand Award in Physics & Astronomy" and "ISEF
    * Finalist" are two very different results scoring the same 0.6. This is the one
    * competition worth splitting by tier: it is the largest in the world, so the gap
-   * between its tiers is the widest of any tag here, and its tier names are
-   * unambiguous enough to match on.
+   * between its tiers is the widest of any tag here.
+   *
+   * Its tier names are *not* unambiguous enough to match on, which is what the
+   * original "Grand Award" alias assumed. Every competition hands out a grand prize,
+   * and after the noise pass that alias was the single word `grand` — so a piano
+   * competition and a business-plan contest both scored 1.4 for a science fair
+   * neither had entered, while the two real winners matched by the same accident.
+   * The tier now comes from `lib/extract.ts`, which reads honours and can require
+   * ISEF and the placing in the same line.
    */
-  {
-    label: "ISEF Grand Award",
-    aliases: ["Grand Award", "Best of Category", "ISEF Best of Category"],
-  },
+  { label: "ISEF Grand Award", aliases: ["ISEF Best of Category"] },
   /**
    * Dual-degree programmes admitted separately from the university, at rates far
    * below it. Berkeley M.E.T. takes about fifty a year; being in one is a stronger
@@ -446,7 +450,9 @@ export const LABS: Seed[] = [
   { label: "MIT Media Lab", aliases: ["Media Lab"] },
   { label: "MIT Lincoln Laboratory", aliases: ["Lincoln Lab"] },
   { label: "Berkeley AI Research", aliases: ["BAIR"] },
-  { label: "CMU Robotics Institute", aliases: ["Robotics Institute"] },
+  // No "Robotics Institute" alias: the noise pass reduces it to `robotics`, and
+  // every VEX team and student robotics club then read as Carnegie Mellon.
+  { label: "CMU Robotics Institute" },
   { label: "Broad Institute", aliases: ["Broad Institute of MIT and Harvard"] },
   { label: "Whitehead Institute" },
   { label: "Cold Spring Harbor Laboratory", aliases: ["CSHL"] },

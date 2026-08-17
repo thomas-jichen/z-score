@@ -13,8 +13,8 @@ import {
   TAG_FACETS,
   clampWeight,
   isTagFacet,
-  normalizeKey,
   tagId,
+  usableAliases,
   type TagDef,
   type TagFacet,
   type TagRegistry,
@@ -84,9 +84,9 @@ export function cleanTaxonomy(raw: Partial<TaxonomyPrefs>): TaxonomyPrefs {
       id,
       label,
       facet: def.facet,
-      aliases: [
-        ...new Set(strList(def.aliases, 40, TERM_LEN).map(normalizeKey)),
-      ].filter((a) => a && a !== id),
+      // Through the shared filter, so a client cannot save back an alias that means
+      // nothing on its own — including one an older document is still carrying.
+      aliases: usableAliases(strList(def.aliases, 40, TERM_LEN), id),
       weight: clampWeight(Number(def.weight)),
       cluster: isArchetype(def.cluster) ? def.cluster : null,
       ...(str(def.linkedinId, 120) ? { linkedinId: str(def.linkedinId, 120) } : {}),

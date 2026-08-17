@@ -287,6 +287,20 @@ const IS_FUNDED =
 const TOP_PLACING =
   /\b(1st|2nd|3rd|first|second|third)\s+place\b|\bgrand (award|prize)\b|\b(gold|silver|bronze)\s+medal(l?ist)?\b|\bchampion\b|\bbest in\b|\bwinner\b|\bwon\b/i;
 
+/**
+ * The fair, however it is written. Regeneron and Intel are its former sponsors and
+ * both still appear in the name people put on their profile.
+ */
+const ISEF = /\bisef\b|\binternational science (and|&) engineering fair\b/i;
+
+/**
+ * The tier above finalist. Narrower than TOP_PLACING, because ISEF's own award names
+ * are the specific thing being claimed — "1st place" at a regional feeder fair is
+ * not a Grand Award, and neither is "winner".
+ */
+const ISEF_TIER =
+  /\bgrand award\b|\bbest of category\b|\b(1st|2nd|3rd|4th|first|second|third|fourth)\s+place\b/i;
+
 /** The facets an organisation on a profile can turn out to be. */
 export type OrgFacet = "company" | "startup" | "lab" | "club" | "accelerator";
 
@@ -462,6 +476,28 @@ export function extractTags(
    */
   if (e.honors.some((h) => TOP_PLACING.test(`${h.title} ${h.description ?? ""}`))) {
     push(tags, seen, { label: "Competition winner", facet: "flag" });
+  }
+
+  /**
+   * Placed at ISEF, as opposed to placed at something.
+   *
+   * The one competition the taxonomy splits by tier, and the only tag here that needs
+   * two facts in the same breath: the fair, and the placing. Text matching cannot say
+   * that — it matches one form at a time — so the tag used to carry "Grand Award" as
+   * an alias, which the noise pass reduced to the bare word `grand`. Every Grand Prize
+   * in the corpus then resolved to it: a piano competition, a business-plan contest,
+   * and by luck the two people who had actually won one.
+   *
+   * Read per honour rather than over the whole profile, so an ISEF line and a grand
+   * prize from somewhere else cannot combine into a credential neither one is.
+   */
+  if (
+    e.honors.some((h) => {
+      const line = `${h.title} ${h.issuedBy ?? ""} ${h.description ?? ""}`;
+      return ISEF.test(line) && ISEF_TIER.test(line);
+    })
+  ) {
+    push(tags, seen, { label: "ISEF Grand Award", facet: "program" });
   }
 
   /**

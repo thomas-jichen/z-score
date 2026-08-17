@@ -200,6 +200,107 @@ const NOISE = new Set([
 ]);
 
 /**
+ * Words that identify nothing on their own.
+ *
+ * `normalizeKey` deletes the words that carry no meaning in a key — "award",
+ * "institute", "fellowship". That is right for building a key and dangerous for
+ * building an alias, because the deleted word is sometimes the noun and what
+ * survives is the modifier. "Grand Award" became `grand`, so every Grand Prize on
+ * every profile resolved to the ISEF Grand Award: a piano competition and a
+ * business-plan contest both scored 1.4 for a science fair neither had entered, and
+ * the tag never once matched on its real name. "Robotics Institute" became
+ * `robotics`, and a VEX team read as Carnegie Mellon.
+ *
+ * The test is not length. A one-word alias is often exactly right — PRIMES, coke,
+ * thiel, questbridge each name one thing — so this is a list of the words that do
+ * not, kept beside NOISE and extended when a seed adds another. Losing one costs
+ * little: the tag's full label still matches as a phrase, which is how it should
+ * have been matching anyway.
+ */
+const AMBIGUOUS_ALONE = new Set([
+  // Words that grade or describe an award rather than name it.
+  "grand",
+  "best",
+  "top",
+  "first",
+  "gold",
+  "outstanding",
+  "distinguished",
+  "excellence",
+  "merit",
+  "honors",
+  "honours",
+  // Fields and subjects. Every profile in this corpus is full of them.
+  "robotics",
+  "science",
+  "sciences",
+  "engineering",
+  "research",
+  "technology",
+  "technologies",
+  "computing",
+  "innovation",
+  "leadership",
+  "entrepreneurship",
+  // Generic organisation words that survive the noise pass.
+  "academy",
+  "society",
+  "association",
+  "council",
+  "league",
+  "network",
+  "alliance",
+  "initiative",
+  "challenge",
+  "competition",
+  "conference",
+  "center",
+  "centre",
+  "labs",
+  "studio",
+  "systems",
+  "solutions",
+  "ventures",
+  "capital",
+  "partners",
+  "fund",
+  "index",
+  "battery",
+  // Time and cohort words.
+  "summer",
+  "winter",
+  "youth",
+  "junior",
+  "senior",
+  "global",
+]);
+
+/**
+ * The aliases a definition may actually keep.
+ *
+ * One place, because there are three writers — the seed lists, the save validator
+ * and automatic promotion — and an alias that is unsafe is unsafe whichever door it
+ * came through. Drops anything empty, anything equal to the id it would resolve to,
+ * and anything that means nothing standing alone.
+ */
+export function usableAliases(aliases: readonly string[], id: string): string[] {
+  return [...new Set(aliases.map(normalizeKey))].filter((a) => aliasIsUsable(a, id));
+}
+
+/**
+ * The same test, for aliases that are already keys.
+ *
+ * Separate because `normalizeKey` is not idempotent: it splits on punctuation, so a
+ * stored key like `hand-added-by-a-teammate` comes back as `hand-added-by-teammate`
+ * once "a" is stripped a second time. Anything re-reading a registry has to filter
+ * without re-normalising, or a migration quietly renames the aliases it was only
+ * meant to inspect.
+ */
+export function aliasIsUsable(alias: string, id: string): boolean {
+  return Boolean(alias) && alias !== id && !AMBIGUOUS_ALONE.has(alias);
+}
+
+/**
  * Fold a label to a comparison key.
  *
  * Accents are stripped so "Peña" and "Pena" agree. "&" becomes "and" before the
@@ -499,9 +600,7 @@ export function mergeTags(reg: TagRegistry, fromId: string, intoId: string): Tag
   delete next[fromId];
   next[intoId] = {
     ...into,
-    aliases: [...new Set([...into.aliases, from.id, ...from.aliases])].filter(
-      (a) => a !== into.id
-    ),
+    aliases: usableAliases([...into.aliases, from.id, ...from.aliases], into.id),
     // Keep whichever id we have; an entity id is stronger evidence than a string.
     linkedinId: into.linkedinId ?? from.linkedinId,
     // A merge must never quietly start scoring something that was held at zero.
@@ -563,16 +662,14 @@ export function seedRegistry(input: {
       // winning the facet. Only reach for this when the lists really do mean one
       // thing — where they do not, the fix is to name them apart, as Jane Street
       // AMP now is from Jane Street.
-      existing.aliases = [
-        ...new Set([...existing.aliases, ...aliases.map(normalizeKey)]),
-      ].filter((a) => a && a !== id);
+      existing.aliases = usableAliases([...existing.aliases, ...aliases], id);
       return;
     }
     reg[id] = {
       id,
       label,
       facet,
-      aliases: [...new Set(aliases.map(normalizeKey))].filter((a) => a && a !== id),
+      aliases: usableAliases(aliases, id),
       weight: clampWeight(
         input.startWeight[label] ?? listWeight ?? input.facetDefaults[facet]
       ),

@@ -17,6 +17,7 @@ import {
   TITLES,
 } from "./searchTaxonomy";
 import {
+  aliasIsUsable,
   normalizeKey as seedKey,
   seedRegistry,
   type TagFacet,
@@ -584,11 +585,20 @@ function migrateFacets(tags: TagRegistry): TagRegistry {
     const should = authoritative.get(updated.id);
     if (should && should !== updated.facet) updated = { ...updated, facet: should };
 
-    // Union, never replace: an alias someone added by hand must survive. But an
-    // alias the seeds have reassigned is given up, or two tags answer to one key.
+    /**
+     * Union, never replace: an alias someone added by hand must survive. But an
+     * alias the seeds have reassigned is given up, or two tags answer to one key.
+     *
+     * `usableAliases` runs last and is the reason a stored document heals. An alias
+     * that means nothing alone was seeded once and written into every team document
+     * that existed at the time, and dropping it from the seed list does not remove
+     * it from theirs — `grand` would have kept scoring ISEF Grand Awards for people
+     * who won piano competitions until somebody re-seeded from scratch.
+     */
     const fresh = seeded[updated.id];
     const merged = [...new Set([...updated.aliases, ...(fresh?.aliases ?? [])])].filter(
-      (a) => a !== updated.id && (aliasOwner.get(a) ?? updated.id) === updated.id
+      (a) =>
+        aliasIsUsable(a, updated.id) && (aliasOwner.get(a) ?? updated.id) === updated.id
     );
     if (
       merged.length !== updated.aliases.length ||
