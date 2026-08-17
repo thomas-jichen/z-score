@@ -202,11 +202,10 @@ export default function TaxonomyPage() {
   return (
     <div className="z-page">
       <div className="z-page-head">
+        {/* The two numbers this screen is about. The roster size was redundant —
+            it is on the queue tab in the nav and it is not what is being tuned. */}
         <p className="z-label">
-          {promotedCount} scoring
-          {heldCount > 0 ? ` · ${heldCount} held` : ""}
-          {people.length > 0 ? ` · ${people.length} people` : ""}
-          {loading ? " · loading" : ""}
+          {loading ? "Loading" : `${promotedCount} scoring, ${heldCount} held`}
         </p>
         <h1 className="z-h1">Taxonomy</h1>
       </div>
@@ -630,7 +629,7 @@ function TagList({
                       "23/23" alone read as a total, which in All mode it is not. */}
                   <span className="z-count">
                     {held.length > 0
-                      ? `${held.length} held · ${on} scoring`
+                      ? `${held.length} held, ${on} scoring`
                       : `${list.length} unheld`}
                   </span>
                   <span className="z-spacer" />
@@ -703,7 +702,7 @@ function TuneRow({
         <span className="z-tune-name">{def.label}</span>
         {def.aliases.length > 0 && (
           <span className="z-tune-alias" title={def.aliases.join(", ")}>
-            {def.aliases.slice(0, 3).join(" · ")}
+            {def.aliases.slice(0, 3).join(", ")}
           </span>
         )}
       </span>

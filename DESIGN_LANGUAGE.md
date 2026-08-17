@@ -36,11 +36,31 @@ These are the tells that make a page read as machine-generated. No exceptions.
 
 | Banned | Instead |
 |---|---|
-| Middle dot `·` as separator | A space, a line break, or nothing |
+| Middle dot `·` as separator, anywhere | A comma, a space, a line break, or nothing |
 | Em dash in UI copy | A period, or restructure the sentence |
 | Tracked-out letter spacing, especially all-caps | Normal tracking, sentence case |
 | Small vertical rule attached before a word | Nothing, or carry the meaning in the word itself |
 | ALL CAPS subtitles, eyebrows, table headers | Sentence case at a smaller size and muted colour |
+
+The middle dot is the one most easily reintroduced, because it looks tidy in a list of
+three short facts and there is no lint for it. `389 scoring · 108 held · 17 people` is the
+shape to recognise. It is a comma: `389 scoring, 108 held`.
+
+## The page subtitle
+
+The small coloured line above a page title states **what this screen is about, and nothing
+that is counted elsewhere**. It is one clause or two, separated by a comma.
+
+The failure is padding it out with every number to hand. A roster size above the taxonomy
+title, or a headcount above the graph title, is already in the nav two inches away and is
+not what the screen is for — the taxonomy is about weights and the graph is about links.
+
+| Instead of | Write |
+|---|---|
+| `389 scoring · 108 held · 17 people` | `389 scoring, 108 held` |
+| `17 people · 43 links` | `43 links` |
+
+Ask what the screen changes. Count that.
 
 ## Structure
 

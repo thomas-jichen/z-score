@@ -40,7 +40,7 @@ import {
  *
  *   1. **See the shape.** People as nodes, sized by score, coloured by cluster.
  *   2. **Ask why.** Focus anyone and the canvas isolates their connections while
- *      the panel names each one — "Grace Liu · RSI, Jane Street". A link you cannot
+ *      the panel names each one — "Grace Liu, RSI and Jane Street". A link you cannot
  *      read the reason for is decoration.
  *   3. **Act on it.** Every thing two or more people share becomes a lead under the
  *      canvas, ranked by how much talent it has already produced, and one click
@@ -308,14 +308,13 @@ export default function GraphPage() {
   );
 
   const empty = queue.length === 0;
-  const people = graph.nodes.filter((n) => n.kind === "person").length;
-
   return (
     <div className="z-page">
       <div className="z-page-head">
+        {/* The links, and nothing else. How many people are in the queue is on the
+            queue tab in the nav, two inches away and already counted. */}
         <p className="z-label">
-          {people} {people === 1 ? "person" : "people"} · {graph.edges.length}{" "}
-          {graph.edges.length === 1 ? "link" : "links"}
+          {graph.edges.length} {graph.edges.length === 1 ? "link" : "links"}
         </p>
         <h1 className="z-h1">The graph</h1>
       </div>
@@ -586,7 +585,7 @@ export default function GraphPage() {
                       ].filter(Boolean);
                       return facts.length > 0 ? (
                         <p className="z-micro" style={{ marginTop: "var(--z-space-3)" }}>
-                          {facts.join(" · ")}
+                          {facts.join(", ")}
                         </p>
                       ) : null;
                     })()}
@@ -800,7 +799,7 @@ function Connections({
       {links.slice(0, 8).map((l) => (
         <button key={l.slug} className="z-conn" onClick={() => onFocus(l.slug)}>
           <span className="z-conn-name">{roster[l.slug]?.name ?? l.slug}</span>
-          <span className="z-conn-why">{l.reasons.slice(0, 3).join(" · ")}</span>
+          <span className="z-conn-why">{l.reasons.slice(0, 3).join(", ")}</span>
         </button>
       ))}
       {links.length > 8 && (
