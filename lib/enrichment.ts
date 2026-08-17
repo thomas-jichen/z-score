@@ -1,4 +1,5 @@
 import { extractSlug } from "./search";
+import { COLLEGES } from "./searchTaxonomy";
 
 /**
  * The vendor-neutral shape everything downstream reads.
@@ -344,8 +345,31 @@ export function isDegreeRow(e: Education): boolean {
     return true;
   }
   const school = (e.school ?? "").toLowerCase();
-  return /university|college|institute of technology|\bpolytechnic\b/.test(school);
+  if (/university|college|institute of technology|\bpolytechnic\b/.test(school)) return true;
+
+  /**
+   * The word is not always in the name.
+   *
+   * "UC Berkeley Management, Entrepreneurship, & Technology (M.E.T.) program" says
+   * neither "university" nor "college", so Tarun Batchu's Berkeley row did not count
+   * as study and his label fell to a community college that happened to spell the
+   * word out. The curated list is the same vocabulary the taxonomy is seeded from
+   * and already knows Berkeley, MIT and Caltech under the names people write.
+   */
+  return KNOWN_COLLEGE.test(school);
 }
+
+/**
+ * The seeded colleges, matched on whole words so an acronym cannot fire inside
+ * another word. Built once: this runs for every education row on every read.
+ */
+const KNOWN_COLLEGE = new RegExp(
+  `\\b(${COLLEGES.flatMap((c) => [c.label, ...(c.aliases ?? [])])
+    .map((n) => n.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+    .sort((a, b) => b.length - a.length)
+    .join("|")})\\b`,
+  "i"
+);
 
 /** Highest-signal award first, for the one-line summary in list views. */
 export function topHonor(profile: EnrichedProfile): string | undefined {
@@ -416,24 +440,40 @@ export function inferGradYear(educations: Education[]): number | undefined {
 /**
  * The school to put next to someone's name.
  *
- * A college beats a high school outright, before any date is consulted. Once
+ * A degree beats a high school outright, before any date is consulted. Once
  * someone is at university that is who they are — "Thomas Wang, Shady Side
  * Academy" is not wrong about the past but it is wrong about the present, and this
  * string is the one that appears on the queue row, the graph panel and the digest.
- * Both schools are still tagged; this only decides the label.
+ * Every school is still tagged; this only decides the label.
  *
- * Dates break ties within a level. An absent end date means still enrolled, so it
- * sorts *first*, not last: the previous `?? 0` put an in-progress university behind
- * a graduated high school, which is exactly backwards for this population.
+ * Three levels, not two, and that is the correction. `isHighSchool` answers one
+ * question and "not secondary" was being read as "college" — but LinkedIn's
+ * education section takes anything, and this population fills it with accelerators,
+ * summer programmes and bare institution names. Max Fan's rows are Stanford (BS,
+ * 2025-2029), Groton, a conservatory, a dual enrolment, and "Ad Astra School" with
+ * no degree and no dates at all. That last row counted as a college, and because an
+ * absent end date is read as *still enrolled* it then outranked Stanford: the least
+ * informative row on the profile won the label, and he was filed under a school he
+ * has no stated degree from while his headline says "Stanford CS & Physics".
+ *
+ * `isDegreeRow` already draws this distinction and `inferGradYear` already uses it —
+ * the same fix, applied to the class year, is what stopped Davido Zhang reading as
+ * the class of 2026 off a Z Fellows row. It was never carried across to the label.
+ *
+ * Dates break ties within a level only. An absent end date still means enrolled and
+ * still sorts first, but it can no longer promote a row past a real degree.
  */
 export function currentSchool(profile: EnrichedProfile): string | undefined {
-  const level = (e: Education) => (isHighSchool(e) ? 0 : 1);
+  const level = (e: Education) => (isDegreeRow(e) ? 2 : isHighSchool(e) ? 1 : 0);
   const rank = (e: Education) => e.endYear ?? Infinity;
   const sorted = [...profile.educations]
     .filter((e) => e.school)
     .sort(
       (a, b) =>
-        level(b) - level(a) || rank(b) - rank(a) || (b.startYear ?? 0) - (a.startYear ?? 0)
+        level(b) - level(a) ||
+        // Infinity on both sides is NaN, which a comparator must never return.
+        (rank(b) === rank(a) ? 0 : rank(b) - rank(a)) ||
+        (b.startYear ?? 0) - (a.startYear ?? 0)
     );
   return sorted[0]?.school;
 }

@@ -569,7 +569,20 @@ export function allTags(p: Person, tax: TaxonomyPrefs): Tag[] {
     });
   }
 
-  for (const t of attributeTags(p, suppressedKeys(p, index))) take(t);
+  /**
+   * The attribute chips, minus any the registry has already placed under its own
+   * name for that school or state.
+   *
+   * Same rule the extracted and manual terms already go through, and it started
+   * mattering once the label was corrected: `p.school` became "Stanford University"
+   * where the registry holds "Stanford", so the profile grew two school chips for one
+   * school. The registry's name is the canonical one and wins.
+   */
+  for (const t of attributeTags(p, suppressedKeys(p, index))) {
+    const def = resolveAny(index, t.label);
+    if (def && placed.has(def.id)) continue;
+    take(t);
+  }
 
   for (const label of p.manualTerms ?? []) {
     const def = resolveAny(index, label);

@@ -55,7 +55,7 @@ import {
   resolveTag,
   usableAliases,
 } from "../lib/tagRegistry";
-import { buildGraph, edgePath, DEFAULT_MIN_HOLDERS } from "../lib/graph";
+import { buildGraph, edgePath, DEFAULT_MAX_HOLDERS, DEFAULT_MIN_HOLDERS, EDGE_SOURCES } from "../lib/graph";
 
 let failures = 0;
 function check(label: string, actual: unknown, expected: unknown) {
@@ -620,6 +620,75 @@ console.log("\ninferGradYear — class means the college class");
       educations: [
         { school: "Stanford University", degree: "Bachelor of Science", endYear: 2026 },
         { school: "Shady Side Academy", degree: "High School Diploma", startYear: 2022, endYear: 2026 },
+      ],
+    }),
+    "Stanford University"
+  );
+
+  /**
+   * A row that states nothing must not win the label.
+   *
+   * `isHighSchool` answers one question, and "not secondary" was being read as
+   * "college" — but LinkedIn's education section takes anything. Max Fan's rows are
+   * Stanford (BS, 2025-2029), Groton, a conservatory, a dual enrolment, and "Ad Astra
+   * School" with no degree and no dates. That last row counted as a college, and
+   * because an absent end date is read as still-enrolled it then outranked Stanford:
+   * the least informative row on the profile won, and he was filed under a school he
+   * has no stated degree from while his headline reads "Stanford CS & Physics".
+   */
+  check(
+    "a bare school name loses to a real degree",
+    currentSchool({
+      ...p,
+      educations: [
+        { school: "Stanford University", degree: "Bachelor of Science - BS", startYear: 2025, endYear: 2029 },
+        { school: "Groton School", degree: "High School Diploma", startYear: 2020, endYear: 2025 },
+        { school: "New England Conservatory of Music", degree: "Piano Performance", startYear: 2022, endYear: 2025 },
+        { school: "Ad Astra School" },
+      ],
+    }),
+    "Stanford University"
+  );
+
+  /**
+   * The word "university" is not always in the name.
+   *
+   * Fixing the above by ranking degree rows first regressed Tarun Batchu: his "UC
+   * Berkeley Management, Entrepreneurship, & Technology (M.E.T.) program" row says
+   * neither "university" nor "college", so it did not count as study and the label
+   * fell to a community college that happened to spell the word out. The curated
+   * college list is the same vocabulary the taxonomy is seeded from.
+   */
+  check(
+    "a college known by its short name still counts as study",
+    currentSchool({
+      ...p,
+      educations: [
+        {
+          school: "UC Berkeley Management, Entrepreneurship, & Technology (M.E.T.) program",
+          degree: "EECS + Business Administration",
+        },
+        { school: "Olentangy Liberty High School", startYear: 2022, endYear: 2026 },
+        {
+          school: "Cincinnati State Technical and Community College",
+          degree: "Associates in Arts & Associates in Science",
+          startYear: 2023,
+          endYear: 2026,
+        },
+      ],
+    }),
+    "UC Berkeley Management, Entrepreneurship, & Technology (M.E.T.) program"
+  );
+
+  // An accelerator in the education section is not a school at all, and used to be
+  // read as one because it is not secondary.
+  check(
+    "an accelerator row does not become the label",
+    currentSchool({
+      ...p,
+      educations: [
+        { school: "Z Fellows", degree: "Gap Year" },
+        { school: "Stanford University", degree: "BS", startYear: 2024, endYear: 2028 },
       ],
     }),
     "Stanford University"
@@ -1895,6 +1964,17 @@ console.log("\ngraph — the rarity window is what keeps it readable");
 
   check("every person is a node", g.nodes.filter((n) => n.kind === "person").length, 12);
   check("edges only ever join a person to a tag", g.edges.every((e) => e.a.startsWith("t:") || e.b.startsWith("t:")), true);
+
+  /**
+   * The opening view shows everything the data knows.
+   *
+   * Both of these were set to hide the densest facts — college was off as a link
+   * type and the ceiling was eight, which between them hid Stanford, the single most
+   * connected thing about this population and the first thing anyone looks for.
+   * Narrowing is the slider's job; the default should not do it in advance.
+   */
+  check("the hub ceiling opens at twenty", DEFAULT_MAX_HOLDERS, 20);
+  check("and every link type is a real option", EDGE_SOURCES.length, 6);
 
   // Raising the ceiling brings the hub back in.
   const wide = buildGraph(cands, roster, TAX, { ...opts, sources: [...opts.sources], maxHolders: 20 });

@@ -83,8 +83,15 @@ export type EdgeSource = (typeof EDGE_SOURCES)[number];
 export const GROUP_BY = ["none", "cluster", "year", "home"] as const;
 export type GroupBy = (typeof GROUP_BY)[number];
 
-/** Above this a tag is background, not a connection. It becomes a lead instead. */
-export const DEFAULT_MAX_HOLDERS = 8;
+/**
+ * Above this a tag is background, not a connection. It becomes a lead instead.
+ *
+ * Twenty rather than eight, so the opening view shows the whole roster's shared
+ * ground and the slider is used to *narrow* it. Eight hid Stanford, which is the
+ * single most connected thing about this population and the first thing anyone
+ * looks for.
+ */
+export const DEFAULT_MAX_HOLDERS = 20;
 /** Below this a tag connects nobody to anybody. */
 export const DEFAULT_MIN_HOLDERS = 2;
 /** Beyond this the picture stops being readable at any zoom. */

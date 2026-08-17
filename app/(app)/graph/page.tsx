@@ -118,18 +118,18 @@ export default function GraphPage() {
   /**
    * Everything rare, nothing broad.
    *
-   * Found via is a fact, and a shared programme, employer or high school is rare
-   * enough that a line between two people means something. College is the one that
-   * is off, because twelve of twenty are at Stanford: drawing it first connects
-   * most of the queue to most of the queue and buries the links worth seeing.
+   * Found via is a fact, and a shared programme, employer, school or college is
+   * evidence of a real connection. Every kind is on: the first view should be
+   * everything the data knows, and turning a kind *off* to isolate a signal is a
+   * clearer act than discovering one was hidden all along.
+   *
+   * College used to be off, on the grounds that twelve of twenty are at Stanford and
+   * drawing it connects most of the queue to most of the queue. That is what the
+   * hub ceiling is for — a tag held by more people than the ceiling becomes a lead
+   * rather than a web of lines — so the density is handled where it belongs instead
+   * of by hiding a whole category.
    */
-  const [sources, setSources] = useState<EdgeSource[]>([
-    "discovery",
-    "backing",
-    "program",
-    "company",
-    "highschool",
-  ]);
+  const [sources, setSources] = useState<EdgeSource[]>([...EDGE_SOURCES]);
   const [groupBy, setGroupBy] = useState<GroupBy>("none");
   /**
    * People, until asked otherwise.
