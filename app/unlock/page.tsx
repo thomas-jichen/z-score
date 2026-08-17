@@ -35,9 +35,6 @@ export default function Unlock() {
     <main className="z-unlock-wrap">
       <form className="z-unlock-card" onSubmit={submit}>
         <h1 className="z-h2">Z-Score</h1>
-        <p className="z-body" style={{ marginTop: "var(--z-space-3)" }}>
-          Every credential weighted by hand, and added up.
-        </p>
 
         <input
           className="z-input"
@@ -47,7 +44,9 @@ export default function Unlock() {
           aria-label="Passphrase"
           value={passphrase}
           onChange={(e) => setPassphrase(e.target.value)}
-          style={{ margin: "var(--z-space-10) 0 var(--z-space-3)" }}
+          // Was space-10, which was the gap under a heading *and* a line of copy.
+          // With the copy gone that much air reads as a missing element.
+          style={{ margin: "var(--z-space-6) 0 var(--z-space-3)" }}
         />
 
         {error && (
