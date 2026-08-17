@@ -4,23 +4,24 @@ import Link from "next/link";
 import { useCallback, useMemo, useState } from "react";
 import { useApp } from "@/components/AppState";
 import { ARCHETYPES, archetypeLabel, type Archetype } from "@/lib/zscore";
-import { DEFAULT_WEIGHT, START_WEIGHT, TERM_CLUSTER } from "@/lib/clusters";
-import { COUNT_KINDS, extractTags, type CountKind } from "@/lib/extract";
+import { DEFAULT_WEIGHT } from "@/lib/clusters";
+import { COUNT_KINDS, type CountKind } from "@/lib/extract";
 import type { TaxonomyPrefs } from "@/lib/state";
 import {
   MAX_WEIGHT,
   TAG_FACETS,
   addAlias,
+  clampWeight,
   indexRegistry,
   makeTag,
+  normalizeKey,
   resolveAny,
-  resolveTag,
   type TagDef,
   isTagFacet,
   type TagFacet,
   type TagRegistry,
 } from "@/lib/tagRegistry";
-import { heldTags, termCounts, unmatchedTerms } from "@/lib/tags";
+import { heldTags, unmatchedTerms } from "@/lib/tags";
 import { Button, Card, EmptyState, Pill } from "@/components/primitives";
 
 /**
@@ -28,28 +29,34 @@ import { Button, Card, EmptyState, Pill } from "@/components/primitives";
  *
  * Every weight on this screen feeds the score directly, and the cluster column
  * decides which label a person carries — under highest-weight-wins, dragging RSI
- * above IOI genuinely reassigns every IOI+RSI person to Research. So the counts
- * on the right of each row matter: they say how many people a slider is about to
- * move.
+ * above IOI genuinely reassigns every IOI+RSI person to Research. So the holder
+ * count on each row matters: it says how many people a weight is about to move.
  *
- * "Unmatched, but notable" is fed by real terms the tagger read off real
- * profiles. It needs the LLM by construction — these are terms that are *not* in
- * the taxonomy, so no amount of string matching against the taxonomy can surface
- * them.
+ * ── What this screen is for ───────────────────────────────────────────────
+ * Three jobs, in the order they are done: tune a weight, decide whether a tag
+ * scores at all, and triage what the tagger found that the vocabulary does not
+ * know yet. The layout follows that order and nothing else competes for the eye.
+ *
+ * It was a table in a narrow column, which put the on/off switch past the right
+ * edge behind a horizontal scroll and left the weight slider about forty pixels
+ * of travel. The list is now full width in its column, every section is open at
+ * once, section headings stay put while their rows pass, and the weight can be
+ * typed. What used to be a dozen underlined text buttons are shapes.
+ *
+ * "Unmatched, but notable" is fed by real terms read off real profiles. It needs
+ * the LLM by construction — these are terms that are *not* in the taxonomy, so no
+ * amount of string matching against the taxonomy can surface them.
  */
 
 /** A term being promoted, with the suggestion to edit before it lands. */
 type Promoting = {
   term: string;
   /**
-   * Which section the new tag lands in, and it is now a control rather than an
-   * assumption.
-   *
-   * It was hardcoded to `award` with no way to change it, so everything promoted
-   * from the review queue — programmes, clubs, labs, startups alike — was filed as
-   * an award. Where the finding came from a structured field the extractor already
-   * knows what it is and that answer is pre-selected; where it came from prose,
-   * nothing does, so the model is asked and the default is `program`.
+   * Which section the new tag lands in, and it is a control rather than an
+   * assumption. It was hardcoded to `award` with no way to change it, so
+   * everything promoted from the review queue was filed as an award. Where the
+   * finding came from a structured field the extractor already knows what it is
+   * and that answer is pre-selected; where it came from prose, nothing does.
    */
   facet: TagFacet;
   weight: number;
@@ -58,57 +65,57 @@ type Promoting = {
   asking: boolean;
 };
 
+/** Everything, or only the tags somebody actually holds. */
+type Scope = "held" | "all";
+
 export default function TaxonomyPage() {
   const { team, patchTeam, roster, loading, taggerEnabled, error, resetAll } = useApp();
   const t = team.taxonomy;
-  const [confirmWipe, setConfirmWipe] = useState(false);
 
-  // Weight being dragged right now. Kept local so the slider stays smooth and a
-  // drag does not fire a write per pixel.
-  const [draft, setDraft] = useState<Record<string, number>>({});
-  // Row order frozen while dragging. Without this a row jumps out from under the
-  // cursor the moment its weight passes its neighbour.
-  const [frozen, setFrozen] = useState<string[] | null>(null);
+  const [confirmWipe, setConfirmWipe] = useState(false);
   const [promoting, setPromoting] = useState<Promoting | null>(null);
   const [adding, setAdding] = useState(false);
   const [newTerm, setNewTerm] = useState("");
+  const [query, setQuery] = useState("");
+  const [facet, setFacet] = useState<TagFacet | "all">("all");
+  /**
+   * Held, until asked otherwise.
+   *
+   * The registry carries a few hundred seeded names and around a fifth of them
+   * are on anybody. The other four fifths are vocabulary waiting for someone to
+   * match it — real, worth keeping, and not what anyone opens this screen to
+   * tune. Search still reaches them.
+   */
+  const [scope, setScope] = useState<Scope>("held");
 
   const people = useMemo(() => Object.values(roster), [roster]);
-  const counts = useMemo(() => termCounts(people, t), [people, t]);
 
   /**
    * How many people hold each registry tag.
    *
-   * The same number the legacy table shows for a term, and it matters for the same
-   * reason: a weight slider is about to move everyone counted here, and promoting
-   * a tag nobody holds is wasted effort. Counted over the whole roster in one pass.
+   * `heldTags`, not the structured extractor alone. Counting only structured
+   * output reported zero holders for every programme, award, college and high
+   * school, because those are found by text matching and by the tagger — so RSI
+   * scored on a profile while this screen said nobody had it.
    */
-  const tagHolders = useMemo(() => {
+  const holders = useMemo(() => {
     const tally = new Map<string, number>();
     for (const p of people) {
-      // `heldTags`, not the structured extractor alone. Counting only structured
-      // output reported zero holders for every programme, award, college and high
-      // school, because those are found by text matching and by the tagger — so
-      // RSI scored +1.8σ on a profile while this screen said nobody had it.
-      for (const { def } of heldTags(p, t)) {
-        tally.set(def.id, (tally.get(def.id) ?? 0) + 1);
-      }
+      for (const { def } of heldTags(p, t)) tally.set(def.id, (tally.get(def.id) ?? 0) + 1);
     }
     return tally;
   }, [people, t]);
 
-  const weightOf = useCallback(
-    (label: string) => draft[label] ?? t.weights[label] ?? START_WEIGHT[label] ?? DEFAULT_WEIGHT,
-    [draft, t.weights]
-  );
-
-  const clusterFor = useCallback(
-    (label: string): Archetype | null =>
-      label in t.clusters ? t.clusters[label] : (TERM_CLUSTER[label] ?? null),
-    [t.clusters]
-  );
+  /** A person's name, not their username. A slug is not who anybody is. */
+  const nameOf = useCallback((slug: string) => roster[slug]?.name || slug, [roster]);
 
   const pending = useMemo(() => unmatchedTerms(people, t), [people, t]);
+
+  const promotedCount = useMemo(
+    () => Object.values(t.tags).filter((d) => d.promoted).length,
+    [t.tags]
+  );
+  const heldCount = holders.size;
 
   /* ── Promote and dismiss ────────────────────────────────────────────────── */
 
@@ -119,8 +126,6 @@ export default function TaxonomyPage() {
   async function beginPromote(term: string, known?: TagFacet) {
     setPromoting({
       term,
-      // A structured finding already knows what it is. A prose one does not, and
-      // `program` is the right guess there: the tagger reads credentials.
       facet: known ?? "program",
       weight: DEFAULT_WEIGHT,
       cluster: null,
@@ -143,8 +148,8 @@ export default function TaxonomyPage() {
               ...prev,
               asking: false,
               weight: typeof c?.weight === "number" ? c.weight : prev.weight,
-              // The model's guess never overrides a facet the extractor was certain
-              // of; it only fills in for prose, where nothing else knows.
+              // The model's guess never overrides a facet the extractor was
+              // certain of; it only fills in for prose, where nothing else knows.
               facet: known ?? (isTagFacet(c?.facet) ? c.facet : prev.facet),
               cluster: (c?.cluster ?? null) as Archetype | null,
               why: typeof c?.why === "string" ? c.why : "",
@@ -162,20 +167,18 @@ export default function TaxonomyPage() {
    * It used to write three parallel structures — `promoted`, `weights` and
    * `clusters`, all keyed by the raw string — which is what allowed two spellings
    * of one award to exist with two independent weights. A registry entry carries
-   * its own weight, cluster and aliases, so there is one row to edit and one place
-   * a duplicate can be caught.
+   * its own weight, cluster and aliases, so there is one row to edit and one
+   * place a duplicate can be caught.
    */
   function commitPromote() {
     if (!promoting) return;
-    const { term, weight, cluster, facet } = promoting;
-    const def = makeTag({ label: term, facet, weight, cluster, promoted: true });
+    const { term, weight, cluster, facet: f } = promoting;
+    const def = makeTag({ label: term, facet: f, weight, cluster, promoted: true });
 
     // A label that already resolves is the same thing under another name, so it
     // becomes an alias rather than a second entry.
     const existing = resolveAny(indexRegistry(t.tags), term);
-    const tags = existing
-      ? addAlias(t.tags, existing.id, term)
-      : { ...t.tags, [def.id]: def };
+    const tags = existing ? addAlias(t.tags, existing.id, term) : { ...t.tags, [def.id]: def };
 
     patchTeam({ taxonomy: { ...t, tags } });
     setPromoting(null);
@@ -183,13 +186,6 @@ export default function TaxonomyPage() {
 
   function dismiss(term: string) {
     patchTeam({ taxonomy: { ...t, dismissed: [...new Set([...t.dismissed, term])] } });
-  }
-
-  /** Stop a tag scoring. The entry stays, so its aliases are not lost. */
-  function unpromote(term: string) {
-    const def = resolveAny(indexRegistry(t.tags), term);
-    if (!def) return;
-    patchTeam({ taxonomy: { ...t, tags: { ...t.tags, [def.id]: { ...def, promoted: false } } } });
   }
 
   function addByHand() {
@@ -203,14 +199,14 @@ export default function TaxonomyPage() {
     void beginPromote(term);
   }
 
-  const dismissedCount = t.dismissed.length;
-
   return (
     <div className="z-page">
       <div className="z-page-head">
         <p className="z-label">
-          {Object.values(t.tags).filter((d) => d.promoted).length} tags scoring
-          {people.length > 0 ? `, over ${people.length} people` : ""}
+          {promotedCount} scoring
+          {heldCount > 0 ? ` · ${heldCount} held` : ""}
+          {people.length > 0 ? ` · ${people.length} people` : ""}
+          {loading ? " · loading" : ""}
         </p>
         <h1 className="z-h1">Taxonomy</h1>
       </div>
@@ -221,66 +217,109 @@ export default function TaxonomyPage() {
         className="z-taxonomy-grid"
         style={{
           display: "grid",
-          gridTemplateColumns: "minmax(0, 1.6fr) minmax(0, 1fr)",
-          gap: "var(--z-space-6)",
+          gridTemplateColumns: "minmax(0, 1fr) 340px",
+          gap: "var(--z-space-8)",
           alignItems: "start",
         }}
       >
-        <div>
-          <div className="z-col-head">
-            <p className="z-label is-quiet">Tag weights</p>
-            <span className="z-spacer" />
-            {loading && <span className="z-micro">Loading</span>}
-            <button className="z-linkish" onClick={() => setAdding(true)}>
-              Add a tag
-            </button>
-          </div>
-          {adding && (
-            <div className="z-row" style={{ gap: "var(--z-space-2)", marginBottom: "var(--z-space-4)" }}>
+        <div style={{ minWidth: 0 }}>
+          <div className="z-tools">
+            <label className="z-search">
               <input
-                className="z-input"
-                autoFocus
-                placeholder="Davidson Fellow"
-                value={newTerm}
-                onChange={(e) => setNewTerm(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") addByHand();
-                  if (e.key === "Escape") {
-                    setNewTerm("");
-                    setAdding(false);
-                  }
-                }}
-                style={{ maxWidth: 280, padding: "6px 10px", fontSize: "var(--z-fs-small)" }}
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder={`Search ${Object.keys(t.tags).length} tags`}
+                aria-label="Search tags"
               />
-              <Button size="sm" onClick={addByHand} disabled={!newTerm.trim()}>
-                Continue
-              </Button>
+              {query && (
+                <button
+                  className="z-search-clear"
+                  onClick={() => setQuery("")}
+                  aria-label="Clear the search"
+                >
+                  ×
+                </button>
+              )}
+            </label>
+
+            {/* Two states, both visible. A single button cannot say which one is
+                current and which one clicking it produces. */}
+            <div className="z-segmented">
               <button
-                className="z-linkish"
-                onClick={() => {
-                  setNewTerm("");
-                  setAdding(false);
-                }}
+                className="z-segment"
+                aria-pressed={scope === "held"}
+                onClick={() => setScope("held")}
+                title="Only tags at least one person holds"
               >
-                Cancel
+                Held
+              </button>
+              <button
+                className="z-segment"
+                aria-pressed={scope === "all"}
+                onClick={() => setScope("all")}
+                title="Every name in the vocabulary, held or not"
+              >
+                All
               </button>
             </div>
-          )}
-          <TagRegistryEditor
+
+            {adding ? (
+              <span className="z-row" style={{ gap: "var(--z-space-2)" }}>
+                <input
+                  className="z-input"
+                  autoFocus
+                  placeholder="Davidson Fellow"
+                  value={newTerm}
+                  onChange={(e) => setNewTerm(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") addByHand();
+                    if (e.key === "Escape") {
+                      setNewTerm("");
+                      setAdding(false);
+                    }
+                  }}
+                  style={{ width: 180, padding: "6px 10px", fontSize: "var(--z-fs-small)" }}
+                />
+                <button className="z-quiet is-accent" onClick={addByHand} disabled={!newTerm.trim()}>
+                  Continue
+                </button>
+                <button
+                  className="z-quiet is-bare"
+                  onClick={() => {
+                    setNewTerm("");
+                    setAdding(false);
+                  }}
+                >
+                  Cancel
+                </button>
+              </span>
+            ) : (
+              <button className="z-quiet" onClick={() => setAdding(true)}>
+                + Add a tag
+              </button>
+            )}
+          </div>
+
+          <TagList
             registry={t.tags}
-            holders={tagHolders}
+            holders={holders}
+            query={query}
+            facet={facet}
+            scope={scope}
+            loading={loading}
+            onFacet={setFacet}
             onPatch={(tags) => patchTeam({ taxonomy: { ...t, tags } })}
           />
         </div>
 
-        <div className="z-stack" style={{ gap: "var(--z-space-6)" }}>
-          <Calibration taxonomy={t} onPatch={(next) => patchTeam({ taxonomy: { ...t, ...next } })} />
+        <div className="z-stack" style={{ gap: "var(--z-space-6)", minWidth: 0 }}>
           <div>
             <div className="z-col-head">
               <p className="z-label is-quiet">Unmatched, but notable</p>
+              <span className="z-spacer" />
+              {pending.length > 0 && <span className="z-count">{pending.length}</span>}
             </div>
             <Card size="lg">
-
               {promoting ? (
                 <PromoteForm
                   promoting={promoting}
@@ -303,41 +342,34 @@ export default function TaxonomyPage() {
                   }
                 />
               ) : (
-                <div className="z-stack">
-                  {pending.slice(0, 20).map((p) => (
-                    <div className="z-row" key={p.term}>
-                      <div style={{ minWidth: 0 }}>
-                        <p className="z-small" style={{ color: "var(--z-ink)", fontWeight: 500 }}>
-                          {p.term}
-                        </p>
-                        <p className="z-micro">
-                          {/* A real count over real people, and each one is
-                              reachable, so a term can be checked before it is
-                              trusted. */}
-                          seen on {p.count} {p.count === 1 ? "profile" : "profiles"}
-                          {p.slugs.slice(0, 3).map((slug) => (
-                            <span key={slug}>
-                              {" "}
-                              <Link href={`/candidate/${slug}`} className="z-linkish">
-                                {slug}
-                              </Link>
-                            </span>
-                          ))}
-                        </p>
+                <div>
+                  {pending.slice(0, 12).map((p) => (
+                    <div className="z-review-row" key={p.term}>
+                      <span className="z-review-term">{p.term}</span>
+                      <div className="z-review-foot">
+                        <span className="z-review-seen">
+                          {/* A real count over real people, each one reachable by
+                              name, so a term can be checked before it is trusted.
+                              This used to print their usernames. */}
+                          {p.count} {p.count === 1 ? "profile" : "profiles"} —{" "}
+                          <Link href={`/candidate/${p.slugs[0]}`}>{nameOf(p.slugs[0])}</Link>
+                          {p.slugs.length > 1 && ` +${p.slugs.length - 1}`}
+                        </span>
+                        <button
+                          className="z-quiet is-accent"
+                          onClick={() => beginPromote(p.term, p.facet)}
+                        >
+                          Promote
+                        </button>
+                        <button className="z-quiet is-bare" onClick={() => dismiss(p.term)}>
+                          Dismiss
+                        </button>
                       </div>
-                      <span className="z-spacer" />
-                      <Pill as="button" onClick={() => beginPromote(p.term, p.facet)}>
-                        promote
-                      </Pill>
-                      <button className="z-linkish" onClick={() => dismiss(p.term)}>
-                        dismiss
-                      </button>
                     </div>
                   ))}
-                  {pending.length > 20 && (
-                    <p className="z-micro">
-                      {pending.length - 20} more below the top 20, ranked by how many profiles carry
-                      them.
+                  {pending.length > 12 && (
+                    <p className="z-micro" style={{ marginTop: "var(--z-space-3)" }}>
+                      {pending.length - 12} more, ranked by how many profiles carry them.
                     </p>
                   )}
                 </div>
@@ -345,12 +377,14 @@ export default function TaxonomyPage() {
             </Card>
           </div>
 
+          <Rules taxonomy={t} onPatch={(next) => patchTeam({ taxonomy: { ...t, ...next } })} />
+
           {/* The corpus is minors, so a plain way to erase it is a requirement
               rather than a nicety. Weights survive: they are the team's tuning,
               not anybody's personal data. */}
           <details className="z-disclosure">
             <summary>Stored data</summary>
-            <div className="z-disclosure-body z-stack" style={{ gap: "var(--z-space-3)" }}>
+            <div className="z-disclosure-body z-stack" style={{ gap: "var(--z-space-4)" }}>
               <p className="z-small">
                 {people.length === 0
                   ? "No people are stored."
@@ -361,22 +395,22 @@ export default function TaxonomyPage() {
                   <span className="z-small" style={{ color: "var(--z-ink)" }}>
                     Delete all {people.length}? This cannot be undone.
                   </span>
-                  <Button
-                    size="sm"
+                  <button
+                    className="z-quiet is-danger"
                     onClick={async () => {
                       await resetAll();
                       setConfirmWipe(false);
                     }}
                   >
                     Delete everything
-                  </Button>
-                  <button className="z-linkish" onClick={() => setConfirmWipe(false)}>
+                  </button>
+                  <button className="z-quiet is-bare" onClick={() => setConfirmWipe(false)}>
                     Cancel
                   </button>
                 </div>
               ) : (
                 <button
-                  className="z-linkish"
+                  className="z-quiet"
                   style={{ alignSelf: "flex-start" }}
                   onClick={() => setConfirmWipe(true)}
                   disabled={people.length === 0}
@@ -386,17 +420,18 @@ export default function TaxonomyPage() {
               )}
 
               {/**
-               * Deleting from the Removed queue erases the person and blocks the slug,
-               * so they cannot be found again by a sweep. That has to be visible
-               * somewhere, or one misfire quietly removes someone from the tool for
-               * good with no trace and no way back.
+               * Deleting from the Removed queue erases the person and blocks the
+               * slug, so they cannot be found again by a sweep. That has to be
+               * visible somewhere, or one misfire quietly removes someone from the
+               * tool for good with no trace and no way back.
                */}
               {team.deleted.length > 0 && (
                 <div className="z-stack" style={{ gap: "var(--z-space-2)" }}>
                   <p className="z-small">
-                    {team.deleted.length} {team.deleted.length === 1 ? "profile is" : "profiles are"}{" "}
-                    blocked from being added again. Their stored data is already gone —
-                    unblocking only lets a sweep surface them.
+                    {team.deleted.length}{" "}
+                    {team.deleted.length === 1 ? "profile is" : "profiles are"} blocked from being
+                    added again. Their stored data is already gone — unblocking only lets a sweep
+                    surface them.
                   </p>
                   <div className="z-row z-row-wrap" style={{ gap: "var(--z-space-2)" }}>
                     {team.deleted.map((slug) => (
@@ -420,13 +455,16 @@ export default function TaxonomyPage() {
             </div>
           </details>
 
-          {dismissedCount > 0 && (
+          {t.dismissed.length > 0 && (
             <details className="z-disclosure">
               <summary>
                 Dismissed
-                <span className="z-count">{dismissedCount}</span>
+                <span className="z-count">{t.dismissed.length}</span>
               </summary>
-              <div className="z-disclosure-body z-row z-row-wrap" style={{ gap: "var(--z-space-2)" }}>
+              <div
+                className="z-disclosure-body z-row z-row-wrap"
+                style={{ gap: "var(--z-space-2)" }}
+              >
                 {t.dismissed.map((term) => (
                   <span key={term} className="z-custom-term">
                     <Pill>{term}</Pill>
@@ -453,6 +491,295 @@ export default function TaxonomyPage() {
   );
 }
 
+/* ── The tuning list ────────────────────────────────────────────────────── */
+
+/**
+ * Every section open at once, in one scroll.
+ *
+ * The accordion allowed one section at a time, which made comparing a company
+ * weight against a programme weight impossible without two clicks and a memory —
+ * and the two numbers being on one scale is the entire point of the model. The
+ * facet rail narrows the same list rather than hiding the rest of it.
+ */
+function TagList({
+  registry,
+  holders,
+  query,
+  facet,
+  scope,
+  loading,
+  onFacet,
+  onPatch,
+}: {
+  registry: TagRegistry;
+  holders: Map<string, number>;
+  query: string;
+  facet: TagFacet | "all";
+  scope: Scope;
+  /** Holders are counted from the roster, so before it arrives nothing is held. */
+  loading: boolean;
+  onFacet: (f: TagFacet | "all") => void;
+  onPatch: (tags: TagRegistry) => void;
+}) {
+  const term = normalizeKey(query.trim()).replace(/-/g, " ");
+
+  /** Sections, filtered and ordered. Held by the most people leads each one. */
+  const sections = useMemo(() => {
+    const searching = term.length > 0;
+    const matches = (def: TagDef) => {
+      if (searching) {
+        const hay = [def.label, ...def.aliases].map((s) => normalizeKey(s).replace(/-/g, " "));
+        return hay.some((h) => h.includes(term));
+      }
+      // A search reaches the whole vocabulary; browsing defaults to what is held.
+      return scope === "all" || (holders.get(def.id) ?? 0) > 0;
+    };
+
+    const byFacet = new Map<TagFacet, TagDef[]>();
+    for (const def of Object.values(registry)) {
+      if (!matches(def)) continue;
+      const list = byFacet.get(def.facet) ?? [];
+      list.push(def);
+      byFacet.set(def.facet, list);
+    }
+    for (const list of byFacet.values()) {
+      list.sort(
+        (a, b) =>
+          (holders.get(b.id) ?? 0) - (holders.get(a.id) ?? 0) ||
+          b.weight - a.weight ||
+          a.label.localeCompare(b.label)
+      );
+    }
+    return TAG_FACETS.filter((f) => (byFacet.get(f) ?? []).length > 0).map((f) => ({
+      facet: f,
+      list: byFacet.get(f) ?? [],
+    }));
+  }, [registry, holders, term, scope]);
+
+  const shown = facet === "all" ? sections : sections.filter((s) => s.facet === facet);
+  const total = sections.reduce((n, s) => n + s.list.length, 0);
+
+  const write = useCallback(
+    (id: string, change: Partial<TagDef>) => {
+      const def = registry[id];
+      if (def) onPatch({ ...registry, [id]: { ...def, ...change } });
+    },
+    [registry, onPatch]
+  );
+
+  /**
+   * Bulk switch, over the tags anyone holds.
+   *
+   * Never over the whole section: a click meaning "score every seeded company"
+   * would switch on two hundred names nobody has matched, and undoing that is
+   * two hundred clicks.
+   */
+  function switchAll(f: TagFacet, on: boolean) {
+    const next = { ...registry };
+    for (const def of sections.find((s) => s.facet === f)?.list ?? []) {
+      if ((holders.get(def.id) ?? 0) > 0) next[def.id] = { ...def, promoted: on };
+    }
+    onPatch(next);
+  }
+
+  return (
+    <>
+      <div className="z-rail">
+        <Pill as="button" active={facet === "all"} onClick={() => onFacet("all")}>
+          All
+          <span className="z-count">{total}</span>
+        </Pill>
+        {sections.map((s) => (
+          <Pill
+            key={s.facet}
+            as="button"
+            active={facet === s.facet}
+            onClick={() => onFacet(s.facet)}
+          >
+            {FACET_LABEL[s.facet]}
+            <span className="z-count">{s.list.length}</span>
+          </Pill>
+        ))}
+      </div>
+
+      {shown.length === 0 ? (
+        /* Nothing during the load. "Nothing held yet" is true of an empty roster
+           and false of one that has not arrived, and the two look identical. */
+        loading ? (
+          <div style={{ height: 200 }} />
+        ) : (
+          <EmptyState
+            title={term ? "No tag by that name." : "Nothing held yet."}
+            hint={
+              term
+                ? "Try fewer letters, or add it as a new tag."
+                : "Switch to All to see the whole vocabulary."
+            }
+          />
+        )
+      ) : (
+        <div className="z-tune">
+          {shown.map(({ facet: f, list }) => {
+            const held = list.filter((d) => (holders.get(d.id) ?? 0) > 0);
+            const on = held.filter((d) => d.promoted).length;
+            return (
+              <section className="z-tune-sec" key={f}>
+                <div className="z-tune-head">
+                  <h2 className="z-tune-title">{FACET_LABEL[f]}</h2>
+                  {/* Held first, because that is the number a bulk switch acts on.
+                      "23/23" alone read as a total, which in All mode it is not. */}
+                  <span className="z-count">
+                    {held.length > 0
+                      ? `${held.length} held · ${on} scoring`
+                      : `${list.length} unheld`}
+                  </span>
+                  <span className="z-spacer" />
+                  {held.length > 1 && (
+                    <>
+                      <button
+                        className="z-quiet is-bare"
+                        onClick={() => switchAll(f, true)}
+                        title={`Score all ${held.length} held ${FACET_LABEL[f].toLowerCase()}`}
+                      >
+                        All on
+                      </button>
+                      <button
+                        className="z-quiet is-bare"
+                        onClick={() => switchAll(f, false)}
+                        title={`Stop all ${held.length} held ${FACET_LABEL[f].toLowerCase()} scoring`}
+                      >
+                        All off
+                      </button>
+                    </>
+                  )}
+                </div>
+                {list.map((def) => (
+                  <TuneRow
+                    key={def.id}
+                    def={def}
+                    people={holders.get(def.id) ?? 0}
+                    onWrite={write}
+                  />
+                ))}
+              </section>
+            );
+          })}
+        </div>
+      )}
+    </>
+  );
+}
+
+/**
+ * One tag: what it is, what it is worth, how many it moves, whether it counts.
+ *
+ * The draft weight is local to the row rather than held in a map above it, so
+ * dragging one slider re-renders one row instead of four hundred.
+ */
+function TuneRow({
+  def,
+  people,
+  onWrite,
+}: {
+  def: TagDef;
+  people: number;
+  onWrite: (id: string, change: Partial<TagDef>) => void;
+}) {
+  /** Set while dragging. Writing per pixel would be a store write per pixel. */
+  const [drag, setDrag] = useState<number | null>(null);
+  /** Set while typing, so a half-finished "1." is not parsed as a weight. */
+  const [typed, setTyped] = useState<string | null>(null);
+
+  const weight = drag ?? def.weight;
+
+  const commit = (v: number) => {
+    const next = clampWeight(v);
+    if (next !== def.weight) onWrite(def.id, { weight: next });
+  };
+
+  return (
+    <div className="z-tune-row" data-idle={people === 0 || undefined}>
+      <span className="z-tune-name-cell" style={{ minWidth: 0 }}>
+        <span className="z-tune-name">{def.label}</span>
+        {def.aliases.length > 0 && (
+          <span className="z-tune-alias" title={def.aliases.join(", ")}>
+            {def.aliases.slice(0, 3).join(" · ")}
+          </span>
+        )}
+      </span>
+
+      <span className="z-tune-range-cell">
+        <input
+          type="range"
+          className="z-range"
+          min={0}
+          max={MAX_WEIGHT}
+          step={0.1}
+          value={weight}
+          data-zero={weight === 0 || undefined}
+          style={{ ["--fill" as string]: `${(weight / MAX_WEIGHT) * 100}%` }}
+          onChange={(e) => setDrag(Number(e.target.value))}
+          // Written on release rather than per pixel — and on key-up too, or the
+          // arrow keys would move the handle and never save.
+          onPointerUp={() => {
+            if (drag !== null) commit(drag);
+            setDrag(null);
+          }}
+          onKeyUp={() => {
+            if (drag !== null) commit(drag);
+            setDrag(null);
+          }}
+          onBlur={() => {
+            if (drag !== null) commit(drag);
+            setDrag(null);
+          }}
+          aria-label={`Weight for ${def.label}`}
+        />
+      </span>
+
+      <input
+        className="z-weight"
+        type="number"
+        min={0}
+        max={MAX_WEIGHT}
+        step={0.1}
+        value={typed ?? weight.toFixed(1)}
+        data-zero={weight === 0 || undefined}
+        onChange={(e) => setTyped(e.target.value)}
+        onBlur={() => {
+          if (typed !== null) {
+            const n = Number(typed);
+            if (Number.isFinite(n)) commit(n);
+            setTyped(null);
+          }
+        }}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") e.currentTarget.blur();
+          if (e.key === "Escape") {
+            setTyped(null);
+            e.currentTarget.blur();
+          }
+        }}
+        aria-label={`Weight for ${def.label}, as a number`}
+      />
+
+      <span className="z-tune-people">{people > 0 ? people : "—"}</span>
+
+      <button
+        type="button"
+        className="z-switch"
+        role="switch"
+        aria-checked={def.promoted}
+        aria-label={`${def.label} scores`}
+        title={def.promoted ? "Scoring. Click to stop." : "Not scoring. Click to start."}
+        onClick={() => onWrite(def.id, { promoted: !def.promoted })}
+      />
+    </div>
+  );
+}
+
+/* ── Promote ────────────────────────────────────────────────────────────── */
+
 function PromoteForm({
   promoting,
   onChange,
@@ -465,25 +792,33 @@ function PromoteForm({
   onCancel: () => void;
 }) {
   return (
-    <div className="z-stack" style={{ gap: "var(--z-space-4)" }}>
+    <div className="z-stack" style={{ gap: "var(--z-space-5)" }}>
       <div>
-        <p className="z-h4">{promoting.term}</p>
-        <p className="z-micro">
+        <p className="z-h4" style={{ margin: 0 }}>
+          {promoting.term}
+        </p>
+        <p className="z-micro" style={{ marginTop: 2 }}>
           {promoting.asking
             ? "Asking for a suggested cluster and weight."
-            : promoting.why || "Set a cluster and a weight, then add it."}
+            : promoting.why || "Set a section, a cluster and a weight, then add it."}
         </p>
       </div>
 
-      <div>
-        <p className="z-label is-quiet" style={{ marginBottom: "var(--z-space-2)" }}>
-          Section
-        </p>
+      {/* Grid, not a flex row: "Accelerators & funds" is the longest option in the
+          first select and an even split truncated it. */}
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "1.4fr 1fr",
+          gap: "var(--z-space-2)",
+        }}
+      >
         <select
           className="z-input"
           value={promoting.facet}
           onChange={(e) => onChange({ ...promoting, facet: e.target.value as TagFacet })}
           style={{ padding: "6px 8px", fontSize: "var(--z-fs-small)" }}
+          aria-label="Section"
         >
           {PROMOTABLE_FACETS.map((f) => (
             <option key={f} value={f}>
@@ -491,12 +826,6 @@ function PromoteForm({
             </option>
           ))}
         </select>
-      </div>
-
-      <div>
-        <p className="z-label is-quiet" style={{ marginBottom: "var(--z-space-2)" }}>
-          Cluster
-        </p>
         <select
           className="z-input"
           value={promoting.cluster ?? "none"}
@@ -507,236 +836,59 @@ function PromoteForm({
             })
           }
           style={{ padding: "6px 8px", fontSize: "var(--z-fs-small)" }}
+          aria-label="Cluster"
         >
           {ARCHETYPES.map((a) => (
             <option key={a.id} value={a.id}>
               {a.label}
             </option>
           ))}
-          <option value="none">None</option>
+          <option value="none">No cluster</option>
         </select>
       </div>
 
       <div>
-        <p className="z-label is-quiet" style={{ marginBottom: "var(--z-space-2)" }}>
-          Weight <span className="z-num">{promoting.weight.toFixed(1)}</span>
-        </p>
-        <input
-          type="range"
-          min={0}
-          max={2}
-          step={0.1}
-          value={promoting.weight}
-          onChange={(e) => onChange({ ...promoting, weight: Number(e.target.value) })}
-          style={{ width: "100%", accentColor: "var(--z-blue)" }}
-          aria-label={`${promoting.term} weight`}
-        />
-        <p className="z-micro">
-          For scale, Y Combinator and IMO are 2.0, RSI is 1.6, ISEF is 0.8.
+        <div className="z-row" style={{ gap: "var(--z-space-3)" }}>
+          <input
+            type="range"
+            className="z-range"
+            min={0}
+            max={MAX_WEIGHT}
+            step={0.1}
+            value={promoting.weight}
+            style={{ ["--fill" as string]: `${(promoting.weight / MAX_WEIGHT) * 100}%` }}
+            onChange={(e) => onChange({ ...promoting, weight: Number(e.target.value) })}
+            aria-label={`${promoting.term} weight`}
+          />
+          <input
+            className="z-weight"
+            type="number"
+            min={0}
+            max={MAX_WEIGHT}
+            step={0.1}
+            value={promoting.weight.toFixed(1)}
+            onChange={(e) =>
+              onChange({ ...promoting, weight: clampWeight(Number(e.target.value)) })
+            }
+            style={{ width: "3.25rem", flex: "none", borderColor: "var(--z-border)" }}
+            aria-label={`${promoting.term} weight, as a number`}
+          />
+        </div>
+        <p className="z-micro" style={{ marginTop: "var(--z-space-2)" }}>
+          For scale, Y Combinator and IMO are 2.0, RSI is 1.6, ISEF is 0.7.
           {promoting.cluster
             ? ` Anyone whose top term is this becomes ${archetypeLabel(promoting.cluster)}.`
             : " No cluster means it scores but does not decide the label."}
         </p>
       </div>
 
-      <div className="z-row">
+      <div className="z-row" style={{ gap: "var(--z-space-3)" }}>
         <Button size="sm" onClick={onCommit} disabled={promoting.asking}>
           Add to taxonomy
         </Button>
-        <button className="z-linkish" onClick={onCancel}>
+        <button className="z-quiet is-bare" onClick={onCancel}>
           Cancel
         </button>
-      </div>
-    </div>
-  );
-}
-
-/* ── The tag registry ───────────────────────────────────────────────────── */
-
-/**
- * One row per real-world thing, grouped by facet.
- *
- * This is where the bulk of a modern score is tuned. The table above it covers
- * the older text-matched programme vocabulary; everything read off a structured
- * field — companies, schools, majors, titles, flags — lives here.
- *
- * Nothing scores until its switch is on. That gate is deliberate, and the
- * bulk control is what keeps it usable: promoting thirty companies one at a time
- * would be the reason to abandon the gate rather than a reason to keep it.
- */
-function TagRegistryEditor({
-  registry,
-  holders,
-  onPatch,
-}: {
-  registry: TagRegistry;
-  holders: Map<string, number>;
-  onPatch: (tags: TagRegistry) => void;
-}) {
-  const [open, setOpen] = useState<TagFacet | null>(null);
-  const [draft, setDraft] = useState<Record<string, number>>({});
-
-  const byFacet = useMemo(() => {
-    const m = new Map<TagFacet, TagDef[]>();
-    for (const def of Object.values(registry)) {
-      const list = m.get(def.facet) ?? [];
-      list.push(def);
-      m.set(def.facet, list);
-    }
-    // Held by the most people first: those are the sliders that move the most.
-    for (const list of m.values()) {
-      list.sort(
-        (a, b) =>
-          (holders.get(b.id) ?? 0) - (holders.get(a.id) ?? 0) ||
-          b.weight - a.weight ||
-          a.label.localeCompare(b.label)
-      );
-    }
-    return m;
-  }, [registry, holders]);
-
-  function write(id: string, change: Partial<TagDef>) {
-    const def = registry[id];
-    if (!def) return;
-    onPatch({ ...registry, [id]: { ...def, ...change } });
-  }
-
-  function promoteFacet(facet: TagFacet, on: boolean) {
-    const next = { ...registry };
-    for (const def of byFacet.get(facet) ?? []) {
-      // Only tags anyone actually holds, so a bulk click does not switch on
-      // hundreds of seeded entries nobody has matched yet.
-      if ((holders.get(def.id) ?? 0) > 0) next[def.id] = { ...def, promoted: on };
-    }
-    onPatch(next);
-  }
-
-  return (
-    <div>
-      <div className="z-stack" style={{ gap: "var(--z-space-3)" }}>
-        {TAG_FACETS.map((facet) => {
-          const list = byFacet.get(facet) ?? [];
-          if (list.length === 0) return null;
-          const held = list.filter((d) => (holders.get(d.id) ?? 0) > 0);
-          const on = held.filter((d) => d.promoted).length;
-          const isOpen = open === facet;
-
-          return (
-            <div key={facet} className="z-disclosure">
-              <summary
-                style={{
-                  listStyle: "none",
-                  cursor: "pointer",
-                  padding: "var(--z-space-3) var(--z-space-5)",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "var(--z-space-3)",
-                  fontSize: "var(--z-fs-small)",
-                }}
-                onClick={() => setOpen(isOpen ? null : facet)}
-              >
-                {FACET_LABEL[facet]}
-                <span className="z-count">
-                  {held.length > 0 ? `${on} of ${held.length} on` : `${list.length}`}
-                </span>
-              </summary>
-
-              {isOpen && (
-                <div className="z-disclosure-body">
-                  {held.length > 1 && (
-                    <div className="z-row" style={{ marginBottom: "var(--z-space-4)" }}>
-                      <button className="z-linkish" onClick={() => promoteFacet(facet, true)}>
-                        Switch on all {held.length} held
-                      </button>
-                      <button className="z-linkish" onClick={() => promoteFacet(facet, false)}>
-                        Switch all off
-                      </button>
-                    </div>
-                  )}
-
-                  {list.length === 0 ? (
-                    <p className="z-small">Nothing here yet.</p>
-                  ) : (
-                    <div className="z-table-wrap">
-                      <table className="z-table">
-                        <thead>
-                          <tr>
-                            <th>Tag</th>
-                            <th style={{ width: 140 }}>Weight</th>
-                            <th style={{ width: 48 }}>σ</th>
-                            <th style={{ width: 70 }}>People</th>
-                            <th style={{ width: 60 }}>Scores</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {list.slice(0, 60).map((def) => {
-                            const n = holders.get(def.id) ?? 0;
-                            const weight = draft[def.id] ?? def.weight;
-                            return (
-                              <tr key={def.id} data-dimmed={n === 0 || undefined}>
-                                <td>
-                                  <span className="z-person-name" style={{ fontWeight: 500 }}>
-                                    {def.label}
-                                  </span>
-                                  {def.aliases.length > 0 && (
-                                    <span className="z-person-sub">
-                                      also {def.aliases.slice(0, 3).join(", ")}
-                                    </span>
-                                  )}
-                                </td>
-                                <td>
-                                  <input
-                                    type="range"
-                                    min={0}
-                                    max={MAX_WEIGHT}
-                                    step={0.1}
-                                    value={weight}
-                                    onChange={(e) =>
-                                      setDraft((d) => ({ ...d, [def.id]: Number(e.target.value) }))
-                                    }
-                                    // Same reason as the table above: write on
-                                    // release, not per pixel.
-                                    onPointerUp={() => {
-                                      setDraft((d) => {
-                                        const { [def.id]: v, ...rest } = d;
-                                        if (v !== undefined && v !== def.weight) {
-                                          write(def.id, { weight: v });
-                                        }
-                                        return rest;
-                                      });
-                                    }}
-                                    style={{ width: "100%", accentColor: "var(--z-blue)" }}
-                                    aria-label={`Weight for ${def.label}`}
-                                  />
-                                </td>
-                                <td className="z-num">{weight.toFixed(1)}</td>
-                                <td className="z-num">{n}</td>
-                                <td>
-                                  <input
-                                    type="checkbox"
-                                    checked={def.promoted}
-                                    onChange={(e) => write(def.id, { promoted: e.target.checked })}
-                                    aria-label={`${def.label} scores`}
-                                    style={{ accentColor: "var(--z-blue)", width: 15, height: 15 }}
-                                  />
-                                </td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
-                      {list.length > 60 && (
-                        <p className="z-micro" style={{ padding: "var(--z-space-3)" }}>
-                          {list.length} tags, showing the 60 held by the most people.
-                        </p>
-                      )}
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          );
-        })}
       </div>
     </div>
   );
@@ -782,7 +934,7 @@ const FACET_LABEL: Record<TagFacet, string> = {
   homestate: "Home state",
 };
 
-/* ── Calibration ────────────────────────────────────────────────────────── */
+/* ── Scoring rules ──────────────────────────────────────────────────────── */
 
 const COUNT_LABEL: Record<CountKind, string> = {
   experience: "Each experience",
@@ -797,10 +949,11 @@ const COUNT_LABEL: Record<CountKind, string> = {
  *
  * These used to be constants in three different files: the count bonuses were
  * hardcoded in lib/candidates.ts, the band cutoffs were sigma thresholds in
- * lib/clusters.ts, and the polymath rule was a sigma constant. On a sum, the right
- * value for each depends on how the weights were tuned, so they belong next to them.
+ * lib/clusters.ts, and the polymath rule was a sigma constant. On a sum, the
+ * right value for each depends on how the weights were tuned, so they belong
+ * next to them.
  */
-function Calibration({
+function Rules({
   taxonomy,
   onPatch,
 }: {
@@ -814,69 +967,68 @@ function Calibration({
 
   return (
     <div>
+      <div className="z-col-head">
+        <p className="z-label is-quiet">Scoring rules</p>
+      </div>
       <Card size="lg">
-        <p className="z-label is-quiet">Counts</p>
         {COUNT_KINDS.map((kind) => {
           const rule = taxonomy.counts[kind];
           return (
-            <div className="z-breakdown-row" key={kind}>
-              <span className="z-small">{COUNT_LABEL[kind]}</span>
-              <span className="z-row" style={{ gap: "var(--z-space-2)" }}>
-                <input
-                  className="z-input"
-                  type="number"
-                  min={0}
-                  max={MAX_WEIGHT}
-                  step={0.1}
-                  value={rule.points}
-                  onChange={(e) =>
-                    onPatch({
-                      counts: {
-                        ...taxonomy.counts,
-                        [kind]: { ...rule, points: num(e.target.value, rule.points) },
-                      },
-                    })
-                  }
-                  aria-label={`Points per ${kind}`}
-                  style={{ width: 68, padding: "4px 6px", fontSize: "var(--z-fs-micro)" }}
-                />
-                <span className="z-micro">up to</span>
-                <input
-                  className="z-input"
-                  type="number"
-                  min={1}
-                  max={50}
-                  step={1}
-                  value={rule.cap}
-                  onChange={(e) =>
-                    onPatch({
-                      counts: {
-                        ...taxonomy.counts,
-                        [kind]: { ...rule, cap: Math.round(num(e.target.value, rule.cap)) },
-                      },
-                    })
-                  }
-                  aria-label={`Cap for ${kind}`}
-                  style={{ width: 60, padding: "4px 6px", fontSize: "var(--z-fs-micro)" }}
-                />
+            <div className="z-rule-row" key={kind}>
+              <span className="z-small" style={{ flex: 1, minWidth: 0 }}>
+                {COUNT_LABEL[kind]}
               </span>
+              <input
+                className="z-stepper"
+                type="number"
+                min={0}
+                max={MAX_WEIGHT}
+                step={0.1}
+                value={rule.points}
+                onChange={(e) =>
+                  onPatch({
+                    counts: {
+                      ...taxonomy.counts,
+                      [kind]: { ...rule, points: num(e.target.value, rule.points) },
+                    },
+                  })
+                }
+                aria-label={`Points per ${kind}`}
+              />
+              <span className="z-micro">up to</span>
+              <input
+                className="z-stepper"
+                type="number"
+                min={1}
+                max={50}
+                step={1}
+                value={rule.cap}
+                onChange={(e) =>
+                  onPatch({
+                    counts: {
+                      ...taxonomy.counts,
+                      [kind]: { ...rule, cap: Math.round(num(e.target.value, rule.cap)) },
+                    },
+                  })
+                }
+                aria-label={`Cap for ${kind}`}
+              />
             </div>
           );
         })}
 
-        <div className="z-breakdown-row" style={{ marginTop: "var(--z-space-5)" }}>
-          <span className="z-small">Polymath, points in two clusters</span>
+        <div className="z-rule-row">
+          <span className="z-small" style={{ flex: 1, minWidth: 0 }}>
+            Polymath, in two clusters
+          </span>
           <input
-            className="z-input"
+            className="z-stepper"
             type="number"
             min={0}
             step={0.1}
             value={taxonomy.polymathPoints}
-            onChange={(e) =>
-              onPatch({ polymathPoints: num(e.target.value, taxonomy.polymathPoints) })
-            }
+            onChange={(e) => onPatch({ polymathPoints: num(e.target.value, taxonomy.polymathPoints) })}
             aria-label="Polymath threshold"
-            style={{ width: 74, padding: "4px 6px", fontSize: "var(--z-fs-micro)" }}
           />
         </div>
       </Card>

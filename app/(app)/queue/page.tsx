@@ -375,7 +375,7 @@ function QueueInner() {
           title="Nobody here yet."
           hint={
             <>
-              Run a sweep, then add people to the queue. <Link href="/sweep" className="z-linkish">Go to sweep</Link>
+              Run a sweep, then add people to the queue. <Link href="/sweep" className="z-linkish is-inline">Go to sweep</Link>
             </>
           }
         />

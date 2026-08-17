@@ -67,7 +67,7 @@ export default function DigestPage() {
             loading ? undefined : (
               <>
                 Run a sweep and add some people.{" "}
-                <Link href="/sweep" className="z-linkish">
+                <Link href="/sweep" className="z-linkish is-inline">
                   Go to sweep
                 </Link>
               </>

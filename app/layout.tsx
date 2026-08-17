@@ -3,8 +3,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "Z-Score",
-  description:
-    "Every credential weighted by hand and added up. Early talent, surfaced and ranked.",
+  description: "Early talent, surfaced and ranked.",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

@@ -326,7 +326,7 @@ export default function GraphPage() {
           hint={
             <>
               The graph draws your queue.{" "}
-              <Link href="/sweep" className="z-linkish">
+              <Link href="/sweep" className="z-linkish is-inline">
                 Run a sweep
               </Link>{" "}
               and add some people.

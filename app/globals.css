@@ -398,6 +398,14 @@ button {
   font-size: var(--z-fs-small);
 }
 
+/**
+ * The underline arrives on hover, not before.
+ *
+ * A screen carrying eight or ten of these reads as a page of unresolved links —
+ * every small action shouting at the same volume as the content. The affordance is
+ * still there: it is the only small blue-on-hover text with a pointer cursor, and
+ * the underline confirms it the moment the cursor arrives.
+ */
 .z-linkish {
   background: none;
   border: none;
@@ -406,13 +414,19 @@ button {
   font-size: var(--z-fs-micro);
   color: var(--z-ink-faint);
   cursor: pointer;
-  text-decoration: underline;
+  text-decoration: none;
   text-underline-offset: 2px;
   transition: color var(--z-t-fast);
 }
 
 .z-linkish:hover {
   color: var(--z-blue);
+  text-decoration: underline;
+}
+
+/* Inside prose, where a link has to be findable without a cursor to find it. */
+.z-linkish.is-inline {
+  text-decoration: underline;
 }
 
 /* ── Card ─ .faqs_wrapper / .investors_logo-wrapper ────────────────────── */
@@ -1913,4 +1927,565 @@ tr[data-pinned] td:first-child {
   border-radius: var(--z-r-circle);
   display: inline-block;
   flex: none;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Taxonomy — the calibration console
+
+   This screen was a table inside a narrow column, which meant the on/off switch
+   sat past the right edge behind a horizontal scroll, the weight slider had
+   about forty pixels of travel, and the number it produced could only be reached
+   by dragging. Every control below is built for the one thing this screen is
+   for: reading a weight, changing it precisely, and seeing what it moves.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ── Toolbar ───────────────────────────────────────────────────────────── */
+
+.z-tools {
+  display: flex;
+  align-items: center;
+  gap: var(--z-space-3);
+  flex-wrap: wrap;
+  margin-bottom: var(--z-space-5);
+}
+
+/* A search field reads as one, so the glyph is part of the control. */
+.z-search {
+  position: relative;
+  flex: 1 1 240px;
+  min-width: 200px;
+  display: flex;
+  align-items: center;
+}
+
+.z-search::before {
+  content: "⌕";
+  position: absolute;
+  left: 12px;
+  font-size: 1.05rem;
+  line-height: 1;
+  color: var(--z-ink-faint);
+  pointer-events: none;
+}
+
+.z-search input {
+  width: 100%;
+  font: inherit;
+  font-size: var(--z-fs-small);
+  padding: 0.5rem 0.75rem 0.5rem 2rem;
+  border: 1px solid var(--z-border);
+  border-radius: var(--z-r-pill);
+  background: #ffffff;
+  color: var(--z-ink);
+  transition: border-color var(--z-t-fast), box-shadow var(--z-t-fast);
+}
+
+.z-search input::placeholder {
+  color: var(--z-ink-faint);
+}
+
+.z-search input:focus {
+  outline: none;
+  border-color: var(--z-blue);
+  box-shadow: 0 0 0 3px #2067ff1f;
+}
+
+.z-search-clear {
+  position: absolute;
+  right: 10px;
+  border: none;
+  background: none;
+  padding: 2px 4px;
+  font-size: var(--z-fs-small);
+  line-height: 1;
+  color: var(--z-ink-faint);
+  cursor: pointer;
+  border-radius: var(--z-r-circle);
+}
+
+.z-search-clear:hover {
+  color: var(--z-ink);
+}
+
+/**
+ * A quiet action, without an underline.
+ *
+ * The screen carried a dozen underlined text buttons — "Switch all off",
+ * "promote", "dismiss" — and a page of underlines reads as a page of unresolved
+ * links. This is the same weight of action stated as a shape instead.
+ */
+.z-quiet {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--z-space-2);
+  border: 1px solid var(--z-border);
+  background: #ffffff;
+  border-radius: var(--z-r-pill);
+  padding: 0.3rem 0.7rem;
+  font: inherit;
+  font-size: var(--z-fs-micro);
+  font-weight: 500;
+  line-height: 1.3;
+  color: var(--z-ink-mid);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color var(--z-t-fast), border-color var(--z-t-fast),
+    background-color var(--z-t-fast);
+}
+
+.z-quiet:hover:not(:disabled) {
+  color: var(--z-blue);
+  border-color: var(--z-blue);
+  background: var(--z-surface-blue);
+}
+
+.z-quiet:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* Accent variant, for the affirmative half of a pair. */
+.z-quiet.is-accent {
+  color: var(--z-blue);
+  border-color: #2067ff4d;
+  background: var(--z-surface-blue);
+}
+
+.z-quiet.is-accent:hover:not(:disabled) {
+  background: var(--z-blue);
+  border-color: var(--z-blue);
+  color: #ffffff;
+}
+
+/**
+ * Irreversible. Weight rather than colour, for the same reason as elsewhere in
+ * this palette: nothing here is red, so full ink against the quiet grey of every
+ * other small action is what marks the heaviest one.
+ */
+.z-quiet.is-danger {
+  color: var(--z-ink);
+  border-color: var(--z-divider);
+}
+
+.z-quiet.is-danger:hover:not(:disabled) {
+  background: var(--z-navy);
+  border-color: var(--z-navy);
+  color: #ffffff;
+}
+
+/* No border at all, for a dismissal that should not compete. */
+.z-quiet.is-bare {
+  border-color: transparent;
+  background: transparent;
+}
+
+.z-quiet.is-bare:hover:not(:disabled) {
+  background: var(--z-surface);
+  border-color: transparent;
+  color: var(--z-ink);
+}
+
+/* ── The facet rail ────────────────────────────────────────────────────── */
+
+.z-rail {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--z-space-2);
+  margin-bottom: var(--z-space-6);
+}
+
+/* ── The tuning list ───────────────────────────────────────────────────── */
+
+/**
+ * No `overflow: hidden` here, deliberately.
+ *
+ * It is the obvious way to clip the rounded corners, and it makes this element the
+ * scroll container for the sticky headers inside it — which then computed their
+ * offset against *this* box rather than the viewport and sat 64px down from the top
+ * of the card, leaving a blank band above the first heading. The two elements that
+ * actually carry a background get the radius instead.
+ */
+.z-tune {
+  border: 1px solid var(--z-border);
+  border-radius: var(--z-r-card-lg);
+  background: #ffffff;
+}
+
+.z-tune-sec:first-child .z-tune-head {
+  border-radius: var(--z-r-card-lg) var(--z-r-card-lg) 0 0;
+}
+
+.z-tune-sec:last-child .z-tune-row:last-child {
+  border-radius: 0 0 var(--z-r-card-lg) var(--z-r-card-lg);
+}
+
+/**
+ * Section headers stay put while their rows scroll past.
+ *
+ * The bulk on/off used to live in the body of a collapsed accordion, so it was
+ * behind two interactions and a horizontal scroll. Here it is attached to the
+ * heading and the heading never leaves.
+ */
+.z-tune-head {
+  position: sticky;
+  top: 64px;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: var(--z-space-3);
+  padding: var(--z-space-3) var(--z-space-5);
+  /* Opaque, not translucent. A pinned header with a row showing faintly through
+     it reads as a rendering fault rather than as depth. */
+  background: var(--z-surface);
+  border-bottom: 1px solid var(--z-border-soft);
+  border-top: 1px solid var(--z-border-soft);
+}
+
+.z-tune-sec:first-child .z-tune-head {
+  border-top: none;
+}
+
+.z-tune-title {
+  margin: 0;
+  font-size: var(--z-fs-small);
+  font-weight: 600;
+  letter-spacing: var(--z-ls-body);
+  color: var(--z-ink);
+}
+
+.z-tune-row {
+  display: grid;
+  /* The slider gets the larger share: its travel is the precision of the control,
+     and at 140px a tenth of a point was two pixels. */
+  grid-template-columns: minmax(0, 1fr) minmax(180px, 1.35fr) 3.25rem 2.75rem 2.25rem;
+  align-items: center;
+  gap: var(--z-space-4);
+  padding: var(--z-space-3) var(--z-space-5);
+  border-bottom: 1px solid var(--z-border-soft);
+  transition: background-color var(--z-t-fast);
+}
+
+.z-tune-row:last-child {
+  border-bottom: none;
+}
+
+.z-tune-row:hover {
+  background: #fafaff;
+}
+
+/* Held by nobody: still tunable, just not what anyone came here for. */
+.z-tune-row[data-idle] .z-tune-name,
+.z-tune-row[data-idle] .z-tune-people {
+  color: var(--z-ink-faint);
+}
+
+.z-tune-name {
+  display: block;
+  font-size: var(--z-fs-small);
+  font-weight: 500;
+  color: var(--z-ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.z-tune-alias {
+  display: block;
+  font-size: 0.75rem;
+  color: var(--z-ink-faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-top: 1px;
+}
+
+.z-tune-people {
+  font-size: var(--z-fs-micro);
+  font-variant-numeric: tabular-nums;
+  color: var(--z-ink-mid);
+  text-align: right;
+  white-space: nowrap;
+}
+
+/* ── Range ─────────────────────────────────────────────────────────────── */
+
+/**
+ * The filled track is a gradient driven by `--fill`, set inline from the value.
+ * Native range inputs give no fill of their own, and the alternative — a div and
+ * pointer maths — loses the keyboard, which is half of what was asked for.
+ */
+.z-range {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 18px;
+  background: transparent;
+  cursor: pointer;
+  display: block;
+}
+
+.z-range::-webkit-slider-runnable-track {
+  height: 5px;
+  border-radius: 999px;
+  background: linear-gradient(
+    to right,
+    var(--z-blue) 0 var(--fill, 0%),
+    var(--z-border) var(--fill, 0%) 100%
+  );
+}
+
+.z-range::-moz-range-track {
+  height: 5px;
+  border-radius: 999px;
+  background: linear-gradient(
+    to right,
+    var(--z-blue) 0 var(--fill, 0%),
+    var(--z-border) var(--fill, 0%) 100%
+  );
+}
+
+.z-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 15px;
+  height: 15px;
+  margin-top: -5px;
+  border-radius: var(--z-r-circle);
+  background: #ffffff;
+  border: 1.5px solid var(--z-blue);
+  box-shadow: 0 1px 3px #0000001f;
+  transition: transform var(--z-t-fast), box-shadow var(--z-t-fast);
+}
+
+.z-range::-moz-range-thumb {
+  width: 15px;
+  height: 15px;
+  border-radius: var(--z-r-circle);
+  background: #ffffff;
+  border: 1.5px solid var(--z-blue);
+  box-shadow: 0 1px 3px #0000001f;
+}
+
+.z-range:hover::-webkit-slider-thumb {
+  transform: scale(1.15);
+}
+
+.z-range:active::-webkit-slider-thumb {
+  transform: scale(1.15);
+  box-shadow: 0 0 0 5px #2067ff1f;
+}
+
+.z-range:focus-visible {
+  outline: none;
+}
+
+.z-range:focus-visible::-webkit-slider-thumb {
+  box-shadow: 0 0 0 5px #2067ff33;
+}
+
+/* A weight of zero reads as off, so the accent goes with it. */
+.z-range[data-zero]::-webkit-slider-thumb {
+  border-color: var(--z-divider);
+}
+
+/* ── The weight field ──────────────────────────────────────────────────── */
+
+/**
+ * Types like text, behaves like a number.
+ *
+ * The value was previously display-only, so a weight could be set by dragging
+ * and no other way — you could not type 1.4, and the arrow keys did nothing.
+ */
+.z-weight {
+  width: 100%;
+  font: inherit;
+  font-size: var(--z-fs-small);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  padding: 0.25rem 0.4rem;
+  border: 1px solid transparent;
+  border-radius: var(--z-r-sm);
+  background: transparent;
+  color: var(--z-ink);
+  transition: border-color var(--z-t-fast), background-color var(--z-t-fast);
+  -moz-appearance: textfield;
+}
+
+.z-weight::-webkit-outer-spin-button,
+.z-weight::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.z-tune-row:hover .z-weight {
+  border-color: var(--z-border);
+}
+
+.z-weight:focus {
+  outline: none;
+  border-color: var(--z-blue);
+  background: #ffffff;
+  box-shadow: 0 0 0 3px #2067ff1f;
+}
+
+/* Zero contributes nothing, and the number should say so before it is read. */
+.z-weight[data-zero] {
+  color: var(--z-ink-faint);
+}
+
+/* ── Switch ────────────────────────────────────────────────────────────── */
+
+.z-switch {
+  position: relative;
+  width: 34px;
+  height: 20px;
+  flex: none;
+  border: none;
+  border-radius: 999px;
+  background: var(--z-divider);
+  cursor: pointer;
+  padding: 0;
+  transition: background-color var(--z-t-fast);
+}
+
+.z-switch::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: var(--z-r-circle);
+  background: #ffffff;
+  box-shadow: 0 1px 2px #00000029;
+  transition: transform var(--z-t-base);
+}
+
+.z-switch[aria-checked="true"] {
+  background: var(--z-blue);
+}
+
+.z-switch[aria-checked="true"]::after {
+  transform: translateX(14px);
+}
+
+.z-switch:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px #2067ff33;
+}
+
+/* ── Review queue ──────────────────────────────────────────────────────── */
+
+/**
+ * The term gets the full width, and the actions sit under it.
+ *
+ * Inline, in a 340px rail, "American College of Cardiology" wrapped onto three
+ * lines to make room for two buttons. A credential's name is the thing being
+ * judged, so it is the thing that gets the room.
+ */
+.z-review-row {
+  padding: var(--z-space-3) 0;
+  border-bottom: 1px solid var(--z-border-soft);
+}
+
+.z-review-row:first-child {
+  padding-top: 0;
+}
+
+.z-review-row:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.z-review-term {
+  display: block;
+  font-size: var(--z-fs-small);
+  font-weight: 500;
+  color: var(--z-ink);
+  line-height: 1.35;
+}
+
+.z-review-foot {
+  display: flex;
+  align-items: center;
+  gap: var(--z-space-2);
+  margin-top: var(--z-space-2);
+}
+
+.z-review-seen {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.75rem;
+  color: var(--z-ink-faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Names, not slugs. A username is not who anybody is. */
+.z-review-seen a {
+  color: var(--z-ink-mid);
+  text-decoration: none;
+  border-bottom: 1px solid var(--z-border);
+}
+
+.z-review-seen a:hover {
+  color: var(--z-blue);
+  border-color: var(--z-blue);
+}
+
+/* ── Rules card ────────────────────────────────────────────────────────── */
+
+.z-rule-row {
+  display: flex;
+  align-items: center;
+  gap: var(--z-space-3);
+  padding: var(--z-space-2) 0;
+}
+
+.z-rule-row + .z-rule-row {
+  border-top: 1px solid var(--z-border-soft);
+}
+
+.z-stepper {
+  width: 3.5rem;
+  font: inherit;
+  font-size: var(--z-fs-micro);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  padding: 0.25rem 0.45rem;
+  border: 1px solid var(--z-border);
+  border-radius: var(--z-r-sm);
+  background: #ffffff;
+  color: var(--z-ink);
+  -moz-appearance: textfield;
+}
+
+.z-stepper::-webkit-outer-spin-button,
+.z-stepper::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.z-stepper:focus {
+  outline: none;
+  border-color: var(--z-blue);
+  box-shadow: 0 0 0 3px #2067ff1f;
+}
+
+/* ── Narrow ────────────────────────────────────────────────────────────── */
+
+@media (max-width: 900px) {
+  /* The slider and the switch keep their own line rather than being squeezed
+     into a column narrower than a thumb. */
+  .z-tune-row {
+    grid-template-columns: minmax(0, 1fr) 3.25rem 3.5rem 2.25rem;
+    grid-template-areas:
+      "name  weight people switch"
+      "range range range  range";
+    row-gap: var(--z-space-3);
+  }
+  .z-tune-name-cell { grid-area: name; }
+  .z-tune-range-cell { grid-area: range; }
+  .z-tune-head { top: 0; }
 }
