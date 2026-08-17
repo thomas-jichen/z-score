@@ -2766,3 +2766,46 @@ tr[data-pinned] td:first-child {
     flex-wrap: nowrap;
   }
 }
+
+/* ── The sweep query, now a field ───────────────────────────────────────── */
+
+/**
+ * Reads as the built query until it is clicked, and behaves as a field after.
+ *
+ * The chips compose the common shapes; they cannot express a minus term, a quoted
+ * phrase or an `intitle:`. The query was read-only, so wanting any of those meant
+ * not using the tool.
+ */
+.z-query-input {
+  display: block;
+  width: 100%;
+  border: none;
+  background: transparent;
+  resize: none;
+  overflow: hidden;
+  padding: 0;
+  font: inherit;
+  font-size: var(--z-fs-body);
+  line-height: 1.6;
+  color: var(--z-ink);
+  letter-spacing: var(--z-ls-body);
+}
+
+.z-query-input:focus {
+  outline: none;
+}
+
+.z-query-input::placeholder {
+  color: var(--z-ink-faint);
+}
+
+.z-query:focus-within {
+  border-color: var(--z-blue);
+  box-shadow: 0 0 0 3px #2067ff1f;
+}
+
+/* Detached from the selection. A left edge rather than a banner: the state belongs
+   to the field, and the Reset control beside the run button says what to do. */
+.z-query[data-custom] {
+  border-left: 2px solid var(--z-blue);
+}

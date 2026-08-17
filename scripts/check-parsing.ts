@@ -130,10 +130,10 @@ check(
     sel({
       programs: ["Coca-Cola Scholar", "RSI"],
       colleges: ["MIT", "Stanford"],
-      highSchools: ["TJHSST", "Harker"],
+      highSchools: ["Phillips Exeter", "Harker"],
     })
   ),
-  "(Coca-Cola Scholar OR RSI) (MIT OR Stanford) (TJHSST OR Harker) site:linkedin.com/in"
+  "(Coca-Cola Scholar OR RSI) (MIT OR Stanford) (Phillips Exeter OR Harker) site:linkedin.com/in"
 );
 
 check(
@@ -143,11 +143,11 @@ check(
       programs: ["RSI"],
       titles: ["Founder"],
       colleges: ["MIT"],
-      highSchools: ["TJHSST"],
+      highSchools: ["Harker"],
       years: ["2030"],
     })
   ),
-  "RSI MIT TJHSST 2030 Founder site:linkedin.com/in"
+  "RSI MIT Harker 2030 Founder site:linkedin.com/in"
 );
 
 check(
@@ -162,14 +162,42 @@ check(
   1
 );
 
-// No exact match anywhere: quotes disable Google's synonym expansion, which is
-// the part actually doing the work.
+/**
+ * Quotes disable Google's synonym expansion, which is the part doing the work, so
+ * nothing is quoted — except the three spelled-out school names, where an exact
+ * phrase is the entire point.
+ */
 check(
-  "query is never quoted",
-  /"/.test(
-    buildQuery(sel({ programs: ["Coca-Cola Scholar", "RSI"], highSchools: ["TJHSST"] }))
-  ),
+  "an ordinary query is never quoted",
+  /"/.test(buildQuery(sel({ programs: ["Coca-Cola Scholar", "RSI"], colleges: ["MIT"] }))),
   false
+);
+
+/**
+ * A rare acronym alone is a loose search, not a precise one.
+ *
+ * "RSI TJHSST" returned "T.J. Parker, CSP, PMP" and "Thomas Guelzow II" — three of
+ * ten results were people whose initials or company happened to look like the
+ * school. The full name gives the engine an unambiguous phrase to anchor on, and the
+ * OR keeps the acronym working for profiles that only write it that way.
+ */
+check(
+  "an ambiguous acronym is searched with its full name",
+  buildQuery(sel({ highSchools: ["NCSSM"] })),
+  '(NCSSM OR "North Carolina School of Science and Mathematics") site:linkedin.com/in'
+);
+check(
+  "and two of them flatten into one list rather than nesting",
+  buildQuery(sel({ highSchools: ["TJHSST", "IMSA"] })),
+  '(TJHSST OR "Thomas Jefferson High School for Science and Technology" OR IMSA OR "Illinois Mathematics and Science Academy") site:linkedin.com/in'
+);
+// Only the three that are genuinely ambiguous. RSI and IMO are searched alongside
+// other terms that disambiguate them, and spelling every acronym out would bloat
+// every query.
+check(
+  "an unambiguous acronym is left alone",
+  buildQuery(sel({ programs: ["RSI"] })),
+  "RSI site:linkedin.com/in"
 );
 
 check("site filter is always last", buildQuery(sel({ programs: ["RSI"] })).endsWith("site:linkedin.com/in"), true);

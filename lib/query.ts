@@ -48,7 +48,36 @@ export const EMPTY_SELECTION: Selection = {
 export const SITE_FILTER = "site:linkedin.com/in";
 
 /**
- * One category becomes one group. Single option needs no parentheses.
+ * Acronyms that have to be searched with their full name beside them.
+ *
+ * A rare acronym on its own is not a precise search, it is a loose one: Google
+ * reaches for anything shaped like it. "RSI TJHSST" returned "T.J. Parker, CSP, PMP"
+ * and "Thomas Guelzow II" — three of ten results were people whose initials or
+ * company happened to look like the school.
+ *
+ * Pairing the acronym with the school's written-out name gives the engine an
+ * unambiguous phrase to anchor on, and the OR keeps the acronym working for the
+ * profiles that only ever write it that way. Quoted, so the full name is matched as
+ * a phrase rather than as eight separate words.
+ *
+ * Only the three that are ambiguous. Most acronyms in these lists — RSI, IMO, YC —
+ * are searched alongside other terms that disambiguate them.
+ */
+const SPELL_OUT: Record<string, string> = {
+  TJHSST: "Thomas Jefferson High School for Science and Technology",
+  IMSA: "Illinois Mathematics and Science Academy",
+  NCSSM: "North Carolina School of Science and Mathematics",
+};
+
+/** What one selected option contributes to its group. Usually itself. */
+function alternatives(term: string): string[] {
+  const full = SPELL_OUT[term];
+  return full ? [term, `"${full}"`] : [term];
+}
+
+/**
+ * One category becomes one group. A single option with no alternatives needs no
+ * parentheses.
  *
  * Tolerates a missing list rather than assuming one. A `Selection` stored before a
  * category existed hydrates without it, and geography arrived after people had
@@ -57,8 +86,12 @@ export const SITE_FILTER = "site:linkedin.com/in";
  */
 function group(selected: string[] | undefined): string | null {
   if (!Array.isArray(selected) || selected.length === 0) return null;
-  if (selected.length === 1) return selected[0];
-  return `(${selected.join(" OR ")})`;
+  // Flattened rather than nested: two spelled-out schools in one category read as
+  // one list of four alternatives, not as two bracketed pairs inside a bracket.
+  const parts = selected.flatMap(alternatives);
+  if (parts.length === 0) return null;
+  if (parts.length === 1) return parts[0];
+  return `(${parts.join(" OR ")})`;
 }
 
 /** Same reason: a category a stored selection has never heard of counts as none. */

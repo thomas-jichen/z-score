@@ -206,7 +206,22 @@ export default function SweepPage() {
     return m;
   }, [team.taxonomy.tags]);
 
-  const query = useMemo(() => buildQuery(sel), [sel]);
+  const built = useMemo(() => buildQuery(sel), [sel]);
+  /**
+   * A hand-written query, or null while it follows the selection.
+   *
+   * The chips are a fast way to compose the common shapes, not the only way to ask a
+   * question. Google takes operators the sidebar has no control for — a minus term, a
+   * quoted phrase, an intitle: — and the built query was read-only, so wanting any of
+   * them meant not using the tool.
+   *
+   * An edit detaches rather than being overwritten on the next chip: typing is worth
+   * more than the convenience of not having to press Reset. The chips keep working and
+   * keep rebuilding `built` underneath, so Reset is always a way back.
+   */
+  const [edited, setEdited] = useState<string | null>(null);
+  const query = edited ?? built;
+  const custom = edited !== null;
   const chosen = selectionCount(sel);
 
   function update(next: Selection) {
@@ -605,14 +620,24 @@ export default function SweepPage() {
         <div style={{ minWidth: 0 }}>
           {mode === "serp" ? (
             <>
-              <div className="z-query">
-                <div className="z-query-text">
-                  {query || (
-                    <span style={{ color: "var(--z-ink-faint)" }}>
-                      Pick something on the left and the query builds here.
-                    </span>
-                  )}
-                </div>
+              <div className="z-query" data-custom={custom || undefined}>
+                <textarea
+                  className="z-query-text z-query-input"
+                  value={query}
+                  onChange={(e) => setEdited(e.target.value)}
+                  placeholder="Pick something on the left, or write the query yourself."
+                  spellCheck={false}
+                  rows={1}
+                  aria-label="Search query"
+                  ref={(el) => {
+                    // Grows with its content. A query is one line until it is four,
+                    // and a scrollbar inside a two-line box hides the end of it.
+                    if (el) {
+                      el.style.height = "auto";
+                      el.style.height = `${el.scrollHeight}px`;
+                    }
+                  }}
+                />
               </div>
 
               <div
@@ -625,6 +650,15 @@ export default function SweepPage() {
                 <Button variant="secondary" onClick={exportCsv} disabled={!hits.length}>
                   Export CSV
                 </Button>
+                {custom && (
+                  <button
+                    className="z-quiet"
+                    onClick={() => setEdited(null)}
+                    title="Go back to the query the selection builds"
+                  >
+                    Reset to selection
+                  </button>
+                )}
                 {ran && !running && (
                   <span className="z-small">
                     {hits.length} {hits.length === 1 ? "person" : "people"} found
@@ -848,7 +882,13 @@ export default function SweepPage() {
                       style={{ flex: "none" }}
                       onClick={() => {
                         setMode("serp");
-                        update({ ...BLANK, ...s.selection });
+                        const restored = { ...BLANK, ...s.selection };
+                        update(restored);
+                        // A saved sweep keeps the query it actually ran. If that is
+                        // not what the selection builds, it was hand-written, and
+                        // rebuilding it from the chips would quietly load a
+                        // different search than the one on the row.
+                        setEdited(s.query && s.query !== buildQuery(restored) ? s.query : null);
                         setHits(s.hits);
                         setPicked(new Set(tickable(s.hits.map((h) => h.slug))));
                         setRan(true);
