@@ -294,6 +294,33 @@ const TOP_PLACING =
 const ISEF = /\bisef\b|\binternational science (and|&) engineering fair\b/i;
 
 /**
+ * The named olympiads, by acronym or by the words people write instead.
+ *
+ * Deliberately a list rather than the bare word "olympiad": Science Olympiad is a
+ * school activity with a quarter of a million entrants and was purged from the
+ * vocabulary for it, and "National Science Olympiad" would otherwise read as a
+ * national olympiad team.
+ */
+const OLYMPIAD =
+  /\b(usabo|usapho|usamo|usaco|usnco|useso|ibo|imo|ipho|icho|ioi|ioaa|naclo)\b|\b(biology|physics|chemistry|mathematical|maths?|astronomy|earth science|computing|linguistics|informatics) olympiad\b/i;
+
+/**
+ * The tier where an olympiad stops being an exam and starts being a selection.
+ *
+ * Megan D'Souza and Evan Xiang both held one USABO tag worth 0.5. Hers reads
+ * "Semifinalist, Top 225, score of 31 on the Open Exam"; his reads "2x National
+ * Finalist, invited to training camp" — roughly the top twenty in the country. One
+ * tag for both is the same mistake ISEF had, where placing and attending scored
+ * alike, and it gets the same fix: a tier carried as one flag that stacks with the
+ * competition's own weight, rather than a second tag per olympiad.
+ *
+ * Semifinalist and qualifier are pointedly absent. Clearing the first round is what
+ * the competition's own tag already means.
+ */
+const OLYMPIAD_ELITE =
+  /\bnational finalist\b|\btraining camp\b|\bcampers?\b|\bnational team\b|\bteam member\b|\bgold medal(l?ist)?\b/i;
+
+/**
  * The tier above finalist. Narrower than TOP_PLACING, because ISEF's own award names
  * are the specific thing being claimed — "1st place" at a regional feeder fair is
  * not a Grand Award, and neither is "winner".
@@ -498,6 +525,22 @@ export function extractTags(
     })
   ) {
     push(tags, seen, { label: "ISEF Grand Award", facet: "program" });
+  }
+
+  /**
+   * Reached the national round of an olympiad, rather than sat the exam.
+   *
+   * Same shape as the ISEF tier above and for the same reason: two facts in one
+   * line, which text matching cannot express, and read per honour so a semifinal in
+   * one subject and a camp invitation in another cannot combine.
+   */
+  if (
+    e.honors.some((h) => {
+      const line = `${h.title} ${h.issuedBy ?? ""} ${h.description ?? ""}`;
+      return OLYMPIAD.test(line) && OLYMPIAD_ELITE.test(line);
+    })
+  ) {
+    push(tags, seen, { label: "Olympiad finalist", facet: "flag" });
   }
 
   /**

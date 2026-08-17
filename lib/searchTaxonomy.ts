@@ -425,6 +425,12 @@ export const MAJORS: Seed[] = [
 export const FLAGS: Seed[] = [
   { label: "Funded founder" },
   { label: "Competition winner" },
+  /**
+   * Reached the national round of an olympiad, rather than sat the exam. Stacks with
+   * the olympiad's own weight, so a USABO camper and a USABO semifinalist stop
+   * scoring the same 0.5.
+   */
+  { label: "Olympiad finalist" },
   { label: "Influencer" },
   { label: "Has a site" },
   { label: "Published" },

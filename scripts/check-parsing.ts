@@ -1054,6 +1054,49 @@ console.log("\nplaced at ISEF, as opposed to placed at something");
     grand(bare("split", ["Regeneron ISEF Finalist", "State Math League — 1st Place"])),
     false
   );
+
+  /**
+   * The same tier problem, one competition over.
+   *
+   * Megan D'Souza and Evan Xiang both held one USABO tag. Hers reads "Semifinalist,
+   * Top 225, score of 31 on the Open Exam"; his reads "2x National Finalist, invited
+   * to training camp" — roughly the top twenty in the country. Clearing the first
+   * round is what the competition's own tag already means, so semifinalist and
+   * qualifier are pointedly not tiers.
+   */
+  const camp = (p: Person) => heldTags(p, TAX).some((t) => t.def.label === "Olympiad finalist");
+
+  check(
+    "a camp invitation is the tier",
+    camp(bare("camper", ["2x National Finalist - USA Biology Olympiad (USABO). Invited to training camp."])),
+    true
+  );
+  check(
+    "a semifinal is not",
+    camp(bare("semi", ["USABO Semifinalist. Top 225. Score of 31 on the Open Exam."])),
+    false
+  );
+  check(
+    "nor is qualifying",
+    camp(bare("qual", ["USAMO Qualifier", "USACO Platinum Qualifier with a score of 1000/1000"])),
+    false
+  );
+  /**
+   * Science Olympiad is a school activity with a quarter of a million entrants and
+   * was purged from the vocabulary for it. Matching the bare word "olympiad" would
+   * have read "National Science Olympiad" as a national olympiad team.
+   */
+  check(
+    "and a school activity with a national round is not an olympiad",
+    camp(bare("sciolly", ["Science Olympiad National Tournament - National Team, 5x medallist"])),
+    false
+  );
+  // Both facts in one honour, as above.
+  check(
+    "the olympiad and the tier have to be the same line",
+    camp(bare("apart", ["USABO Semifinalist", "Debate — national team"])),
+    false
+  );
 }
 
 // ── Permanent deletion ───────────────────────────────────────────────────
