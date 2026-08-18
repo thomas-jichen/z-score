@@ -302,6 +302,16 @@ export default function TaxonomyPage() {
           <TagList
             registry={t.tags}
             holders={holders}
+            onRemove={(id) =>
+              patchTeam({
+                taxonomy: {
+                  ...t,
+                  tags: Object.fromEntries(Object.entries(t.tags).filter(([k]) => k !== id)),
+                  // Recorded, or the seed lists put it back on the next read.
+                  removed: [...new Set([...t.removed, id])],
+                },
+              })
+            }
             query={query}
             facet={facet}
             scope={scope}
@@ -451,6 +461,39 @@ export default function TaxonomyPage() {
             </div>
           </details>
 
+          {/* A deletion takes a name out of the shared vocabulary, so it is visible
+              and reversible rather than silent and final. */}
+          {t.removed.length > 0 && (
+            <details className="z-disclosure">
+              <summary>
+                Removed tags
+                <span className="z-count">{t.removed.length}</span>
+              </summary>
+              <div
+                className="z-disclosure-body z-row z-row-wrap"
+                style={{ gap: "var(--z-space-2)" }}
+              >
+                {t.removed.map((id) => (
+                  <span key={id} className="z-custom-term">
+                    <Pill>{id}</Pill>
+                    <button
+                      className="z-custom-remove"
+                      title={`Let ${id} be seeded again`}
+                      aria-label={`Restore ${id}`}
+                      onClick={() =>
+                        patchTeam({
+                          taxonomy: { ...t, removed: t.removed.filter((x) => x !== id) },
+                        })
+                      }
+                    >
+                      ×
+                    </button>
+                  </span>
+                ))}
+              </div>
+            </details>
+          )}
+
           {t.dismissed.length > 0 && (
             <details className="z-disclosure">
               <summary>
@@ -506,6 +549,7 @@ function TagList({
   loading,
   onFacet,
   onPatch,
+  onRemove,
 }: {
   registry: TagRegistry;
   holders: Map<string, number>;
@@ -516,6 +560,7 @@ function TagList({
   loading: boolean;
   onFacet: (f: TagFacet | "all") => void;
   onPatch: (tags: TagRegistry) => void;
+  onRemove: (id: string) => void;
 }) {
   const term = normalizeKey(query.trim()).replace(/-/g, " ");
 
@@ -656,6 +701,7 @@ function TagList({
                     def={def}
                     people={holders.get(def.id) ?? 0}
                     onWrite={write}
+                    onRemove={onRemove}
                   />
                 ))}
               </section>
@@ -677,15 +723,18 @@ function TuneRow({
   def,
   people,
   onWrite,
+  onRemove,
 }: {
   def: TagDef;
   people: number;
   onWrite: (id: string, change: Partial<TagDef>) => void;
+  onRemove: (id: string) => void;
 }) {
   /** Set while dragging. Writing per pixel would be a store write per pixel. */
   const [drag, setDrag] = useState<number | null>(null);
   /** Set while typing, so a half-finished "1." is not parsed as a weight. */
   const [typed, setTyped] = useState<string | null>(null);
+  const [confirming, setConfirming] = useState(false);
 
   const weight = drag ?? def.weight;
 
@@ -775,6 +824,44 @@ function TuneRow({
         title={def.promoted ? "Scoring. Click to stop." : "Not scoring. Click to start."}
         onClick={() => onWrite(def.id, { promoted: !def.promoted })}
       />
+
+      {/**
+        * Delete, as distinct from switching off.
+        *
+        * The switch says "this is real but should not score". Deleting says the tag
+        * should not exist at all — Yale Young Global Scholars is a two-week summer
+        * programme and says nothing about whether somebody can build a company, so
+        * leaving the row at zero only invites someone to switch it back on.
+        *
+        * Asks first, in place, because it takes a name out of the vocabulary for the
+        * whole team. Restorable from Removed tags at the bottom of the screen.
+        */}
+      {confirming ? (
+        <span className="z-row" style={{ gap: "var(--z-space-2)" }}>
+          <button
+            className="z-quiet is-danger"
+            onClick={() => {
+              setConfirming(false);
+              onRemove(def.id);
+            }}
+          >
+            Delete
+          </button>
+          <button className="z-quiet is-bare" onClick={() => setConfirming(false)}>
+            Keep
+          </button>
+        </span>
+      ) : (
+        <button
+          type="button"
+          className="z-tune-del"
+          onClick={() => setConfirming(true)}
+          aria-label={`Delete the ${def.label} tag`}
+          title="Delete this tag from the taxonomy"
+        >
+          ×
+        </button>
+      )}
     </div>
   );
 }

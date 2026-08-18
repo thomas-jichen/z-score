@@ -95,6 +95,17 @@ export type TaxonomyPrefs = {
   promoted: string[];
   /** Extracted terms dismissed, so they stop being suggested. */
   dismissed: string[];
+  /**
+   * Registry ids deleted by hand, so the seed lists stop putting them back.
+   *
+   * Deleting an entry is not enough on its own: `migrateFacets` seeds in every name
+   * the stored document has never seen, so a deleted seed reappears on the next read.
+   * This is the record of the decision, and it is what the seeding pass checks.
+   *
+   * Distinct from `dismissed`, which is about a term the tagger *found* and nobody
+   * wants offered again. This is about a tag that exists and should not.
+   */
+  removed: string[];
 
   /**
    * The tag registry: one entry per real-world thing, with its aliases, so two
@@ -347,6 +358,7 @@ export function emptyTeam(): TeamState {
       clusters: {},
       promoted: [],
       dismissed: [],
+      removed: [],
       tags: seededTags(),
       counts: defaultCounts(),
       /**
@@ -562,8 +574,19 @@ function renameTags(tags: TagRegistry): TagRegistry {
   return next;
 }
 
-function migrateFacets(tags: TagRegistry): TagRegistry {
+function migrateFacets(tags: TagRegistry, removed: string[] = []): TagRegistry {
   tags = renameTags(tags);
+
+  /**
+   * Deleted by hand, and it has to be checked before the seeding pass below or the
+   * seed list puts it straight back.
+   */
+  if (removed.length > 0) {
+    const gone = new Set(removed);
+    if (Object.keys(tags).some((id) => gone.has(id))) {
+      tags = Object.fromEntries(Object.entries(tags).filter(([id]) => !gone.has(id)));
+    }
+  }
 
   /**
    * Deleted, not switched off.
@@ -646,8 +669,11 @@ function migrateFacets(tags: TagRegistry): TagRegistry {
     }
   }
 
-  // Newly seeded entries the stored document has never seen.
+  // Newly seeded entries the stored document has never seen, minus anything the
+  // team has deleted on purpose.
+  const gone = new Set(removed);
   for (const [id, def] of Object.entries(seeded)) {
+    if (gone.has(id)) continue;
     if (!next[id]) {
       next[id] = def;
       changed = true;
@@ -678,7 +704,7 @@ export function hydrateTeam(stored: Partial<TeamState> | null): TeamState {
        * facet defaults. A document already current keeps whatever it holds.
        */
       ...(() => {
-        const migrated = migrateFacets(tax.tags ?? base.taxonomy.tags);
+        const migrated = migrateFacets(tax.tags ?? base.taxonomy.tags, tax.removed ?? []);
         return behindSeeds(tax)
           ? {
               tags: adoptSeedWeights(migrated),
@@ -703,6 +729,7 @@ export function hydrateTeam(stored: Partial<TeamState> | null): TeamState {
        * seeded here can be brought back on the taxonomy screen.
        */
       dismissed: [...new Set([...(tax.dismissed ?? []), ...LOW_SIGNAL])],
+      removed: Array.isArray(tax.removed) ? tax.removed : base.taxonomy.removed,
       polymathPoints: tax.polymathPoints ?? base.taxonomy.polymathPoints,
     },
     customTerms: { ...base.customTerms, ...(stored.customTerms ?? {}) },

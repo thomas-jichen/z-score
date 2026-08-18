@@ -126,6 +126,12 @@ export function cleanTaxonomy(raw: Partial<TaxonomyPrefs>): TaxonomyPrefs {
     promoted: strList(raw.promoted, MAX_TERMS, TERM_LEN),
     dismissed: strList(raw.dismissed, MAX_TERMS * 2, TERM_LEN),
     /**
+     * Has to be listed here, like `seedVersion`: this function rebuilds the document
+     * field by field, so a field it forgets is a field the save deletes — and every
+     * deleted tag would come back on the next read.
+     */
+    removed: strList(raw.removed, MAX_TAGS, TERM_LEN),
+    /**
      * Anything the server hands out is already at the current seed generation, so
      * anything coming back is too.
      *

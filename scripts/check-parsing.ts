@@ -974,6 +974,53 @@ console.log("\na credential the profile does not mention is not a credential");
   );
 }
 
+console.log("\ndeleting a tag has to outlast the seed list");
+{
+  /**
+   * Deleting the entry is not enough on its own. The migration seeds in every name a
+   * stored document has never seen, so a deleted seed reappears on the next read —
+   * which would make the control look broken for the one case it exists for.
+   */
+  const seeded = emptyTeam().taxonomy;
+  const anySeed = Object.values(seeded.tags).find((d) => d.facet === "program")!;
+
+  const after = hydrateTeam({
+    taxonomy: {
+      ...seeded,
+      tags: Object.fromEntries(Object.entries(seeded.tags).filter(([id]) => id !== anySeed.id)),
+      removed: [anySeed.id],
+      seedVersion: SEED_VERSION,
+    },
+  } as Parameters<typeof hydrateTeam>[0]);
+
+  check("a deleted tag stays deleted", Boolean(after.taxonomy.tags[anySeed.id]), false);
+  check("and the decision is remembered", after.taxonomy.removed, [anySeed.id]);
+  check(
+    "nothing else was taken with it",
+    Object.keys(after.taxonomy.tags).length,
+    Object.keys(seeded.tags).length - 1
+  );
+
+  /**
+   * `cleanTaxonomy` rebuilds the document field by field, so a field it forgets is a
+   * field the save deletes — and every deleted tag would come back on the next read.
+   * The same trap `seedVersion` fell into.
+   */
+  check(
+    "the list survives a save",
+    cleanTaxonomy({ ...seeded, removed: [anySeed.id] }).removed,
+    [anySeed.id]
+  );
+
+  // A two-week summer seminar at a selective university is the host's selectivity,
+  // not the attendee's, and says nothing about building a company.
+  check(
+    "and Yale Young Global Scholars is not in the vocabulary",
+    Object.values(seeded.tags).some((d) => /young global/i.test(d.label)),
+    false
+  );
+}
+
 // ── Aliases that identify nothing ────────────────────────────────────────
 
 console.log("\nan alias has to mean something standing alone");

@@ -92,8 +92,6 @@ export const PROGRAMS: Seed[] = [
   { label: "CalHacks", aliases: ["Cal Hacks", "Berkeley CalHacks"] },
   { label: "HackMIT" },
   { label: "Breakthrough Junior Challenge", aliases: ["Breakthrough Junior"] },
-  // Named so it stops being read as the university that hosts it.
-  { label: "Yale Young Global Scholars", aliases: ["YYGS"] },
   /**
    * The tier above finalist at ISEF, which the ISEF tag alone cannot express.
    *
@@ -174,6 +172,16 @@ export const PURGED: string[] = [
   "National Honor Society",
   "AP Scholar",
   "National Merit",
+  /**
+   * A two-week summer seminar you apply to and pay for. It was seeded at 0.2 on the
+   * reasoning that the host university is selective, which is the host's selectivity
+   * and not the attendee's — and this tool exists to find people who can build
+   * companies, which a fortnight at Yale says nothing about either way.
+   *
+   * Purged rather than zeroed for the same reason as the rest of this list: a row at
+   * zero is an invitation to switch it back on.
+   */
+  "Yale Young Global Scholars",
 ];
 
 export const RETIRED: string[] = [
@@ -196,6 +204,8 @@ export const RETIRED: string[] = [
  * can be brought back on the taxonomy screen.
  */
 export const LOW_SIGNAL: string[] = [
+  "Yale Young Global Scholars",
+  "YYGS",
   "AP Scholar",
   "AP Scholar with Distinction",
   "National Merit",

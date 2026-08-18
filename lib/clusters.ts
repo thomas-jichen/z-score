@@ -268,7 +268,6 @@ export const START_WEIGHT: Record<string, number> = {
   "Diamond Challenge": 0.3,
   "Bank of America Student Leader": 0.3,
   // A two-week summer course, and it was scoring as a Yale degree.
-  "Yale Young Global Scholars": 0.2,
 
   /**
    * ── Employers ────────────────────────────────────────────────────────────

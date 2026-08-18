@@ -2157,7 +2157,7 @@ tr[data-pinned] td:first-child {
   display: grid;
   /* The slider gets the larger share: its travel is the precision of the control,
      and at 140px a tenth of a point was two pixels. */
-  grid-template-columns: minmax(0, 1fr) minmax(180px, 1.35fr) 3.25rem 2.75rem 2.25rem;
+  grid-template-columns: minmax(0, 1fr) minmax(160px, 1.3fr) 3.25rem 2.75rem 2.25rem 1.5rem;
   align-items: center;
   gap: var(--z-space-4);
   /* One line per tag, so the padding that used to carry an alias line goes with
@@ -2471,10 +2471,10 @@ tr[data-pinned] td:first-child {
   /* The slider and the switch keep their own line rather than being squeezed
      into a column narrower than a thumb. */
   .z-tune-row {
-    grid-template-columns: minmax(0, 1fr) 3.25rem 3.5rem 2.25rem;
+    grid-template-columns: minmax(0, 1fr) 3.25rem 2.5rem 2.25rem 1.5rem;
     grid-template-areas:
-      "name  weight people switch"
-      "range range range  range";
+      "name  weight people switch del"
+      "range range  range  range  range";
     row-gap: var(--z-space-3);
   }
   .z-tune-name-cell { grid-area: name; }
@@ -2808,4 +2808,43 @@ tr[data-pinned] td:first-child {
    to the field, and the Reset control beside the run button says what to do. */
 .z-query[data-custom] {
   border-left: 2px solid var(--z-blue);
+}
+
+/**
+ * Delete a tag, as distinct from switching it off.
+ *
+ * Quiet until the row is under the cursor: it is the one control here that removes
+ * something for the whole team, and a column of crosses down a hundred rows would
+ * read as the list's main feature.
+ */
+.z-tune-del {
+  width: 1.5rem;
+  height: 1.5rem;
+  border: none;
+  background: none;
+  border-radius: var(--z-r-circle);
+  color: var(--z-ink-faint);
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity var(--z-t-fast), background-color var(--z-t-fast),
+    color var(--z-t-fast);
+}
+
+.z-tune-row:hover .z-tune-del,
+.z-tune-del:focus-visible {
+  opacity: 1;
+}
+
+.z-tune-del:hover {
+  background: var(--z-surface);
+  color: var(--z-ink);
+}
+
+@media (hover: none) {
+  /* No hover on touch, so it has to be visible or it is unreachable. */
+  .z-tune-del {
+    opacity: 0.55;
+  }
 }
