@@ -294,6 +294,30 @@ const TOP_PLACING =
 const ISEF = /\bisef\b|\binternational science (and|&) engineering fair\b/i;
 
 /**
+ * A degree field that says the row is not a degree.
+ *
+ * Summer programmes, extension courses, exchange terms and audits all land in the
+ * education section under the host university's name. "Dual Enrollment" is
+ * deliberately absent: registering for credit at a university is a real
+ * registration, however young the student.
+ */
+const ATTENDED_NOT_ENROLLED =
+  /\bcoursework\b|\bsummer\b|\bpre-?college\b|\bonline\b|\bextension\b|\bcontinuing education\b|\bcertificate\b|\bnon-?degree\b|\bvisiting\b|\bexchange\b|\baudit(ed|ing)?\b|\benrichment\b/i;
+
+/** A title that names an occasion rather than a job. */
+const EVENT_TITLE =
+  /\b(symposium|conference|summit|convention|forum|expo|hackathon|datathon|workshop|webinar|panel|seminar|masterclass|open day|insight day|discovery day|career day|info session|showcase|retreat|meetup)\b/i;
+
+/**
+ * A word that makes a title a role.
+ *
+ * Long on purpose: a false positive here costs an event tag, and a false negative
+ * costs a real employer. The list errs towards keeping the row.
+ */
+const ROLE_NOUN =
+  /\b(intern|internship|engineer|analyst|researcher|scientist|developer|founder|co-?founder|director|president|officer|manager|lead|associate|fellow|fellowship|consultant|assistant|chair(man|woman)?|board|representative|ambassador|volunteer|teacher|instructor|tutor|mentor|judge|ceo|cto|cfo|coo|cmo|vp|head|partner|trainee|apprentice|extern|scholar|member|coordinator|treasurer|secretary|editor|captain|advis[eo]r|architect|designer|strategist|specialist|technician|staff|counsel|writer|producer|operator|contributor|organiz|organis)\b/i;
+
+/**
  * A hackathon, however it is spelled.
  *
  * `hacks\b` without a leading boundary is deliberate: TreeHacks and CalHacks have no
@@ -420,6 +444,19 @@ export function extractTags(
   /* Schools. `schoolId` makes two spellings of one school the same tag. */
   for (const ed of e.educations) {
     if (!ed.school) continue;
+    /**
+     * Taking a course at a university is not going to it.
+     *
+     * Vihaan Shringi's education section lists Carnegie Mellon, where he is reading
+     * computer science, and Stanford, where the degree field reads "Accredited
+     * coursework" for a single summer. Both produced a college tag, so a summer
+     * programme scored the same 0.8 as a degree — the same mistake as Ishan
+     * Ramrakhiani being tagged Yale for Yale Young Global Scholars, one field over.
+     *
+     * The row is still on the profile and still visible. It is not a school he
+     * attends.
+     */
+    if (ATTENDED_NOT_ENROLLED.test(`${ed.degree ?? ""} ${ed.field ?? ""}`)) continue;
     // Two facets, because a university and a feeder high school answer different
     // questions and carry very different weights. The registry has the final say:
     // the name-based guess is wrong on every acronym.
@@ -446,6 +483,26 @@ export function extractTags(
 
   /* Companies and the roles held at them. */
   for (const x of e.experience) {
+    /**
+     * Going to an event at a company is not working there.
+     *
+     * Max Fan's experience section has `company: "Jump Trading"` with the title "AI
+     * Research Symposium" — an event he attended, which scored the same 1.4 as a desk
+     * on their trading floor. LinkedIn's experience section takes anything, and a
+     * conference is one of the things people put in it.
+     *
+     * A title naming an event *and* holding no role noun is attendance. Both halves
+     * are needed: "Bootcamp Fellow" and "Case Competition Judge" name events and are
+     * genuinely roles, and dropping those would lose real signal to fix a smaller
+     * problem.
+     */
+    if (
+      x.title &&
+      EVENT_TITLE.test(x.title) &&
+      !ROLE_NOUN.test(x.title)
+    ) {
+      continue;
+    }
     if (x.company) {
       const name = orgName(x.company);
       const facet = orgLookup(name, classifyOrg(name, x.title));

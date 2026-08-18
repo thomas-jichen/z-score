@@ -1036,6 +1036,76 @@ console.log("\nan alias has to mean something standing alone");
   );
 }
 
+console.log("\nattending something at a place is not belonging to it");
+{
+  const held = (p: Person) =>
+    heldTags(p, TAX)
+      .filter((t) => t.def.facet !== "state" && t.def.facet !== "homestate")
+      .map((t) => t.def.label);
+
+  /**
+   * Vihaan Shringi reads computer science at Carnegie Mellon. His education section
+   * also lists Stanford, where the degree field says "Accredited coursework" for one
+   * summer, and both produced a college tag — so a summer course scored the same 0.8
+   * as a degree. The same mistake as Ishan Ramrakhiani being tagged Yale for Yale
+   * Young Global Scholars, one field over.
+   */
+  const courses = bare("courses");
+  courses.enriched!.educations = [
+    { school: "Carnegie Mellon University", degree: "Bachelor of Science - BS", startYear: 2026, endYear: 2030 },
+    { school: "Stanford University", degree: "Accredited coursework", startYear: 2025, endYear: 2025 },
+  ];
+  const ct = held(courses);
+  check("the degree is a school", ct.includes("Carnegie Mellon"), true);
+  check("the coursework is not", ct.includes("Stanford"), false);
+
+  /**
+   * The remaining checks read the extractor rather than `heldTags`, which only
+   * returns names the registry already knows — an unseeded school or startup would
+   * disappear for a reason that has nothing to do with the guard.
+   */
+  const emitted = (p: Person) =>
+    extractTags(p, schoolStateLookup(TAX)).tags.map((t) => t.label);
+
+  // Registering for credit is a real registration, however young the student.
+  const dual = bare("dual");
+  dual.enriched!.educations = [
+    { school: "University of California, Santa Cruz", degree: "Dual Enrollment", startYear: 2024, endYear: 2024 },
+  ];
+  check(
+    "but dual enrolment is",
+    emitted(dual).includes("University of California, Santa Cruz"),
+    true
+  );
+
+  /**
+   * Max Fan's experience section has `company: "Jump Trading"` with the title "AI
+   * Research Symposium" — an event, scoring the same 1.4 as a desk on their trading
+   * floor. LinkedIn's experience section takes anything.
+   */
+  const attended = bare("attended");
+  attended.enriched!.experience = [
+    { title: "AI Research Symposium", company: "Jump Trading", startYear: 2025, endYear: 2025 },
+    { title: "ML Engineering", company: "Sylvan Labs", startYear: 2025, endYear: 2025 },
+  ];
+  const at = emitted(attended);
+  check("a symposium is not an employer", at.includes("Jump Trading"), false);
+  check("and the real role beside it survives", at.includes("Sylvan Labs"), true);
+
+  /**
+   * Both halves of the test are needed. These name an event *and* hold a role, and
+   * dropping them would lose real signal to fix a smaller problem.
+   */
+  const both = bare("both");
+  both.enriched!.experience = [
+    { title: "Bootcamp Fellow", company: "Stanford ASES", startYear: 2025, endYear: 2026 },
+    { title: "Case Competition Judge", company: "Bain & Company", startYear: 2025 },
+  ];
+  const bt = held(both);
+  check("a fellowship at a bootcamp is a role", bt.includes("Stanford ASES"), true);
+  check("as is judging a competition", bt.some((l) => /Bain/.test(l)), true);
+}
+
 console.log("\nplaced at ISEF, as opposed to placed at something");
 {
   /**
