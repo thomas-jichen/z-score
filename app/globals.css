@@ -1474,6 +1474,61 @@ tr[data-pinned] td:first-child {
   font-variant-numeric: tabular-nums;
 }
 
+/**
+ * Agent, the one item in the row that is not a place.
+ *
+ * The other four are views onto data that already exists: you go to them to look
+ * at something. The agent runs a week-long search whether or not anybody is
+ * watching, and as a fifth flat label sitting after Taxonomy it was the last of
+ * five identical things rather than the only one of its kind. So it is the only
+ * item with an outline and the only one carrying the blue, and a gap sets it off
+ * from the four rather than making it a louder member of them.
+ *
+ * The vertical padding drops by the width of the border it gains, so the chip is
+ * exactly as tall as the others' hover fill and the row stays level. Being the
+ * only bounded object in a line of text is enough; being 2px taller as well would
+ * be the row noticing.
+ *
+ * The dot does not pulse. A pulse is this app's word for something happening right
+ * now (.z-runpill-dot, .z-camp-dot) and the nav has no way to know whether a
+ * campaign is mid-tick. Still, it claims only that this is the part of the app
+ * that runs on its own, which is true whenever you read it.
+ */
+.z-nav-link.is-agent {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: var(--z-space-3);
+  padding-top: calc(var(--z-space-2) - 1px);
+  padding-bottom: calc(var(--z-space-2) - 1px);
+  color: var(--z-ink);
+  background: var(--z-bg);
+  border: 1px solid var(--z-border);
+  transition: background-color var(--z-t-fast), border-color var(--z-t-fast);
+}
+
+.z-nav-link.is-agent:hover {
+  background: var(--z-surface-blue);
+  border-color: var(--z-blue-glow);
+}
+
+/* Active still means filled, as it does for the other four, but filled from the
+   blue family rather than the grey one so the outline is not the only thing left
+   telling the two apart once you are standing on it. */
+.z-nav-link.is-agent[aria-current="page"] {
+  background: var(--z-surface-blue);
+  border-color: var(--z-blue-glow);
+  color: var(--z-navy);
+}
+
+.z-nav-live {
+  flex: none;
+  width: 5px;
+  height: 5px;
+  border-radius: var(--z-r-circle);
+  background: var(--z-blue);
+}
+
 /* Enrichment now survives navigation, so there has to be somewhere that says a
    run is still going from any screen. */
 .z-runpill {
@@ -2544,6 +2599,15 @@ tr[data-pinned] td:first-child {
     color: var(--z-ink-faint);
     transition: color var(--z-t-fast);
     -webkit-tap-highlight-color: transparent;
+  }
+
+  /* The only tab with a dot, and the darkest of the five labels when it is not
+     the one you are on. It is deliberately not given the blue, which is what the
+     bar uses for "you are here" and would leave it looking permanently selected.
+     Placed above the active rule on purpose: both are (0,2,0), so this sitting
+     below would win and the tab could never light up. */
+  .z-tab.is-agent {
+    color: var(--z-ink-nav);
   }
 
   .z-tab[aria-current="page"] {
