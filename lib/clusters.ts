@@ -90,6 +90,55 @@ export function isArchetype(v: unknown): v is Archetype {
  * term on the taxonomy screen, including back to a cluster.
  */
 export const TERM_CLUSTER: Record<string, Archetype | null> = {
+  /**
+   * ─── Votes that were missing ─────────────────────────────────────────────
+   *
+   * Thirty-three tags at weight 0.5 or more scored without voting for any cluster,
+   * so they moved a person up the ranking without saying what kind of person they
+   * are. Twelve were accelerators, which the note below says all vote founder.
+   *
+   * A null vote is still a legitimate answer and some of these keep it: National
+   * YoungArts is an arts award and there is no arts cluster, QuestBridge is a
+   * college-match scholarship and says nothing about a discipline. Guessing at those
+   * would be worse than abstaining.
+   */
+  "Afore Capital": "founder",
+  "Battery Ventures": "founder",
+  "645 Ventures": "founder",
+  Lightspeed: "founder",
+  "General Catalyst": "founder",
+  "Khosla Ventures": "founder",
+  "Index Ventures": "founder",
+  Accel: "founder",
+  Greylock: "founder",
+  Benchmark: "founder",
+  Bessemer: "founder",
+  "Pareto Fellowship": "founder",
+  // Dual degrees in engineering and business; Huntsman is international studies and
+  // Vagelos is life sciences, so the two of them land elsewhere.
+  "Berkeley M.E.T.": "founder",
+  "Penn M&T": "founder",
+  "Huntsman Program": "operator",
+  "Vagelos Program": "research",
+  "Palantir Meritocracy Fellow": "builder",
+  // Research awards.
+  "NeurIPS High School Track": "research",
+  "S.T. Yau Science Award": "research",
+  "Davidson Fellow": "research",
+  USESO: "research",
+  // Competition maths and computational linguistics.
+  "Math Prize for Girls": "quant",
+  NACLO: "quant",
+  "National Economics Challenge": "quant",
+  // Civic, service and leadership.
+  USSYP: "operator",
+  "Gloria Barron Prize": "operator",
+  "Jack Kent Cooke Scholar": "operator",
+  "Cameron Impact Scholar": "operator",
+  "Presidential Scholar": "operator",
+  Rise: "operator",
+  "Coolidge Scholar": "operator",
+
   // Quant, which now covers competition maths and informatics as well as trading.
   IMO: "quant",
   IOI: "quant",
@@ -232,6 +281,28 @@ export const START_WEIGHT: Record<string, number> = {
   MOP: 1.6,
   RSI: 1.6,
   "Palantir Meritocracy Fellow": 1.5,
+  /**
+   * Priced by how many people a year hold the thing, which is the only comparison
+   * that makes a taxonomy readable. USSYP takes two per state; the Barron Prize
+   * twenty-five nationally; Math Prize for Girls is the top of a field of a few
+   * hundred. NCWIT and Elks are broad at their base and only mean something at the
+   * top, so both carry a ladder rather than a low flat number.
+   */
+  USSYP: 1.1,
+  "Gloria Barron Prize": 1.1,
+  "NeurIPS High School Track": 1.2,
+  "Jack Kent Cooke Scholar": 1.0,
+  "Cameron Impact Scholar": 0.9,
+  "S.T. Yau Science Award": 1.0,
+  "Math Prize for Girls": 0.8,
+  "National YoungArts": 0.8,
+  NACLO: 0.6,
+  USESO: 0.5,
+  "National Economics Challenge": 0.5,
+  "NCWIT Aspirations": 0.3,
+  "Elks Most Valuable Student": 0.3,
+  "Cum Laude Society": 0.2,
+  "Pareto Fellowship": 1.2,
   "ISEF Grand Award": 1.4,
   "MIT PRIMES": 1.4,
   "Davidson Fellow": 1.3,

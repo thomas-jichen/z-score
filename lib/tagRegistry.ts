@@ -684,9 +684,62 @@ export function indexRegistry(reg: TagRegistry): RegistryIndex {
  * known — only the words are. Resolution is still exact: normalisation plus the
  * alias table, which is the whole point of having them.
  */
+/**
+ * Words that say when, not what.
+ *
+ * The tagger returns what the profile says, and the profile says "YC S26", "5x AIME
+ * Qualifier", "TreeHacks 2026 Winner". `normalizeKey` keeps digits — rightly, since
+ * "1517 Fund" and "645 Ventures" are named with them — so the batch code stayed in
+ * the key and none of those resolved to the tag they plainly name. Thirty of the
+ * sixty-two credentials the tagger found could not score, and this was the largest
+ * single cause.
+ *
+ * A leading multiplier ("3x", "5x") and a trailing cohort code or year are both
+ * about an instance of the thing rather than the thing.
+ */
+const WHEN_NOT_WHAT = /^(\d+x)-|-(\d+x)$|-([wsf]\d\d)$|-(\d{4})$|-(\d\d)$/;
+
+/**
+ * Words that say how far, not what.
+ *
+ * NOISE already drops "winner", "finalist" and the rest, but not the ones that grade
+ * rather than name: "NACLO Bronze", "NCWIT Aspirations in Computing Honorable
+ * Mention", "IPhO Gold". They are stripped here as a fallback rather than added to
+ * NOISE because NOISE decides ids, and moving an id is a migration; this decides
+ * only whether a lookup gets a second chance. The rung itself is not lost — readTier
+ * reads it off the same text, from the words this is throwing away.
+ */
+const HOW_FAR_NOT_WHAT =
+  /-(bronze|silver|gold|platinum|medalist|medallist|medal|honou?rable|mention|place|prize|semi|division|track|spotlight)$/;
+
+function withoutWhen(key: string): string {
+  let out = key;
+  // Repeated, because a term can carry both: "3x Regeneron ISEF Finalist 2025".
+  for (let last = ""; out !== last; ) {
+    last = out;
+    out = out.replace(WHEN_NOT_WHAT, "").replace(HOW_FAR_NOT_WHAT, "");
+  }
+  return out;
+}
+
+/**
+ * Look a label up without caring what facet it is.
+ *
+ * For a term the tagger read out of prose, or a search chip, the facet is not
+ * known — only the words are. Resolution is still exact: normalisation plus the
+ * alias table, which is the whole point of having them.
+ *
+ * The one concession is a second attempt with the when-not-what tokens removed, and
+ * it is a fallback rather than a rule: an exact key always wins, so a tag genuinely
+ * named with a number is never mistaken for a dated instance of a shorter one.
+ */
 export function resolveAny(index: RegistryIndex, label: string): TagDef | null {
   const id = normalizeKey(label);
-  return id ? index.byKey.get(id) ?? null : null;
+  if (!id) return null;
+  const exact = index.byKey.get(id);
+  if (exact) return exact;
+  const undated = withoutWhen(id);
+  return undated && undated !== id ? index.byKey.get(undated) ?? null : null;
 }
 
 export function resolveTag(

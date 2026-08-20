@@ -2063,6 +2063,31 @@ console.log("\ntiers — a finalist is not a winner");
     "Berkeley"
   );
 
+  /**
+   * A batch code or a rung is not part of the name.
+   *
+   * The tagger returns what the profile says, and the profile says "YC S26", "5x AIME
+   * Qualifier", "TreeHacks 2026 Winner", "NACLO Bronze". `normalizeKey` keeps digits,
+   * rightly — "1517 Fund" and "645 Ventures" are named with them — so the cohort code
+   * stayed in the key and none of those reached the tag they plainly name. Thirty of
+   * the sixty-two credentials the tagger found on this roster could not score, and
+   * this was the largest single cause.
+   */
+  const term = (label: string) => resolveAny(indexRegistry(TAX.tags), label)?.label ?? null;
+  check("a batch code is not part of the name", term("YC S26"), "Y Combinator");
+  check("nor is a year", term("TreeHacks 2026 Winner"), "TreeHacks");
+  check("nor a count", term("3x Regeneron ISEF Finalist"), "ISEF");
+  check("nor a medal", term("NACLO Bronze"), "NACLO");
+  check("nor an honourable mention", term("NCWiT Aspirations in Computing Honorable Mention"), "NCWIT Aspirations");
+
+  /**
+   * A fallback, not a rule: the exact key always wins first. USACO names a division
+   * Platinum, so stripping grading words as a rule would have folded USACO Platinum
+   * into nothing at all.
+   */
+  check("but a name made of one is still itself", term("USACO Platinum"), "USACO Platinum");
+  check("and so is a fund named with a number", term("1517 Fund"), "1517 Fund");
+
   // A tag with no ladder reads the tier and charges the same for it. Most
   // credentials either happened or did not.
   check("an unladdered tag still reports the rung", tier("USAMO Qualifier", "USAMO"), "qualifier");

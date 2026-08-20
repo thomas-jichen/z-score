@@ -139,12 +139,49 @@ export const TIER_LADDERS: Record<string, Partial<Record<Tier, number>>> = {
   // A Coolidge Senator is the rung below a Coolidge Scholar, and shared its weight.
   "Coolidge Scholar": { finalist: 0.6, semifinalist: 0.4 },
   QuestBridge: { finalist: 0.3 },
+  USSYP: { finalist: 0.6 },
+  "Cameron Impact Scholar": { finalist: 0.4 },
+  "National YoungArts": { winner: 0.9, finalist: 0.6 },
+  "NCWIT Aspirations": { winner: 0.7, semifinalist: 0.2, qualifier: 0.2 },
+  "Elks Most Valuable Student": { semifinalist: 0.15 },
   // Scholar, then Candidate, then nominated. Low stakes either way at 0.5.
   "Presidential Scholar": { finalist: 0.3, semifinalist: 0.2, qualifier: 0.2 },
 };
 
 /** Selective programs, competitions and credentials. */
 export const PROGRAMS: Seed[] = [
+  /**
+   * ─── Added after auditing what the tagger finds and cannot score ─────────
+   *
+   * Thirty of the sixty-two credentials the tagger read off the roster resolved to
+   * nothing, so they could not score however selective they were. These are the ones
+   * worth a weight, priced by how many people a year hold them.
+   *
+   * Four that turned up are deliberately absent. EXTRACT_SYSTEM in lib/groq.ts tells
+   * the model to skip AIME, Science Olympiad, Congressional App Challenge and
+   * National Merit Semifinalist as too common, and that judgment looks right — adding
+   * them here without editing the prompt would create tags nothing ever fills, and
+   * editing the prompt would start scoring credentials tens of thousands of people
+   * hold. The state and regional science fairs are absent for the same reason, and
+   * because a state fair reading as ISEF is the bug two commits ago fixed.
+   */
+  { label: "USSYP", aliases: ["United States Senate Youth Program", "US Senate Youth Program"] },
+  { label: "Jack Kent Cooke Scholar", aliases: ["Jack Kent Cooke Scholarship", "Jack Kent Cooke"] },
+  { label: "Gloria Barron Prize", aliases: ["Barron Prize", "Gloria Barron Prize for Young Heroes"] },
+  { label: "Cameron Impact Scholar", aliases: ["Cameron Impact Scholarship"] },
+  { label: "NeurIPS High School Track", aliases: ["NeurIPS High School"] },
+  { label: "S.T. Yau Science Award", aliases: ["Yau Science Award", "S. T. Yau Science Award"] },
+  { label: "Math Prize for Girls" },
+  { label: "National YoungArts", aliases: ["YoungArts"] },
+  { label: "NACLO", aliases: ["North American Computational Linguistics Olympiad"] },
+  { label: "USESO", aliases: ["USA Earth Science Olympiad"] },
+  { label: "NCWIT Aspirations", aliases: ["NCWIT Aspirations in Computing", "NCWIT"] },
+  { label: "National Economics Challenge", aliases: ["NEC"] },
+  { label: "Elks Most Valuable Student" },
+  { label: "Cum Laude Society" },
+  { label: "Palantir Meritocracy Fellow", aliases: ["Palantir Meritocracy Fellowship"] },
+  { label: "Bank of America Student Leader" },
+
   { label: "RSI", aliases: ["Research Science Institute"] },
   { label: "STS", aliases: ["Regeneron Science Talent Search", "Science Talent Search", "Regeneron STS"] },
   { label: "ISEF", aliases: ["International Science and Engineering Fair", "Regeneron ISEF"] },
@@ -801,7 +838,10 @@ export const ACCELERATORS: Seed[] = [
   { label: "Khosla Ventures", aliases: ["Khosla"] },
   { label: "Index Ventures", aliases: ["Index"] },
   { label: "Accel" },
-  { label: "Greylock" },
+  { label: "Greylock", aliases: ["GreylockX"] },
+  // Rudy Pathak's headline reads "Z Fellow | Pareto Fellow"; it was offered to the
+  // review queue as a company.
+  { label: "Pareto Fellowship", aliases: ["Pareto Fellow"] },
   { label: "Benchmark" },
   { label: "Bessemer", aliases: ["Bessemer Venture Partners", "BVP"] },
 ];
