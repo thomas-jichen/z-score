@@ -11,11 +11,25 @@ import { PROFILE_COOKIE } from "@/lib/profiles";
 export function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
-  // Always reachable: the gate itself, and the endpoints that open it.
+  /**
+   * Always reachable: the gate itself, the endpoints that open it, and the two
+   * doors that carry their own credential.
+   *
+   * The MCP server authenticates with a bearer token and the cron with a shared
+   * secret, neither of which is a cookie — so without this exemption both would be
+   * answered with a 307 to an HTML login page, which an agent cannot read. The
+   * well-known path is fetched unauthenticated by MCP clients after a 401 to
+   * discover how to authenticate, so it has to be open by definition.
+   */
   if (
     pathname.startsWith("/unlock") ||
     pathname.startsWith("/api/auth") ||
-    pathname.startsWith("/api/profile")
+    pathname.startsWith("/api/profile") ||
+    // Exact, not a prefix: `startsWith("/api/mcp")` would also open
+    // /api/mcp-tokens, which is the one door that must stay cookie-only.
+    pathname === "/api/mcp" ||
+    pathname.startsWith("/api/cron") ||
+    pathname.startsWith("/.well-known/")
   ) {
     return NextResponse.next();
   }

@@ -1,28 +1,11 @@
 import { NextResponse } from "next/server";
 import { resolveProfile } from "@/lib/auth";
-import {
-  MAX_PROFILES_PER_RUN,
-  getDatasetItems,
-  getRunStatus,
-  hasToken,
-  isMock,
-  isTerminal,
-  parseProfile,
-  startProfileRun,
-} from "@/lib/apify";
-import { COST_PER_PROFILE, toSlug, type EnrichedProfile, type Provenance } from "@/lib/enrichment";
-import { withEnriched, type Marks, type Person, type PersonStatus } from "@/lib/people";
-import {
-  hydrate,
-  mergeState,
-  rawKey,
-  stateKey,
-  type ProfileState,
-} from "@/lib/state";
-import { migrateIfNeeded, readRoster, readTeam, writePeople } from "@/lib/serverState";
+import { MAX_PROFILES_PER_RUN, hasToken, isMock, startProfileRun } from "@/lib/apify";
+import { COST_PER_PROFILE, toSlug, type Provenance } from "@/lib/enrichment";
+import { applyEnrichJob } from "@/lib/enrichApply";
+import { migrateIfNeeded, readTeam } from "@/lib/serverState";
 import { newJobId, readJob, writeJob, type EnrichJob } from "@/lib/jobs";
 import { reserveProfiles } from "@/lib/ratelimit";
-import { get, set } from "@/lib/store";
 import { cleanSlugs, isBad, readJson, str } from "@/lib/validate";
 import { log } from "@/lib/log";
 
@@ -191,120 +174,39 @@ export async function GET(req: Request) {
   }
   if (!job) return NextResponse.json({ ok: false, error: "Job not found." }, { status: 404 });
 
-  if (job.status === "error") {
-    return NextResponse.json({ ok: true, status: "error", error: job.error, job });
+  /**
+   * The apply step lives in lib/enrichApply.ts, because the campaign loop needs
+   * exactly it and a second copy of the one step that turns money into data is
+   * the last place two implementations should be allowed to drift. This handler
+   * is now the HTTP shape around that call, and nothing about the shape changed.
+   */
+  const result = await applyEnrichJob(job);
+
+  if (result.status === "running") {
+    return NextResponse.json({
+      ok: true,
+      status: "running",
+      ...(result.runStatus ? { runStatus: result.runStatus } : {}),
+      ...(result.note ? { note: result.note } : {}),
+      job,
+    });
   }
-  // Already resolved and already written on an earlier poll.
-  if (job.status === "done") {
+
+  if (result.status === "error") {
+    return NextResponse.json({ ok: true, status: "error", error: result.error, job });
+  }
+
+  if (result.alreadyApplied) {
     return NextResponse.json({ ok: true, status: "done", people: [], job, alreadyApplied: true });
   }
 
-  // `getRunStatus` and `getDatasetItems` already report their own failures rather
-  // than throwing, so from here the only unguarded step is the write below, which
-  // has its own try.
-  const run = await getRunStatus(job.runId);
-  if (!run.ok) {
-    // A transient poll failure is reported without ending the run.
-    return NextResponse.json({ ok: true, status: "running", note: run.error, job });
-  }
-  if (!isTerminal(run.status)) {
-    return NextResponse.json({ ok: true, status: "running", runStatus: run.status, job });
-  }
-
-  if (run.status !== "SUCCEEDED") {
-    return await fail(job, `Apify run ${run.status.toLowerCase()}.`);
-  }
-
-  const data = await getDatasetItems(job.datasetId, job.slugs);
-  if (!data.ok) return await fail(job, data.error);
-
-  const profiles: EnrichedProfile[] = [];
-  const raw: { slug: string; item: unknown }[] = [];
-  for (const item of data.items) {
-    // Provenance is keyed by the slug we asked for. The actor echoes it back,
-    // but fall through to the first requested slug's provenance if it does not.
-    const guess = toSlug(String((item as Record<string, unknown>)?.publicIdentifier ?? ""));
-    const attribution = (guess && job.provenance[guess]) || job.provenance[job.slugs[0]];
-    const parsed = parseProfile(item, attribution);
-    if (parsed) {
-      profiles.push(parsed);
-      raw.push({ slug: parsed.slug, item });
-    }
-  }
-
-  try {
-    await migrateIfNeeded();
-    const roster = await readRoster();
-
-    // Upgrade in place. Someone queued from search keeps their marks, their
-    // discovery trace and their addedAt, and simply gains the profile data.
-    const people: Person[] = profiles.map((p) => withEnriched(roster[p.slug], p));
-    await writePeople(people);
-
-    /**
-     * Archive the vendor's own payload, one key per person.
-     *
-     * Deliberately not on the roster: it is large and never needed to render a
-     * screen, and the roster hash is read on every page load. Kept because
-     * without it every field we did not think to parse costs a paid re-enrich of
-     * the whole roster to recover. A write failure here must not lose the
-     * enrichment that was already paid for, so it is best-effort.
-     */
-    await Promise.all(
-      raw.map((r) =>
-        set(rawKey(r.slug), r.item).catch((e) =>
-          log.warn("enrich.raw.failed", {
-            slug: r.slug,
-            error: e instanceof Error ? e.message : "unknown",
-          })
-        )
-      )
-    );
-
-    // Enriching is an implicit "I want this person", so anyone not already
-    // triaged joins the queue. An existing known or rejected mark is left alone.
-    const key = stateKey(r.profile);
-    const current = hydrate(await get<Partial<ProfileState>>(key));
-    const marks: Marks = { ...current.marks };
-    const at = new Date().toISOString();
-    for (const p of people) {
-      if (!marks[p.slug]) marks[p.slug] = { status: "queued" as PersonStatus, at };
-    }
-    await set(key, mergeState(current, { marks }));
-
-    job.status = "done";
-    job.resultCount = people.length;
-    job.finishedAt = at;
-    await writeJob(job);
-
-    log.info("enrich.done", {
-      requested: job.slugs.length,
-      returned: people.length,
-      mock: isMock(),
-      usd: isMock() ? 0 : Number((job.slugs.length * COST_PER_PROFILE).toFixed(4)),
-    });
-
-    return NextResponse.json({
-      ok: true,
-      status: "done",
-      people,
-      marks,
-      // The client tags these next, so extraction is retryable on its own rather
-      // than making the last poll of a long run carry the whole LLM batch.
-      newSlugs: people.map((p) => p.slug),
-      requested: job.slugs.length,
-      job,
-    });
-  } catch (e) {
-    return await fail(job, e instanceof Error ? e.message : "Could not save the results.");
-  }
-}
-
-async function fail(job: EnrichJob, error: string) {
-  job.status = "error";
-  job.error = error;
-  job.finishedAt = new Date().toISOString();
-  await writeJob(job);
-  log.error("enrich.failed", { requested: job.slugs.length, error });
-  return NextResponse.json({ ok: true, status: "error", error, job });
+  return NextResponse.json({
+    ok: true,
+    status: "done",
+    people: result.people,
+    marks: result.marks,
+    newSlugs: result.newSlugs,
+    requested: result.requested,
+    job,
+  });
 }

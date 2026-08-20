@@ -14,15 +14,15 @@ import { useApp } from "@/components/AppState";
  * across navigation, so there has to be somewhere that says so from every screen.
  *
  * ── On a phone the links move to the bottom ───────────────────────────────
- * One row could not hold them. The wordmark, four links and the identity needed
+ * One row could not hold them. The wordmark, the links and the identity needed
  * 437px of a 402px screen, and the overflow went to a scroll container with its
  * scrollbar hidden — so Taxonomy was cut to a stray "T" and reachable only by
  * guessing that the strip could be dragged. A destination you cannot see is a
  * destination you do not have.
  *
  * A bottom bar fixes it twice over: the row is no longer competing for width, and
- * the four things you switch between all day sit under the thumb rather than at
- * the far top corner of the screen.
+ * the sections you switch between all day sit under the thumb rather than at the
+ * far top corner of the screen.
  */
 
 const LINKS = [
@@ -30,6 +30,7 @@ const LINKS = [
   { href: "/queue", label: "Queue" },
   { href: "/graph", label: "Graph" },
   { href: "/taxonomy", label: "Taxonomy" },
+  { href: "/agent", label: "Agent" },
 ];
 
 function readProfileCookie(): Profile | undefined {
@@ -114,7 +115,7 @@ export function Nav() {
       </nav>
     </header>
 
-    {/* Phone only. Four destinations, thumb height, and none of them clipped. */}
+    {/* Phone only. Every destination, thumb height, and none of them clipped. */}
     <nav className="z-tabbar z-show-mobile" aria-label="Sections">
       {LINKS.map((l) => (
         <Link

@@ -34,6 +34,19 @@ import {
 } from "../lib/state";
 import { scoreOne, toCandidates } from "../lib/candidates";
 import {
+  budgetLeft,
+  cleanSettings,
+  defaultSettings,
+  estimateUsd,
+  mergeTop,
+  terminalReason,
+  utcDay,
+  KEEP_TOP,
+  type Campaign,
+  type ReportRow,
+} from "../lib/campaign";
+import { planQueries, queriesFrom } from "../lib/campaignQueries";
+import {
   allTags,
   buildSearchLabels,
   heldTags,
@@ -2362,6 +2375,225 @@ console.log("\ngraph — the rarity window is what keeps it readable");
   }
 }
 // ── Store: concurrent writes to different keys ───────────────────────────
+/**
+ * The agent loop.
+ *
+ * Two of these are not tests of arithmetic. `queueHits` is the door a week-long
+ * unattended run pushes people through, and both of its refusals — a permanently
+ * deleted person, and a rejection a human already made — are silent when they
+ * break. So each is also mutation-tested: the same call with the guard's input
+ * removed must come out differently, or the check is not watching anything.
+ */
+async function checkCampaign() {
+  console.log("\nplanQueries — the day's work, widest yield first");
+
+  check("nothing selected, nothing planned", planQueries(EMPTY_SELECTION), []);
+
+  check(
+    "one anchor is one query",
+    planQueries(sel({ programs: ["RSI"] })),
+    ["RSI site:linkedin.com/in"]
+  );
+
+  // A modifier cannot stand on its own: "2029 founder" finds the whole internet.
+  check("modifiers alone plan nothing", planQueries(sel({ years: ["2029"], titles: ["Founder"] })), []);
+
+  const plan = planQueries(sel({ programs: ["RSI"], colleges: ["Stanford"], years: ["2029"] }));
+  check("anchors come before any pairing", plan.slice(0, 2), [
+    "RSI site:linkedin.com/in",
+    "Stanford site:linkedin.com/in",
+  ]);
+  check("every planned query is distinct", plan.length, new Set(plan).size);
+  check("the site filter is on all of them", plan.every((q) => q.includes("site:linkedin.com/in")), true);
+
+  // Arity ordering is the whole reason the plan is ordered at all: three AND-ed
+  // groups usually return nothing, so they must never crowd out a single anchor.
+  const arity = (q: string) => q.replace(" site:linkedin.com/in", "").split(" ").length;
+  const firstThreeTerm = plan.findIndex((q) => arity(q) >= 3);
+  const lastOneTerm = plan.reduce((last, q, i) => (arity(q) === 1 ? i : last), -1);
+  check("no three-term query precedes a one-term query", firstThreeTerm === -1 || firstThreeTerm > lastOneTerm, true);
+
+  check(
+    "raw queries lead, and gain the site filter",
+    planQueries(sel({ programs: ["RSI"] }), ['"Z Fellows" 2030'])[0],
+    '"Z Fellows" 2030 site:linkedin.com/in'
+  );
+  check(
+    "a raw query that already has the filter is not given a second one",
+    planQueries(EMPTY_SELECTION, ["foo site:linkedin.com/in"]),
+    ["foo site:linkedin.com/in"]
+  );
+
+  const wide = sel({
+    programs: ["RSI", "STS", "ISEF"],
+    colleges: ["Stanford", "MIT"],
+    highSchools: ["TJHSST"],
+    titles: ["Founder"],
+    years: ["2029", "2030"],
+  });
+  check("the ceiling is obeyed", planQueries(wide, [], 12).length, 12);
+  check("a truncated plan is still the front of the full one", planQueries(wide, [], 12), planQueries(wide).slice(0, 12));
+  check("deterministic across calls", planQueries(wide), planQueries(wide));
+
+  // The cursor is the only state the loop keeps about queries, so a day's slice
+  // must be exactly the untouched front of what is left.
+  const day1 = queriesFrom(plan, 0, 3);
+  const day2 = queriesFrom(plan, 3, 3);
+  check("consecutive days do not repeat a query", day1.some((q) => day2.includes(q)), false);
+  check("a cursor past the end yields nothing", queriesFrom(plan, plan.length, 5), []);
+  check("a short tail is not padded", queriesFrom(plan, plan.length - 2, 10).length, 2);
+
+  console.log("\ncampaign settings and stopping");
+
+  const base = defaultSettings();
+  check("out-of-range clamps rather than throwing", cleanSettings({ days: 999, searchesPerDay: -5 }, base).days, 30);
+  check("an omitted key keeps its current value", cleanSettings({ days: 3 }, base).searchesPerDay, base.searchesPerDay);
+  check("an empty string is not zero", cleanSettings({ days: "" }, base).days, base.days);
+  check("a non-number is ignored, not coerced", cleanSettings({ days: "many" }, base).days, base.days);
+  check("whole days, decimal dollars", [
+    cleanSettings({ days: 2.7 }, base).days,
+    cleanSettings({ budgetUsd: 1.234 }, base).budgetUsd,
+  ], [3, 1.234]);
+
+  check(
+    "the estimate is searches plus enrichment",
+    estimateUsd({ ...base, days: 7, searchesPerDay: 100, enrichPerDay: 10, budgetUsd: 5 }),
+    Number((7 * 100 * 0.001 + 7 * 10 * 0.004).toFixed(4))
+  );
+
+  const camp = (over: Partial<Campaign>): Campaign => ({
+    id: "c1", owner: "cory", name: "t", status: "running",
+    selection: EMPTY_SELECTION, queries: [], settings: { ...base, days: 2, budgetUsd: 1 },
+    day: 1, lastTickDay: null, queryCursor: 0,
+    searchedToday: 0, queuedToday: 0, enrichedToday: 0, pendingJobId: null,
+    spentUsd: 0, top: [], found: [], foundCount: 0, ticks: [],
+    createdAt: "2026-01-01T00:00:00.000Z", ...over,
+  } as Campaign);
+
+  check("mid-run, no reason to stop", terminalReason(camp({}), 50), null);
+  check("the last day is still a day it may work", terminalReason(camp({ day: 2 }), 50), null);
+  check("past the last day it stops", terminalReason(camp({ day: 3 }), 50)?.includes("full 2 days"), true);
+  check("the ceiling stops it", terminalReason(camp({ spentUsd: 1 }), 50)?.includes("dollar ceiling"), true);
+  check("a cent under the ceiling is not the ceiling", terminalReason(camp({ spentUsd: 0.99 }), 50), null);
+  check("an exhausted plan stops it", terminalReason(camp({ queryCursor: 50 }), 50)?.includes("ran out of queries"), true);
+  check("days are counted before money", terminalReason(camp({ day: 3, spentUsd: 1 }), 50)?.includes("full 2 days"), true);
+
+  // What makes raising a setting on a finished campaign mean something: the same
+  // function decides both when to stop and whether the stop still applies.
+  const ranOutOfDays = camp({ day: 3 });
+  check("it stopped because the days ran out", terminalReason(ranOutOfDays, 50)?.includes("full 2 days"), true);
+  check(
+    "and giving it more days is a reason to carry on",
+    terminalReason({ ...ranOutOfDays, settings: { ...base, days: 5, budgetUsd: 1 } }, 50),
+    null
+  );
+  const hitCeiling = camp({ spentUsd: 1 });
+  check(
+    "raising a ceiling it hit is a reason to carry on",
+    terminalReason({ ...hitCeiling, settings: { ...base, days: 2, budgetUsd: 3 } }, 50),
+    null
+  );
+  // But no amount of money refills a used-up plan, so that one has to stay stopped.
+  check(
+    "a used-up query plan is not fixed with money",
+    terminalReason({ ...camp({ queryCursor: 50 }), settings: { ...base, days: 2, budgetUsd: 99 } }, 50)?.includes("ran out of queries"),
+    true
+  );
+
+  check("room left under the ceiling", budgetLeft(camp({ spentUsd: 0.4 })), 0.6);
+  check("overspend reads as nothing left, never negative", budgetLeft(camp({ spentUsd: 1.5 })), 0);
+  check("no ceiling means no limit", budgetLeft(camp({ settings: { ...base, budgetUsd: 0 } })), Infinity);
+
+  // The day counter moves on the UTC date, which is what makes advance_campaign
+  // safe to call repeatedly: ten calls are one day's work, not ten.
+  check("the day is the UTC date", utcDay(new Date("2026-08-20T23:30:00Z")), "2026-08-20");
+  check("and not the local one", utcDay(new Date("2026-08-21T00:30:00Z")), "2026-08-21");
+
+  console.log("\nmergeTop — the kept best across days");
+
+  const row = (slug: string, score: number, day = 1): ReportRow => ({
+    slug, name: slug, headline: "", url: `https://www.linkedin.com/in/${slug}`,
+    score, archetype: "founder", confirmed: [], enriched: false, day,
+    at: "2026-01-01T00:00:00.000Z",
+  });
+
+  check("highest score first", mergeTop([], [row("a", 1), row("c", 3), row("b", 2)]).map((r) => r.slug), ["c", "b", "a"]);
+  check("one row per person", mergeTop([row("a", 1)], [row("a", 1)]).length, 1);
+  // Enrichment happens after a person is first seen, so the later sighting is the
+  // truer one and must win even though the slug is already held.
+  check("a later, better sighting replaces the earlier", mergeTop([row("a", 1)], [row("a", 5)])[0].score, 5);
+  check("a later, worse sighting does not", mergeTop([row("a", 5)], [row("a", 1)])[0].score, 5);
+  const many = Array.from({ length: 80 }, (_, i) => row(`p${i}`, i));
+  check("kept at the bound", mergeTop([], many).length, KEEP_TOP);
+  check("and it keeps the best of them", mergeTop([], many)[0].score, 79);
+
+  console.log("\nqueueHits — what an unattended run must refuse");
+
+  const { promises: fsp } = await import("node:fs");
+  const nodePath = await import("node:path");
+  const store = await import("../lib/store");
+  const serverState = await import("../lib/serverState");
+  const file = nodePath.join(process.cwd(), ".data", "store.json");
+  const backup = await fsp.readFile(file, "utf8").catch(() => null);
+
+  try {
+    const hit = (slug: string) => ({
+      slug, name: slug.replace("-", " "), headline: "RSI 2025",
+      url: `https://www.linkedin.com/in/${slug}`, snippet: "Research Science Institute 2025",
+      matchedShards: ["RSI"],
+    });
+    const hits = [hit("erased-person"), hit("rejected-person"), hit("new-person")];
+    const opts = { query: "RSI", selection: sel({ programs: ["Research Science Institute"] }) };
+    // "known" suppresses just the same, and a week-long run would re-queue both.
+    const marks = {
+      "rejected-person": { status: "rejected" as const, at: "2026-01-01T00:00:00.000Z" },
+    };
+
+    await store.set("zscore:team:people", {});
+    const team = hydrateTeam(null);
+    await store.set("zscore:team:prefs", { ...team, deleted: ["erased-person"] });
+
+    const guarded = await serverState.queueHits("cory", hits, { ...opts, marks });
+    check("a permanently deleted person is refused", guarded.slugs.includes("erased-person"), false);
+    check("and the refusal is counted, not hidden", guarded.blocked, 1);
+    check("a human's rejection is not revived", guarded.slugs.includes("rejected-person"), false);
+    check("and that is counted too", guarded.skipped, 1);
+    check("the person nobody has ruled on is queued", guarded.slugs, ["new-person"]);
+    check("confirmed labels come from the hit's own text", guarded.people[0].searchLabels, [
+      { label: "Research Science Institute", confirmed: true },
+    ]);
+    // The OR group matched, but this person's text does not say it — so the chip
+    // is carried unconfirmed rather than asserted.
+    const unconfirmed = await serverState.queueHits(
+      "cory",
+      [{ ...hit("quiet-person"), headline: "Student", snippet: "Student at a school" }],
+      { query: "RSI", selection: sel({ programs: ["Research Science Institute", "ISEF"] }) }
+    );
+    check(
+      "a term the text does not show is not asserted",
+      unconfirmed.people[0].searchLabels.every((l) => l.confirmed === false),
+      true
+    );
+
+    // Mutation: remove each guard's input and the same call must change. If these
+    // two come out identical, neither check above is watching anything.
+    await store.set("zscore:team:prefs", { ...team, deleted: [] });
+    const unerased = await serverState.queueHits("cory", hits, { ...opts, marks });
+    check("mutation — with the blocklist empty the deleted person returns", unerased.slugs.includes("erased-person"), true);
+
+    await store.set("zscore:team:prefs", { ...team, deleted: ["erased-person"] });
+    const revived = await serverState.queueHits("cory", hits, { ...opts, marks, reviveRejected: true });
+    check("mutation — reviveRejected is what lets a rejection back in", revived.slugs.includes("rejected-person"), true);
+    check("but it never overrides the blocklist", revived.slugs.includes("erased-person"), false);
+
+    const capped = await serverState.queueHits("cory", hits, { ...opts, max: 1 });
+    check("the daily cap is honoured", capped.slugs.length, 1);
+  } finally {
+    if (backup !== null) await fsp.writeFile(file, backup);
+    else await fsp.rm(file, { force: true });
+  }
+}
+
 async function checkStore() {
   const { promises: fsp } = await import("node:fs");
   const nodePath = await import("node:path");
@@ -2437,6 +2669,8 @@ async function checkStore() {
 
 // ── Happy path against a mocked Serper response ──────────────────────────
 void (async () => {
+  await checkCampaign();
+
   await checkStore();
 
   console.log("\nrunShard — mocked Serper response");

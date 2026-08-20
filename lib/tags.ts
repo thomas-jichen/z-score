@@ -506,6 +506,33 @@ export function matchedTerms(p: Person, tax: TaxonomyPrefs): MatchedTerm[] {
  * and is deliberately authoritative — so clearing the field would be undone by the
  * next page load, and only the tag layer can hold the correction.
  */
+/**
+ * Registry labels grouped by facet, for the selection menus.
+ *
+ * Promoted first, then heaviest, then alphabetical: the tags that actually score
+ * are the ones worth searching for, and a menu of two hundred alphabetical
+ * entries buries them.
+ *
+ * Lifted out of the sweep screen so the Agent screen builds a campaign from the
+ * same menus in the same order, rather than growing a second opinion about what
+ * should be near the top.
+ */
+export function menusByFacet(tags: TaxonomyPrefs["tags"]): Map<TagFacet, string[]> {
+  const m = new Map<TagFacet, string[]>();
+  const defs = Object.values(tags).sort(
+    (a, b) =>
+      Number(b.promoted) - Number(a.promoted) ||
+      b.weight - a.weight ||
+      a.label.localeCompare(b.label)
+  );
+  for (const d of defs) {
+    const list = m.get(d.facet) ?? [];
+    list.push(d.label);
+    m.set(d.facet, list);
+  }
+  return m;
+}
+
 export function attributeTags(p: Person, suppressed?: Set<string>): Tag[] {
   const out: Tag[] = [];
   const year = p.gradYear ? String(p.gradYear) : p.inferredYear;

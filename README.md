@@ -15,9 +15,11 @@ It is not a standard deviation, and nothing in the product claims it is.
 
 ```
 sweep ──▶ select ──▶ queue ──▶ digest
-                       │
-                       ├──▶ graph      (a live view of the queue)
-                       └──▶ taxonomy   (the ruleset that scores everything)
+  ▲                    │
+  │                    ├──▶ graph      (a live view of the queue)
+  │                    └──▶ taxonomy   (the ruleset that scores everything)
+  │
+agent  ──▶ the same three steps, once a day, unattended
 ```
 
 | Route | What it is |
@@ -28,6 +30,7 @@ sweep ──▶ select ──▶ queue ──▶ digest
 | `/graph` | People and tags as one network, clustered by whatever you group on |
 | `/taxonomy` | Term weights, cluster assignments, and the review queue for new terms |
 | `/candidate/[slug]` | One person: score breakdown, tags, profile, discovery trace |
+| `/agent` | Multi-day searches that run themselves, and the Claude connection |
 
 ### Two things you can do with search results
 
@@ -259,10 +262,14 @@ works.
   known under-16 data since 1 January 2026, and email-finding should stay off for this group.
   `VENDOR_RECOMMENDATION.md` §7 covers this properly.
 
+- **The cron is off until `CRON_SECRET` is set.** The route 503s rather than allowing the call,
+  because the alternative is a public URL in production that starts paid work and a secret
+  comparison against the literal string `Bearer undefined`.
+
 ## Commands
 
 ```bash
-npm run check        # 184 assertions over the pure functions. No network, no API key
+npm run check        # 457 assertions over the pure functions. No network, no API key
 npm run build:check  # type-check build into .next-check, so it cannot clobber a running dev server
 ```
 
@@ -272,7 +279,10 @@ expansion and its dedupe, the confirmed/unconfirmed tag split, fixed-calibration
 the three worked examples above, **the same person scoring identically in a pool of 1 and a pool of
 30**, cluster assignment and its tie-break, the polymath threshold, promoting a term actually
 making it score, status transitions and sweep suppression, graph rarity windowing and layout
-determinism, hash-store operations, and migration of a legacy document.
+determinism, hash-store operations, migration of a legacy document, the agent's query plan and its
+arity ordering, when a campaign stops and why, and **the two things an unattended run must
+refuse** — re-adding a permanently deleted person, and un-rejecting one a human already
+turned down — each mutation-tested so the check cannot pass vacuously.
 
 ## Design
 
@@ -284,8 +294,31 @@ determinism, hash-store operations, and migration of a legacy document.
 
 The logo lives at `assets/logo.png`; `app/icon.png` and `app/apple-icon.png` are generated from it.
 
+## The agent loop
+
+A campaign is the whole pipeline on a timer. You give it a selection, a number of days and a daily
+query budget; each day it runs its queries, ranks the hits on how many of your own search terms
+the person's own text confirms, queues the best it does not already have, pays to enrich a capped
+few, and keeps a running top thirty. At the end you read the report.
+
+Three things move it: the daily Vercel cron, the Advance button on `/agent`, or Claude. There is no
+setting the loop obeys that is not on that screen and settable from either side — days, searches a
+day, queued a day, enrichments a day, the dollar ceiling, the score bar, and the team defaults a
+new campaign starts from. The caps we do not own are printed there too, with their values.
+
+Claude reaches it over MCP at `/api/mcp`, authenticated by a `zsk_` token minted on `/agent` and
+stored only as a SHA-256 hash. Thirteen tools: read the taxonomy, the queue and any campaign;
+sanity-check a query for a tenth of a cent; create, advance, update and stop a campaign; search,
+queue and enrich directly. **What it deliberately cannot do**: delete a person, reset the roster,
+change a taxonomy weight, or mark anyone known or rejected. Deciding who is worth talking to stays
+a human call, so an unattended loop can fill the queue but never triage it.
+
+Two refusals worth knowing, because they are what keeps a week-long run from doing damage: a
+campaign never re-adds a permanently deleted person, and never un-rejects one. Clicking add again
+in the UI plainly means revive; a nightly job doing it would quietly undo every triage decision.
+
 ## Not built
 
-LLM screening beyond term extraction, the email send itself, and the weekly autonomous loop. The
-digest is the top ten by score; screening is a separate decision.
+LLM screening beyond term extraction, and the email send itself. The digest is the top ten by
+score; screening is a separate decision.
 # z-score

@@ -145,6 +145,46 @@ export async function del(key: string): Promise<void> {
  * The expiry is only set on first write, so a window does not slide forward
  * every time it is hit.
  */
+/**
+ * Claim a name, or find it already claimed. Returns whether this caller won.
+ *
+ * A real lock, not a counter. `bump` cannot do this job: its window is a
+ * timestamp in the key, so two callers either side of a minute boundary both
+ * think they are first — which for the campaign loop means paying Apify twice.
+ *
+ * The TTL is the whole safety story: a holder that crashes without releasing
+ * blocks the lock for at most that long, so it is set to the function timeout
+ * rather than to anything optimistic.
+ */
+export async function setNx(key: string, value: string, ttlSeconds: number): Promise<boolean> {
+  if (storeKind() === "redis") {
+    const res = await redisCommand<string | null>([
+      "SET",
+      key,
+      JSON.stringify(value),
+      "NX",
+      "EX",
+      String(ttlSeconds),
+    ]);
+    return res === "OK";
+  }
+
+  // The file backend serialises every write, so read-then-write is atomic here.
+  return withFileLock(async () => {
+    const all = await readFileStore();
+    const held = all[key];
+    if (held !== undefined) {
+      const expires = all[`${key}::exp`];
+      const stillHeld = !expires || Number(JSON.parse(expires)) > Date.now();
+      if (stillHeld) return false;
+    }
+    all[key] = JSON.stringify(value);
+    all[`${key}::exp`] = JSON.stringify(Date.now() + ttlSeconds * 1000);
+    await writeFileStore(all);
+    return true;
+  });
+}
+
 export async function bump(key: string, ttlSeconds: number): Promise<number> {
   if (storeKind() === "redis") {
     const n = (await redisCommand<number>(["INCR", key])) ?? 1;
@@ -215,6 +255,22 @@ export async function hgetall<T>(key: string): Promise<Record<string, T>> {
     }
   }
   return out;
+}
+
+/**
+ * Just the field names.
+ *
+ * `hgetall` on the roster returns up to two thousand enriched profiles, several
+ * megabytes of JSON, and the commonest reason to touch it is only ever to ask
+ * "do we already have this person". The campaign loop asks that of a hundred
+ * slugs a day, so it asks for the keys.
+ */
+export async function hkeys(key: string): Promise<string[]> {
+  if (storeKind() === "redis") {
+    const raw = (await redisCommand<unknown[]>(["HKEYS", key])) ?? [];
+    return Array.isArray(raw) ? raw.map(String) : [];
+  }
+  return Object.keys(await withFileLock(() => readHashFile(key)));
 }
 
 export async function hget<T>(key: string, field: string): Promise<T | null> {

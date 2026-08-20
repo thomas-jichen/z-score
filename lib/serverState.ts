@@ -1,8 +1,19 @@
 import { isArchetype, type Archetype } from "./clusters";
-import type { Person, Roster } from "./people";
-import { capRoster, migrateLegacy, refreshDerived } from "./people";
+import type { Marks, Person, Roster } from "./people";
+import {
+  MAX_PEOPLE,
+  capRoster,
+  isSuppressed,
+  migrateLegacy,
+  personFromHit,
+  refreshDerived,
+} from "./people";
+import { buildSearchLabels } from "./tags";
+import type { Selection } from "./query";
+import type { Hit } from "./types";
+import type { ProfileId } from "./profiles";
 import type { EnrichedProfile } from "./enrichment";
-import { get, hgetall, hset, keys, set } from "./store";
+import { get, hdel, hgetall, hkeys, hset, keys, set } from "./store";
 import {
   ROSTER_KEY,
   SCHEMA_KEY,
@@ -46,6 +57,115 @@ export async function writePeople(people: Person[]): Promise<void> {
     ROSTER_KEY,
     Object.fromEntries(people.map((p) => [p.slug, p]))
   );
+}
+
+/** Every slug the roster holds, without unpacking two thousand profiles to find out. */
+export async function rosterSlugs(): Promise<Set<string>> {
+  return new Set(await hkeys(ROSTER_KEY));
+}
+
+/**
+ * Write new people, then evict if the roster has outgrown its cap.
+ *
+ * Lifted out of the people route, where it was the only place eviction happened
+ * — so the enrichment path, which writes with a bare `writePeople`, could push
+ * the roster past its cap indefinitely. That is exactly what `capRoster` exists
+ * to prevent, and the campaign loop would have made it routine rather than
+ * theoretical.
+ *
+ * Capping on write rather than on read means the store never accumulates past
+ * the bound. Without it a write eventually exceeds what the backend accepts,
+ * which fails every save at once instead of degrading.
+ */
+export async function addPeopleCapped(fresh: Person[], marks: Marks = {}): Promise<string[]> {
+  await writePeople(fresh);
+  if (fresh.length === 0) return [];
+
+  const roster = await readRoster();
+  if (Object.keys(roster).length <= MAX_PEOPLE) return [];
+
+  const kept = capRoster(roster, marks);
+  const evicted = Object.keys(roster).filter((slug) => !(slug in kept));
+  if (evicted.length > 0) await hdel(ROSTER_KEY, evicted);
+  return evicted;
+}
+
+export type QueueHitsResult = {
+  /** Roster rows created. Someone already held is queued without being rewritten. */
+  added: number;
+  /** Slugs now in the caller's queue. */
+  slugs: string[];
+  /** Refused because the team deleted them for good. */
+  blocked: number;
+  /** Skipped because the caller had already triaged them, and `reviveRejected` was off. */
+  skipped: number;
+  people: Person[];
+};
+
+/**
+ * Turn search hits into queued people.
+ *
+ * Extracted from the people route so the campaign loop cannot drift from it. The
+ * route was the only place that respected the deletion blocklist, capped the
+ * roster, and cross-checked search chips against a hit's own text — and an
+ * unattended loop that skipped any one of those would do damage nightly rather
+ * than once.
+ *
+ * `reviveRejected` is the one behaviour that must differ between the two callers.
+ * The route sets it: a human clicking add again on someone they rejected plainly
+ * means to put them back. A campaign must never do that, or it silently undoes
+ * human triage every morning for a week.
+ */
+export async function queueHits(
+  profile: ProfileId,
+  hits: Hit[],
+  opts: {
+    query: string;
+    selection: Selection;
+    reviveRejected?: boolean;
+    marks?: Marks;
+    max?: number;
+  }
+): Promise<QueueHitsResult> {
+  const [roster, team] = await Promise.all([readRoster(), readTeam()]);
+  const erased = new Set(team.deleted);
+  const marks = opts.marks ?? {};
+  const limit = opts.max ?? hits.length;
+
+  const fresh: Person[] = [];
+  const slugs: string[] = [];
+  let blocked = 0;
+  let skipped = 0;
+
+  for (const hit of hits) {
+    if (slugs.length >= limit) break;
+    const slug = hit.slug;
+    if (!slug || slugs.includes(slug)) continue;
+    // Deleted for good. A sweep will keep finding them — the search engine does
+    // not know — so the refusal has to live here, at the door to the roster.
+    if (erased.has(slug)) {
+      blocked++;
+      continue;
+    }
+    if (!opts.reviveRejected && isSuppressed(marks[slug])) {
+      skipped++;
+      continue;
+    }
+    slugs.push(slug);
+
+    // Already in the roster? Keep the richer record; only marks change.
+    if (roster[slug]) continue;
+
+    // Chips are cross-checked against this hit's own text, so an OR group never
+    // silently asserts a credential the snippet does not actually show.
+    const labels = buildSearchLabels(
+      `${hit.name} ${hit.headline} ${hit.snippet}`,
+      opts.selection
+    );
+    fresh.push(personFromHit(hit, { query: opts.query, labels }));
+  }
+
+  return { added: fresh.length, slugs, blocked, skipped, people: fresh };
 }
 
 export async function readTeam(): Promise<TeamState> {

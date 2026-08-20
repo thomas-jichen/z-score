@@ -5,8 +5,6 @@ import type { Hit } from "@/lib/types";
 import type { Selection } from "@/lib/query";
 import {
   MAX_PEOPLE,
-  capRoster,
-  personFromHit,
   personFromSlug,
   type Marks,
   type Person,
@@ -23,8 +21,14 @@ import {
   type ProfileState,
   type TeamState,
 } from "@/lib/state";
-import { migrateIfNeeded, readRoster, readTeam, writePeople } from "@/lib/serverState";
-import { buildSearchLabels } from "@/lib/tags";
+import {
+  addPeopleCapped,
+  migrateIfNeeded,
+  queueHits,
+  readRoster,
+  readTeam,
+  writePeople,
+} from "@/lib/serverState";
 import { del, get, hdel, set } from "@/lib/store";
 import { extractSlug } from "@/lib/search";
 import { toSlug } from "@/lib/enrichment";
@@ -158,16 +162,11 @@ const queued = (marks: Marks, slugs: string[]): Marks => {
  * which fails every save at once instead of degrading.
  */
 async function addPeople(fresh: Person[], marks: Marks): Promise<void> {
-  await writePeople(fresh);
-  if (fresh.length === 0) return;
-
-  const roster = await readRoster();
-  if (Object.keys(roster).length <= MAX_PEOPLE) return;
-
-  const kept = capRoster(roster, marks);
-  const evicted = Object.keys(roster).filter((slug) => !(slug in kept));
+  // The cap itself lives in lib/serverState.ts now, because the enrichment path
+  // writes people too and was doing it with a bare `writePeople` — so the roster
+  // could grow past the bound indefinitely. One door, one cap.
+  const evicted = await addPeopleCapped(fresh, marks);
   if (evicted.length > 0) {
-    await hdel(ROSTER_KEY, evicted);
     log.warn("people.evicted", { count: evicted.length, cap: MAX_PEOPLE });
   }
 }
@@ -183,28 +182,15 @@ async function addHits(profile: ProfileId, body: Extract<Body, { op: "addHits" }
   const query = str(body.query, 500);
   const selection = normaliseSelection(body.selection);
 
-  const [roster, team] = await Promise.all([readRoster(), readTeam()]);
-  const erased = new Set(team.deleted);
-  const fresh: Person[] = [];
-  const slugs: string[] = [];
-  let blocked = 0;
-
+  // Validation stays here, where the request is. Everything past it — the
+  // deletion blocklist, the roster check, the chip cross-check — is shared with
+  // the campaign loop in lib/serverState.ts.
+  const hits: Hit[] = [];
   for (const item of raw) {
     const h = (item ?? {}) as Partial<Hit>;
     const slug = toSlug(str(h.slug, 200)) ?? extractSlug(str(h.url, 500));
-    if (!slug || slugs.includes(slug)) continue;
-    // Deleted for good. A sweep will keep finding them — the search engine does not
-    // know — so the refusal has to live here, at the door to the roster.
-    if (erased.has(slug)) {
-      blocked++;
-      continue;
-    }
-    slugs.push(slug);
-
-    // Already in the roster? Keep the richer record; only marks change below.
-    if (roster[slug]) continue;
-
-    const hit: Hit = {
+    if (!slug) continue;
+    hits.push({
       slug,
       name: str(h.name, 200),
       headline: str(h.headline, 500),
@@ -212,13 +198,16 @@ async function addHits(profile: ProfileId, body: Extract<Body, { op: "addHits" }
       snippet: str(h.snippet, 1000),
       matchedShards: [],
       inferredYear: str(h.inferredYear, 8) || undefined,
-    };
-
-    // Chips are cross-checked against this hit's own text, so an OR group never
-    // silently asserts a credential the snippet does not actually show.
-    const labels = buildSearchLabels(`${hit.name} ${hit.headline} ${hit.snippet}`, selection);
-    fresh.push(personFromHit(hit, { query, labels }));
+    });
   }
+
+  // `reviveRejected` because a human clicking add again on someone they rejected
+  // plainly means to put them back. The campaign passes nothing here.
+  const { people: fresh, slugs, blocked } = await queueHits(profile, hits, {
+    query,
+    selection,
+    reviveRejected: true,
+  });
 
   if (slugs.length === 0) {
     return NextResponse.json(
