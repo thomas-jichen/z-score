@@ -123,6 +123,35 @@ export function isTagMatch(v: unknown): v is TagMatch {
   return v === "text" || v === "qualified" || v === "structured";
 }
 
+/**
+ * How far somebody got, strongest first.
+ *
+ * `normalizeKey` deletes every one of these words, which is right for a key and was
+ * throwing away the answer to the only question that separates two people holding
+ * the same credential. "Neo Scholar Finalist" reduced to `neo` and scored the full
+ * 1.5 of being a Neo Scholar; "Coca Cola Scholarship Semi-Finalist" scored the full
+ * 1.2 of the scholarship. Michael Yu and Andra Campos are both in the roster.
+ *
+ * The list is short on purpose. These are the rungs that recur across competitions
+ * and fellowships, not every honour's private vocabulary — a ladder nobody can read
+ * off a profile is a ladder nobody can price.
+ */
+export const TIERS = [
+  "grand",
+  "winner",
+  "nationalTeam",
+  "camper",
+  "semifinalist",
+  "finalist",
+  "qualifier",
+] as const;
+
+export type Tier = (typeof TIERS)[number];
+
+export function isTier(v: unknown): v is Tier {
+  return typeof v === "string" && (TIERS as readonly string[]).includes(v);
+}
+
 export type TagDef = {
   /** Canonical key, from `normalizeKey(label)`. Stable across relabelling. */
   id: string;
@@ -148,6 +177,16 @@ export type TagDef = {
   promoted: boolean;
   /** How this may be read from prose. Absent means `text`. */
   match?: TagMatch;
+  /**
+   * What each rung is worth, absolutely, when the record says which one.
+   *
+   * Per tag rather than one shared ladder of multipliers, because clearing round one
+   * of ISEF against 1,800 finalists is not the same kind of achievement as clearing
+   * round one of a hackathon, and no single fraction is right for both. `weight`
+   * stays the untiered figure: what the credential is worth when the text names it
+   * and says nothing about how it went.
+   */
+  tiers?: Partial<Record<Tier, number>>;
 };
 
 export type TagRegistry = Record<string, TagDef>;
@@ -726,6 +765,8 @@ export function seedRegistry(input: {
   termCluster: Record<string, Archetype | null>;
   /** How each label may be read from prose. Absent means `text`. */
   matchPolicy: Record<string, TagMatch>;
+  /** What each rung is worth, for the labels that have rungs. */
+  tierLadders: Record<string, Partial<Record<Tier, number>>>;
   states: Record<string, string>;
   facetDefaults: Record<TagFacet, number>;
 }): TagRegistry {
@@ -768,6 +809,7 @@ export function seedRegistry(input: {
       cluster: input.termCluster[label] ?? null,
       ...(state ? { state } : {}),
       ...(input.matchPolicy[label] ? { match: input.matchPolicy[label] } : {}),
+      ...(input.tierLadders[label] ? { tiers: input.tierLadders[label] } : {}),
       promoted: true,
     };
   };

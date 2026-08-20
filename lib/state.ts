@@ -9,6 +9,7 @@ import {
   MATCH_POLICY,
   PURGED_ALIASES,
   RENAMED,
+  TIER_LADDERS,
   RETIRED,
   COLLEGES,
   COMPANIES,
@@ -360,6 +361,7 @@ function seededTags(): TagRegistry {
     startWeight: START_WEIGHT,
     termCluster: TERM_CLUSTER,
     matchPolicy: MATCH_POLICY,
+    tierLadders: TIER_LADDERS,
     states: US_STATES,
     facetDefaults: defaultFacetWeights(),
   });
@@ -698,6 +700,15 @@ function migrateFacets(tags: TagRegistry, removed: string[] = []): TagRegistry {
     if (fresh && fresh.match !== updated.match) {
       const { match: _was, ...rest } = updated;
       updated = fresh.match ? { ...rest, match: fresh.match } : (rest as TagDef);
+    }
+
+    // The tier ladder follows the seed too, and for the same reason: a document
+    // written before rungs existed has none, and would go on paying a Neo Scholar
+    // finalist what it pays a Neo Scholar. A hand-tuned rung is overwritten, which
+    // is the trade `adoptSeedWeights` already makes for weights.
+    if (fresh && JSON.stringify(fresh.tiers) !== JSON.stringify(updated.tiers)) {
+      const { tiers: _had, ...rest } = updated;
+      updated = fresh.tiers ? { ...rest, tiers: fresh.tiers } : (rest as TagDef);
     }
 
     if (updated !== def) {

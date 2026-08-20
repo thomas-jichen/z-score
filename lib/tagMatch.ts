@@ -6,6 +6,7 @@ import {
   type RegistryIndex,
   type TagDef,
   type TagFacet,
+  type Tier,
 } from "./tagRegistry";
 
 /**
@@ -184,4 +185,58 @@ export function hasQualifier(text: string, span: Span, facet: TagFacet): boolean
   const before = tokenize(text.slice(0, span.start)).slice(-QUALIFIER_REACH);
   const after = tokenize(text.slice(span.end)).slice(0, QUALIFIER_REACH);
   return [...before, ...after].some((t) => pattern.test(t.fold));
+}
+
+/**
+ * How far somebody got, read off the words around the credential.
+ *
+ * The patterns are ordered by strength and the first hit wins, with one deliberate
+ * exception: `semifinalist` is tested before `finalist`, because "Semi-Finalist"
+ * written with a hyphen puts a word boundary in front of "finalist" and would
+ * otherwise promote a semifinalist by two rungs. "Semifinalist" as one word is safe
+ * either way — there is no boundary before the "f" — which is exactly the kind of
+ * difference that is invisible until it costs somebody a rung.
+ *
+ * Read from the field that produced the match, never the whole profile. A semifinal
+ * in one honour must not upgrade another, which is a property the ISEF tier check
+ * already had and states in lib/extract.ts.
+ */
+const TIER_PATTERNS: [Tier, RegExp][] = [
+  ["grand", /\bgrand (award|prize)\b|\bbest (of|in) category\b/i],
+  ["winner", /\bwinner\b|\bwon\b|\bchampion\b|\b(1st|first) place\b|\bgold\b|\bgrand champion\b/i],
+  ["nationalTeam", /\bnational team\b|\bteam member\b|\btravel(l?ing)? team\b/i],
+  ["camper", /\btraining camp\b|\bcampers?\b|\binvited to camp\b/i],
+  ["semifinalist", /\bsemi[- ]?finalists?\b/i],
+  ["finalist", /\bfinalists?\b/i],
+  ["qualifier", /\bqualifi(er|ed)\b|\bparticipants?\b|\bcompeted\b|\bhonou?rable mention\b/i],
+];
+
+/**
+ * How much text around a span still counts as being about it. About a clause, and
+ * the reason for a window at all is the headline-plus-about-plus-certifications
+ * blob: one "finalist" anywhere in it would otherwise grade every credential named
+ * anywhere else in it. An honours entry is shorter than the window, so it behaves
+ * exactly as reading the whole field did.
+ */
+const TIER_REACH = 120;
+
+export function readTier(text: string, span?: Span): Tier | undefined {
+  const near = span
+    ? text.slice(Math.max(0, span.start - TIER_REACH), span.end + TIER_REACH)
+    : text;
+  for (const [tier, pattern] of TIER_PATTERNS) if (pattern.test(near)) return tier;
+  return undefined;
+}
+
+/**
+ * What a tag is worth on this record.
+ *
+ * The untiered weight unless the text says which rung and the tag prices that rung.
+ * A tag with no ladder ignores the tier entirely, which is the right default: most
+ * credentials either happened or did not.
+ */
+export function tieredWeight(def: TagDef, tier: Tier | undefined): number {
+  if (!tier || !def.tiers) return def.weight;
+  const rung = def.tiers[tier];
+  return rung === undefined ? def.weight : rung;
 }

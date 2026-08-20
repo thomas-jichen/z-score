@@ -1,4 +1,4 @@
-import type { TagMatch } from "./tagRegistry";
+import type { TagMatch, Tier } from "./tagRegistry";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════
@@ -101,6 +101,46 @@ export const MATCH_POLICY: Record<string, TagMatch> = {
   "MIT PRIMES": "qualified",
   "Jane Street AMP": "qualified",
   "Coca-Cola Scholar": "qualified",
+};
+
+/**
+ * What each rung of a credential is worth, where the credential has rungs.
+ *
+ * `normalizeKey` deletes "winner", "finalist", "semifinalist" and "qualifier",
+ * which is right for building a key and was throwing away the only thing that
+ * separates two people holding the same name. Michael Yu's honour reads "Neo Scholar
+ * Finalist" and he scored the full 1.5 of being a Neo Scholar; Andra Campos wrote
+ * "Coca Cola Scholarship Semi-Finalist" and scored the full 1.2.
+ *
+ * Deliberately not every tag. A ladder is only listed where the programme really has
+ * a published tier and the gap between rungs is worth pricing. Two omissions are on
+ * purpose rather than for lack of time:
+ *
+ *   ISEF already splits its top rung into its own tag, ISEF Grand Award, read per
+ *   honour by ISEF_TIER in lib/extract.ts. A ladder here would double-charge it.
+ *
+ *   The olympiads already have the Olympiad camper flag, which stacks with the
+ *   olympiad's own weight by design so that a USABO camper and a USABO semifinalist
+ *   are not the same person. Same reason.
+ *
+ * Absolute weights, not fractions of the base, so the number on the screen is the
+ * number that scores and the taxonomy editor stays one kind of thing. The cost of
+ * that choice is real and worth stating: raising a base weight does not lift its
+ * rungs with it, so a retuned tag needs its ladder retuned too. Every rung below is
+ * priced against the *seeded* base, which is what a fresh document has.
+ */
+export const TIER_LADDERS: Record<string, Partial<Record<Tier, number>>> = {
+  // A Thiel finalist is interviewed; a Thiel Fellow is paid to drop out.
+  "Thiel Fellow": { finalist: 0.8, semifinalist: 0.4 },
+  "Neo Scholar": { finalist: 0.8 },
+  "Davidson Fellow": { finalist: 0.6 },
+  "Coca-Cola Scholar": { finalist: 0.5, semifinalist: 0.3 },
+  Rise: { finalist: 0.6 },
+  // A Coolidge Senator is the rung below a Coolidge Scholar, and shared its weight.
+  "Coolidge Scholar": { finalist: 0.6, semifinalist: 0.4 },
+  QuestBridge: { finalist: 0.3 },
+  // Scholar, then Candidate, then nominated. Low stakes either way at 0.5.
+  "Presidential Scholar": { finalist: 0.3, semifinalist: 0.2, qualifier: 0.2 },
 };
 
 /** Selective programs, competitions and credentials. */

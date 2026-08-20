@@ -17,8 +17,9 @@ import {
   resolveTag,
   type TagDef,
   type TagFacet,
+  type Tier,
 } from "./tagRegistry";
-import { hasQualifier, scanText } from "./tagMatch";
+import { hasQualifier, readTier, scanText, tieredWeight } from "./tagMatch";
 import type { Signal } from "./zscore";
 
 /**
@@ -122,6 +123,12 @@ export type MatchedTerm = {
   weight: number;
   cluster: Archetype | null;
   source: Signal["source"];
+  /**
+   * Which rung, when the record named one. The label is left alone on purpose: it is
+   * the key the graph joins two people on, and folding the tier into it would split
+   * "ISEF finalist" from "ISEF winner" into two unrelated things.
+   */
+  tier?: Tier;
 };
 
 type Field = {
@@ -399,6 +406,14 @@ export type HeldTag = {
    * Only prose can supply them; a tag read from a structured entity has no span.
    */
   evidence?: { text: string; section: Signal["source"] };
+  /**
+   * Which rung the record says they reached, when it says.
+   *
+   * Separate from `def.tiers` because the ladder is the price list and this is the
+   * reading. A tag with no ladder still records the tier; it just does not charge
+   * differently for it, which keeps the finding available to the screen.
+   */
+  tier?: Tier;
 };
 
 /**
@@ -490,7 +505,10 @@ export function heldTags(p: Person, tax: TaxonomyPrefs): HeldTag[] {
       if (policy === "structured") continue;
       if (policy === "qualified" && !f.claim && !hasQualifier(f.text, span, def.facet)) continue;
 
-      take(def, f.source, { evidence: { text: span.text, section: f.source } });
+      take(def, f.source, {
+        evidence: { text: span.text, section: f.source },
+        ...(readTier(f.text, span) ? { tier: readTier(f.text, span) } : {}),
+      });
     }
   }
 
@@ -505,7 +523,10 @@ export function heldTags(p: Person, tax: TaxonomyPrefs): HeldTag[] {
    */
   for (const label of [...(p.extractedTerms ?? []), ...(p.manualTerms ?? [])]) {
     const def = resolveAny(index, label);
-    if (def) take(def, "extracted");
+    // The term itself is where a tier is stated most plainly: the tagger returns
+    // "USABO Semifinalist" and "Neo Scholar Finalist" verbatim, and `normalizeKey`
+    // is about to delete exactly the word that distinguishes them.
+    if (def) take(def, "extracted", { ...(readTier(label) ? { tier: readTier(label) } : {}) });
   }
 
   /**
@@ -527,9 +548,13 @@ export function matchedTerms(p: Person, tax: TaxonomyPrefs): MatchedTerm[] {
   const out: MatchedTerm[] = [];
 
   // Only the tags actually switched on contribute to a score.
-  for (const { def, source } of heldTags(p, tax)) {
-    if (!def.promoted || def.weight <= 0) continue;
-    out.push({ label: def.label, weight: def.weight, cluster: def.cluster, source });
+  for (const { def, source, tier } of heldTags(p, tax)) {
+    if (!def.promoted) continue;
+    // The rung, when the record named one and the tag prices it. A finalist and a
+    // winner were indistinguishable here, which is the whole point of the ladder.
+    const weight = tieredWeight(def, tier);
+    if (weight <= 0) continue;
+    out.push({ label: def.label, weight, cluster: def.cluster, source, tier });
   }
 
   return out.sort((a, b) => b.weight - a.weight);

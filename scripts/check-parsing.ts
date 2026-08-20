@@ -1967,6 +1967,65 @@ console.log("\nnational is not international, and a withdrawn alias has to leave
   check("and leaves nothing behind", oldLab.taxonomy.tags["argonne-laboratory"], undefined);
 }
 
+console.log("\ntiers — a finalist is not a winner");
+{
+  /**
+   * `normalizeKey` deletes "winner", "finalist", "semifinalist" and "qualifier",
+   * which is right for a key and was throwing away the only thing separating two
+   * people holding the same name. Michael Yu's honour reads "Neo Scholar Finalist"
+   * and he took the full 1.5 of being a Neo Scholar; Andra Campos wrote "Coca Cola
+   * Scholarship Semi-Finalist" and took the full 1.2.
+   */
+  const scored = (honor: string) => {
+    const p = bare("tier", [honor]);
+    return matchedTerms(p, TAX);
+  };
+  const w = (honor: string, label: string) => scored(honor).find((t) => t.label === label)?.weight;
+  const tier = (honor: string, label: string) => scored(honor).find((t) => t.label === label)?.tier;
+
+  check("being a Neo Scholar is 1.5", w("Neo Scholar", "Neo Scholar"), 1.5);
+  check("reaching the final is 0.8", w("Neo Scholar Finalist", "Neo Scholar"), 0.8);
+  check("and the rung is recorded", tier("Neo Scholar Finalist", "Neo Scholar"), "finalist");
+
+  /**
+   * "Semi-Finalist" with a hyphen puts a word boundary in front of "finalist", so a
+   * naive strength ordering promotes a semifinalist two rungs. Both spellings have
+   * to land on the same rung.
+   */
+  check("a hyphenated semi-final is a semi-final", tier("Coca-Cola Scholar Semi-Finalist", "Coca-Cola Scholar"), "semifinalist");
+  check("and so is the one word", tier("Coca-Cola Scholar Semifinalist", "Coca-Cola Scholar"), "semifinalist");
+  check("priced below the finalist", w("Coca-Cola Scholar Semifinalist", "Coca-Cola Scholar"), 0.3);
+  check("which is priced below the scholar", w("Coca-Cola Scholar Finalist", "Coca-Cola Scholar"), 0.5);
+  // The seeded base, not the 1.2 this team has tuned it to. Rungs are absolute.
+  check("and the scholar keeps the whole weight", w("Coca-Cola Scholar", "Coca-Cola Scholar"), 0.8);
+
+  // A tag with no ladder reads the tier and charges the same for it. Most
+  // credentials either happened or did not.
+  check("an unladdered tag still reports the rung", tier("USAMO Qualifier", "USAMO"), "qualifier");
+  check("but is not discounted for it", w("USAMO Qualifier", "USAMO"), w("USAMO", "USAMO"));
+
+  /**
+   * Read from the field that produced the match, not the profile. A semifinal in one
+   * honour must not grade another — the property the ISEF tier check already had.
+   */
+  const two = bare("two", ["Neo Scholar", "Davidson Fellows Semifinalist"]);
+  const terms = matchedTerms(two, TAX);
+  check("one honour's rung does not reach another", terms.find((t) => t.label === "Neo Scholar")?.tier, undefined);
+  check("and the other honour keeps its own", terms.find((t) => t.label === "Davidson Fellow")?.tier, "semifinalist");
+
+  /**
+   * The tagger states the tier plainly in the term it returns — "USABO Semifinalist",
+   * "Neo Scholar Finalist" — and `normalizeKey` is about to delete exactly that word.
+   */
+  const fromTagger = bare("tagger");
+  fromTagger.extractedTerms = ["Neo Scholar Finalist"];
+  check(
+    "a tagger's own term carries its rung",
+    matchedTerms(fromTagger, TAX).find((t) => t.label === "Neo Scholar")?.weight,
+    0.8
+  );
+}
+
 console.log("\nlabs, clubs and startups — everything that was filed as a company");
 {
   const held = (p: Person) =>

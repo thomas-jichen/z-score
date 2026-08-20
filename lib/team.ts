@@ -14,11 +14,13 @@ import {
   clampWeight,
   isTagFacet,
   isTagMatch,
+  isTier,
   tagId,
   usableAliases,
   type TagDef,
   type TagFacet,
   type TagRegistry,
+  type Tier,
 } from "./tagRegistry";
 import { str, strList } from "./validate";
 
@@ -42,6 +44,26 @@ const TERM_LEN = 80;
  * real cluster ids so a stale client cannot write "polymath" back into the
  * table — it stopped being a cluster and became a badge.
  */
+/**
+ * A tier ladder from a client: only known rungs, only weights in range.
+ *
+ * Returns the spreadable fragment rather than the object, so an empty or absent
+ * ladder leaves no `tiers: {}` behind on every tag in the document.
+ */
+function cleanTiers(raw: unknown): { tiers: Partial<Record<Tier, number>> } | null {
+  if (!raw || typeof raw !== "object") return null;
+  const out: Partial<Record<Tier, number>> = {};
+  let any = false;
+  for (const [rung, value] of Object.entries(raw as Record<string, unknown>)) {
+    if (!isTier(rung)) continue;
+    const n = clampWeight(Number(value));
+    if (!Number.isFinite(n)) continue;
+    out[rung] = n;
+    any = true;
+  }
+  return any ? { tiers: out } : null;
+}
+
 export function cleanTaxonomy(raw: Partial<TaxonomyPrefs>): TaxonomyPrefs {
   const base = emptyTeam().taxonomy;
 
@@ -97,6 +119,9 @@ export function cleanTaxonomy(raw: Partial<TaxonomyPrefs>): TaxonomyPrefs {
       // Whether this name may be read out of prose. Dropping it on save would have
       // quietly re-armed every ambiguous name the moment anyone touched a slider.
       ...(isTagMatch(def.match) ? { match: def.match } : {}),
+      // The tier ladder, keys and values both checked. Dropping it on save would
+      // have re-flattened every rung the moment anyone touched a slider.
+      ...(cleanTiers(def.tiers) ?? {}),
       promoted: def.promoted === true,
     };
   }
