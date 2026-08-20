@@ -188,6 +188,30 @@ export function DeviationBar({ z, max }: { z: number; max: number }) {
 
 /* ── Breakdown — the rows add up to the total ────────────────────────────── */
 
+/**
+ * Why a signal is there, in one line under its name.
+ *
+ * The quote is the whole point. Working out why Philip Meng carried a Benchmark tag
+ * — it was the word "benchmark" in one of his own paper titles — took a script and a
+ * dump of the roster, because the matcher tested a regex and threw the match away.
+ * The words that fired are now kept, so a wrong tag is arguable on sight.
+ *
+ * The section name is the fallback, not the preference: it is a weaker answer to the
+ * same question, and for a tag read from a structured field it is the only one there
+ * is. The rung leads when there is one, because it is the explanation for a weight
+ * that looks lower than the taxonomy says it should be.
+ */
+export function SignalWhy({ signal }: { signal: Signal }) {
+  const why = signal.evidence
+    ? `${signal.tier ? `${signal.tier}, ` : ""}\u201c${signal.evidence}\u201d`
+    : `from ${signal.source}`;
+  return (
+    <span className="z-micro" style={{ display: "block" }}>
+      {why}
+    </span>
+  );
+}
+
 export function ZScoreBreakdown({ candidate }: { candidate: Candidate }) {
   const [open, setOpen] = useState(false);
   const top = dominantSignals(candidate, 3);
@@ -200,11 +224,7 @@ export function ZScoreBreakdown({ candidate }: { candidate: Candidate }) {
         <div className="z-breakdown-row" key={s.id}>
           <span className="z-breakdown-term">
             {s.label}
-            {s.verifiedBy && (
-              <span className="z-micro" style={{ display: "block" }}>
-                Verified against {s.verifiedBy}
-              </span>
-            )}
+            <SignalWhy signal={s} />
           </span>
           <span className="z-breakdown-dev" data-negative={s.points < 0}>
             {formatSigma(s.points)}

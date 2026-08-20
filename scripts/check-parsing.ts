@@ -33,6 +33,7 @@ import {
   type TeamState,
 } from "../lib/state";
 import { PURGED_ALIASES } from "../lib/searchTaxonomy";
+import { readTier } from "../lib/tagMatch";
 import { scoreOne, toCandidates } from "../lib/candidates";
 import {
   budgetLeft,
@@ -1998,6 +1999,19 @@ console.log("\ntiers — a finalist is not a winner");
   check("which is priced below the scholar", w("Coca-Cola Scholar Finalist", "Coca-Cola Scholar"), 0.5);
   // The seeded base, not the 1.2 this team has tuned it to. Rungs are absolute.
   check("and the scholar keeps the whole weight", w("Coca-Cola Scholar", "Coca-Cola Scholar"), 0.8);
+
+  /**
+   * USACO names its divisions after medals, so "a score of 1000/1000 on Gold" is a
+   * division and not a placing. Davido Zhang's honour says Qualifier in as many
+   * words and read as a win.
+   */
+  check(
+    "a USACO division is not a medal",
+    readTier("USACO Platinum Mar 2022 Qualifier with a score of 1000/1000 on Gold"),
+    "qualifier"
+  );
+  // And bare gold is still a medal everywhere else. Brian Zhang has one.
+  check("but IPhO Gold is", readTier("IPhO Gold '25"), "winner");
 
   // A tag with no ladder reads the tier and charges the same for it. Most
   // credentials either happened or did not.

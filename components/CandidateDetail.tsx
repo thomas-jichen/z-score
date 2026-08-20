@@ -17,6 +17,7 @@ import {
   TagChip,
   ZScoreBadge,
   ZScoreBreakdown,
+  SignalWhy,
 } from "@/components/primitives";
 
 /**
@@ -218,9 +219,7 @@ export function CandidateDetail({ slug }: { slug: string }) {
                   <div className="z-breakdown-row" key={s.id}>
                     <span className="z-breakdown-term">
                       {s.label}
-                      <span className="z-micro" style={{ display: "block" }}>
-                        from {s.source}
-                      </span>
+                      <SignalWhy signal={s} />
                     </span>
                     <span className="z-breakdown-dev" data-negative={s.points < 0}>
                       {formatSigma(s.points)}

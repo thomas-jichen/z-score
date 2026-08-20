@@ -49,6 +49,9 @@ import { Button, Card, EmptyState, Pill } from "@/components/primitives";
  */
 
 /** A term being promoted, with the suggestion to edit before it lands. */
+/** How many unmatched terms show before the rest is one tap away. */
+const PENDING_WINDOW = 12;
+
 type Promoting = {
   term: string;
   /**
@@ -74,6 +77,7 @@ export default function TaxonomyPage() {
 
   const [confirmWipe, setConfirmWipe] = useState(false);
   const [promoting, setPromoting] = useState<Promoting | null>(null);
+  const [allPending, setAllPending] = useState(false);
   const [adding, setAdding] = useState(false);
   const [newTerm, setNewTerm] = useState("");
   const [query, setQuery] = useState("");
@@ -350,7 +354,7 @@ export default function TaxonomyPage() {
                 />
               ) : (
                 <div>
-                  {pending.slice(0, 12).map((p) => (
+                  {(allPending ? pending : pending.slice(0, PENDING_WINDOW)).map((p) => (
                     <div className="z-review-row" key={p.term}>
                       <span className="z-review-term">{p.term}</span>
                       <div className="z-review-foot">
@@ -373,10 +377,28 @@ export default function TaxonomyPage() {
                       </div>
                     </div>
                   ))}
-                  {pending.length > 12 && (
-                    <p className="z-micro" style={{ marginTop: "var(--z-space-3)" }}>
-                      {pending.length - 12} more
-                    </p>
+                  {/**
+                    * A button, not a sentence.
+                    *
+                    * This printed "93 more" as static text, and the queue was 105
+                    * terms long — so the overflow was not merely inconvenient, it was
+                    * unreachable, and the backlog could never be drained. The window
+                    * stays because a hundred rows is not a first view, but everything
+                    * past it is now one tap away, the same way the score breakdown
+                    * opens.
+                    */}
+                  {pending.length > PENDING_WINDOW && (
+                    <button
+                      className="z-linkish"
+                      style={{ marginTop: "var(--z-space-3)" }}
+                      onClick={() => setAllPending(!allPending)}
+                    >
+                      {allPending
+                        ? "Show less"
+                        : `${pending.length - PENDING_WINDOW} more ${
+                            pending.length - PENDING_WINDOW === 1 ? "term" : "terms"
+                          }`}
+                    </button>
                   )}
                 </div>
               )}

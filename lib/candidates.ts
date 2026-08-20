@@ -149,6 +149,8 @@ export function scoreOne(p: Person, tax: TaxonomyPrefs): Candidate {
     // as the score; the score is now the plain sum, so they already match and the
     // breakdown adds up to the total exactly.
     points: round(t.weight),
+    ...(t.evidence ? { evidence: t.evidence } : {}),
+    ...(t.tier ? { tier: t.tier } : {}),
   }));
 
   const year = p.gradYear ? String(p.gradYear) : p.inferredYear;

@@ -52,6 +52,17 @@ export type Signal = {
   cluster?: Archetype | null;
   /** Present when a public roster corroborates the claim. */
   verifiedBy?: string;
+  /**
+   * The words on the profile that produced this signal, verbatim.
+   *
+   * Absent for a tag read from a structured field, where the vendor already resolved
+   * an entity and there is no sentence to quote. Present for anything read from prose,
+   * which is where every wrong tag has come from: working out why Philip Meng held a
+   * Benchmark tag took a script and a dump of the whole roster.
+   */
+  evidence?: string;
+  /** Which rung the record named, when it named one. */
+  tier?: string;
 };
 
 /** One hop in the discovery chain. Every hop is navigable in the UI. */

@@ -201,14 +201,24 @@ export function hasQualifier(text: string, span: Span, facet: TagFacet): boolean
  * in one honour must not upgrade another, which is a property the ISEF tier check
  * already had and states in lib/extract.ts.
  */
-const TIER_PATTERNS: [Tier, RegExp][] = [
-  ["grand", /\bgrand (award|prize)\b|\bbest (of|in) category\b/i],
-  ["winner", /\bwinner\b|\bwon\b|\bchampion\b|\b(1st|first) place\b|\bgold\b|\bgrand champion\b/i],
-  ["nationalTeam", /\bnational team\b|\bteam member\b|\btravel(l?ing)? team\b/i],
-  ["camper", /\btraining camp\b|\bcampers?\b|\binvited to camp\b/i],
-  ["semifinalist", /\bsemi[- ]?finalists?\b/i],
-  ["finalist", /\bfinalists?\b/i],
-  ["qualifier", /\bqualifi(er|ed)\b|\bparticipants?\b|\bcompeted\b|\bhonou?rable mention\b/i],
+const TIER_PATTERNS: { tier: Tier; is: RegExp; unless?: RegExp }[] = [
+  { tier: "grand", is: /\bgrand (award|prize)\b|\bbest (of|in) category\b/i },
+  { tier: "winner", is: /\bwinner\b|\bwon\b|\bchampion\b|\b(1st|first) place\b/i },
+  /**
+   * Bare "Gold" on its own line, and the exception that makes it safe.
+   *
+   * USACO names its divisions after medals — Bronze, Silver, Gold, Platinum — so
+   * Davido Zhang's honour, "USACO Platinum Mar 2022 Qualifier with a score of
+   * 1000/1000 on Gold", read as a win when it says Qualifier in as many words. The
+   * collision is named rather than patched into the pattern, because bare Gold is
+   * right everywhere else: "IPhO Gold '25" is a gold medal, and Brian Zhang has one.
+   */
+  { tier: "winner", is: /\bgold\b/i, unless: /\busaco\b/i },
+  { tier: "nationalTeam", is: /\bnational team\b|\bteam member\b|\btravel(l?ing)? team\b/i },
+  { tier: "camper", is: /\btraining camp\b|\bcampers?\b|\binvited to camp\b/i },
+  { tier: "semifinalist", is: /\bsemi[- ]?finalists?\b/i },
+  { tier: "finalist", is: /\bfinalists?\b/i },
+  { tier: "qualifier", is: /\bqualifi(er|ed)\b|\bparticipants?\b|\bcompeted\b|\bhonou?rable mention\b/i },
 ];
 
 /**
@@ -224,7 +234,9 @@ export function readTier(text: string, span?: Span): Tier | undefined {
   const near = span
     ? text.slice(Math.max(0, span.start - TIER_REACH), span.end + TIER_REACH)
     : text;
-  for (const [tier, pattern] of TIER_PATTERNS) if (pattern.test(near)) return tier;
+  for (const { tier, is, unless } of TIER_PATTERNS) {
+    if (is.test(near) && !(unless && unless.test(near))) return tier;
+  }
   return undefined;
 }
 

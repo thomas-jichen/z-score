@@ -359,7 +359,20 @@ Each row carries the score, the archetype, and which of the campaign's own searc
           school: c.school,
           gradYear: c.graduation_year,
           enriched: c.enriched,
-          signals: dominantSignals(c, 3).map((s) => ({ label: s.label, points: s.points })),
+          /**
+           * With the words that produced each one, where there are any.
+           *
+           * The agent queues and enriches on the strength of these numbers, so it
+           * needs to be able to see that a Benchmark +1.5 came from the phrase "a
+           * Cross-Dialect Benchmark for Fairness" in a paper title. A structured
+           * tag has no sentence to quote and carries no evidence.
+           */
+          signals: dominantSignals(c, 3).map((s) => ({
+            label: s.label,
+            points: s.points,
+            ...(s.tier ? { tier: s.tier } : {}),
+            ...(s.evidence ? { evidence: s.evidence } : {}),
+          })),
         }));
 
         const of =

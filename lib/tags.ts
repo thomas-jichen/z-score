@@ -129,6 +129,8 @@ export type MatchedTerm = {
    * "ISEF finalist" from "ISEF winner" into two unrelated things.
    */
   tier?: Tier;
+  /** The words on the profile that produced this, when it was read from prose. */
+  evidence?: string;
 };
 
 type Field = {
@@ -548,13 +550,20 @@ export function matchedTerms(p: Person, tax: TaxonomyPrefs): MatchedTerm[] {
   const out: MatchedTerm[] = [];
 
   // Only the tags actually switched on contribute to a score.
-  for (const { def, source, tier } of heldTags(p, tax)) {
+  for (const { def, source, tier, evidence } of heldTags(p, tax)) {
     if (!def.promoted) continue;
     // The rung, when the record named one and the tag prices it. A finalist and a
     // winner were indistinguishable here, which is the whole point of the ladder.
     const weight = tieredWeight(def, tier);
     if (weight <= 0) continue;
-    out.push({ label: def.label, weight, cluster: def.cluster, source, tier });
+    out.push({
+      label: def.label,
+      weight,
+      cluster: def.cluster,
+      source,
+      tier,
+      evidence: evidence?.text,
+    });
   }
 
   return out.sort((a, b) => b.weight - a.weight);
