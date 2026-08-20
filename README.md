@@ -269,7 +269,7 @@ works.
 ## Commands
 
 ```bash
-npm run check        # 539 assertions over the pure functions. No network, no API key
+npm run check        # 542 assertions over the pure functions. No network, no API key
 npm run build:check  # type-check build into .next-check, so it cannot clobber a running dev server
 ```
 

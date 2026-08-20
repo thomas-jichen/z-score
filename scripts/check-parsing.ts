@@ -1867,6 +1867,44 @@ console.log("\nprose — the text says it, however it is spelled");
   const real = bare("realz");
   real.enriched!.educations = [{ school: "Z Fellows", degree: "W24" }];
   check("but the real batch row still is", held(real).includes("Z Fellow"), true);
+
+  // ── Working there is not having been through it ──────────────────────────
+  /**
+   * A Google result for a LinkedIn profile ends in the profile's own field list, and
+   * the `Experience:` segment names employers. Baylor Adams works at Z Fellows — his
+   * headline is "Early stage investor" and the only mention anywhere is "Experience:
+   * Z Fellows" — and he was scored 2.0 as though he had been through the batch.
+   * Sonith Sunku has no headline at all and the same snippet shape.
+   */
+  const staff: Person = {
+    ...bare("staff"),
+    enriched: undefined,
+    headline: "Early stage investor",
+    snippet:
+      "Early stage investor \u00b7 Experience: Z Fellows \u00b7 Education: University of Southern California \u00b7 Location: United States",
+  };
+  check("an employer in a snippet is not a batch", held(staff).includes("Z Fellow"), false);
+
+  /**
+   * `Education:` is left alone, because that is where somebody who really did the
+   * batch lists it. Anish Shinde's reads "Education: Z Fellows".
+   */
+  const alum: Person = {
+    ...bare("alum"),
+    enriched: undefined,
+    headline: "Founder @ Markov",
+    snippet: "Founder @ Markov \u00b7 Experience: Markov \u00b7 Education: Z Fellows \u00b7 Location: SF",
+  };
+  check("but the education segment is", held(alum).includes("Z Fellow"), true);
+
+  // And a headline claim is untouched by any of it.
+  const claimed2: Person = {
+    ...bare("claimed2"),
+    enriched: undefined,
+    headline: "Founder @ Markov | Z Fellow",
+    snippet: "Founder @ Markov | Z Fellow \u00b7 Experience: Markov \u00b7 Location: SF",
+  };
+  check("as is a headline that says so", held(claimed2).includes("Z Fellow"), true);
 }
 
 console.log("\nnational is not international, and a withdrawn alias has to leave");

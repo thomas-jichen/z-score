@@ -167,10 +167,40 @@ type Field = {
  * your backers. The role is what separates the two, and excluding the field outright
  * threw the real one away with the false one.
  */
+/**
+ * A Google result for a LinkedIn profile ends in the profile's own field list:
+ * "… · Experience: Acme · Education: Stanford · Location: New York".
+ *
+ * The `Experience:` segment names employers, which for an accelerator is the wrong
+ * relationship entirely. Grace Kasten and Baylor Adams both work at Z Fellows —
+ * Baylor's headline is "Early stage investor" and the only mention anywhere is
+ * "Experience: Z Fellows" — and both were scored 2.0 as though they had been through
+ * the batch. Sonith Sunku has no headline at all and the same snippet shape.
+ *
+ * `Education:` is deliberately left in place. That is where somebody who really did
+ * the batch lists it: Anish Shinde's reads "Education: Z Fellows".
+ *
+ * Split rather than deleted, so the segment is still there for the facets where an
+ * employer name is fair game. `venture` is the existing gate for "prose about a
+ * business rather than a claim about the person", and an employer list is exactly
+ * that.
+ */
+const SERP_EXPERIENCE = /(?:^|·)\s*Experience:[^·]*/gi;
+
+function splitSerp(text: string): Field[] {
+  if (!text) return [];
+  const employers = text.match(SERP_EXPERIENCE)?.join(" ") ?? "";
+  if (!employers) return [{ text, source: "snippet" }];
+  return [
+    { text: text.replace(SERP_EXPERIENCE, " "), source: "snippet" },
+    { text: employers, source: "snippet", venture: true },
+  ];
+}
+
 function fieldedText(p: Person): Field[] {
   const e = p.enriched;
   if (!e) {
-    return [{ text: [p.headline, p.snippet].filter(Boolean).join(" "), source: "snippet" }];
+    return splitSerp([p.headline, p.snippet].filter(Boolean).join(" "));
   }
 
   return [
@@ -230,7 +260,7 @@ function fieldedText(p: Person): Field[] {
       text: [e.headline, e.about, ...e.certifications].filter(Boolean).join(" "),
       source: "experience" as const,
     },
-    { text: p.snippet ?? "", source: "snippet" as const },
+    ...splitSerp(p.snippet ?? ""),
   ];
 }
 
