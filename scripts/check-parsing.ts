@@ -32,6 +32,7 @@ import {
   type TaxonomyPrefs,
   type TeamState,
 } from "../lib/state";
+import { PURGED_ALIASES } from "../lib/searchTaxonomy";
 import { scoreOne, toCandidates } from "../lib/candidates";
 import {
   budgetLeft,
@@ -1737,6 +1738,233 @@ console.log("\naccelerators — the signal that was invisible");
   const noHome = bare("nohome");
   noHome.enriched!.educations = [{ school: "Y Combinator", degree: "S26" }];
   check("and it sets no home state", inferHomeState(noHome.enriched!, schoolStateLookup(TAX)), undefined);
+}
+
+console.log("\nprose — the text says it, however it is spelled");
+{
+  /**
+   * The old matcher compiled each tag's label and aliases into a regex and tested
+   * them against the text. It failed in both directions for one reason: aliases are
+   * stored as *normalised keys*, so `research-science` was asked to appear in prose
+   * with its hyphen, while a bare one-token key like `imo` matched any whole word.
+   *
+   * Thirty-eight of the sixty-eight text-matched tags had no alias that could ever
+   * fire, and fifteen of fifty-six people in the roster were missing a credential
+   * they plainly hold. Every case below was verified wrong before `scanText`.
+   */
+  const held = (p: Person) =>
+    heldTags(p, TAX)
+      .filter((t) => t.def.facet === "program" || t.def.facet === "accelerator")
+      .map((t) => t.def.label);
+
+  const prose = (extra: Partial<NonNullable<Person["enriched"]>>): Person => {
+    const p = bare("prose");
+    p.enriched = { ...p.enriched!, ...extra };
+    return p;
+  };
+
+  // ── Spellings that used to miss ──────────────────────────────────────────
+  /**
+   * This exact sentence is quoted in lib/tags.ts as the case the accelerator design
+   * was built around, and the plural on "Fellows" meant it never produced the tag:
+   * the label needs a space and the alias key `z-fellows` needs a hyphen.
+   */
+  const backed = prose({
+    experience: [{ title: "CEO", company: "Vela", description: "Backed by a16z (sr007) and Z Fellows" }],
+  });
+  check("a plural does not hide the tag", held(backed).includes("Z Fellow"), true);
+  check("and the other name in the sentence still lands", held(backed).includes("a16z"), true);
+
+  // Thiel Fellow has no usable alias at all — every one of its four normalises onto
+  // the id — so before this only the exact string "Thiel Fellow" worked.
+  check(
+    "an inflection does not either",
+    held(prose({ headline: "Founder | Thiel Fellowship 2025" })).includes("Thiel Fellow"),
+    true
+  );
+  check(
+    "nor a possessive plural",
+    held(prose({ honors: [{ title: "Davidson Fellows Scholarship" }] })).includes("Davidson Fellow"),
+    true
+  );
+  // Andra Campos writes "Coca Cola", with no hyphen, and is a semi-finalist.
+  check(
+    "nor a missing hyphen",
+    held(prose({ honors: [{ title: "Coca Cola Scholarship Semi-Finalist" }] })).includes("Coca-Cola Scholar"),
+    true
+  );
+  check(
+    "nor a cohort plural",
+    held(prose({ headline: "Neo Scholars 2024 cohort" })).includes("Neo Scholar"),
+    true
+  );
+  // A multi-token alias, which no hyphenated key could ever match in prose.
+  check(
+    "a spelled-out name reaches its abbreviation",
+    held(prose({ honors: [{ title: "Research Science Institute" }] })).includes("RSI"),
+    true
+  );
+
+  // ── Words that are also names ────────────────────────────────────────────
+  /**
+   * The other half. Matching on normalised keys matches far more, so the per-tag
+   * `match` policy has to arrive with it; these two blocks are one change.
+   */
+  check("an opinion is not an olympiad", held(prose({ about: "imo the best approach is RL" })).includes("IMO"), false);
+  check("but IMO Gold is", held(prose({ honors: [{ title: "IMO Gold Medal 2025" }] })).includes("IMO"), true);
+
+  // In a population of mathematicians this is the worst-fitting alias in the table.
+  check(
+    "a conjecture is not a programme",
+    held(prose({ about: "worked on the twin primes conjecture" })).includes("MIT PRIMES"),
+    false
+  );
+
+  // Davido Zhang carried Lightspeed +1.5 from this. It is Tencent's game studio.
+  check(
+    "a game studio is not a venture fund",
+    held(
+      prose({
+        experience: [
+          { title: "Founder", company: "Q", description: "multi-agent networks with mentors from the Lightspeed Studios" },
+        ],
+      })
+    ).includes("Lightspeed"),
+    false
+  );
+
+  check("a trend is not a fellowship", held(prose({ about: "the rise of transformers" })).includes("Rise"), false);
+  // The case that started all of this.
+  check(
+    "a paper's benchmark is not a fund",
+    held(prose({ about: "EnDive: A Cross-Dialect Benchmark for Fairness" })).includes("Benchmark"),
+    false
+  );
+  check("a conjunction is not an accelerator", held(prose({ about: "on the contrary, we found" })).includes("Contrary"), false);
+  check("a national park is not Sequoia Capital", held(prose({ about: "Sequoia National Park volunteer" })).includes("Sequoia"), false);
+
+  // The discriminating pair: the same name, twice, once real.
+  const imu = prose({ about: "IMU accel and gyro fusion on an STM32" });
+  check("an accelerometer is not Accel", held(imu).includes("Accel"), false);
+  const round = prose({
+    experience: [{ title: "Founder", company: "Q", description: "raised a seed round backed by Accel" }],
+  });
+  check("being backed by Accel is", held(round).includes("Accel"), true);
+
+  // ── The one-character key ────────────────────────────────────────────────
+  /**
+   * "Z Fellow" normalised to `z`, because `fellow` is noise, and `resolveAny` is
+   * facet-blind. `schoolStateLookup` asks the accelerator facet before any school
+   * facet, so an education row named simply "Z" took the heaviest weight in the
+   * taxonomy — and suppressing the string "Z" suppressed the real tag.
+   */
+  const justZ = bare("justz");
+  justZ.enriched!.educations = [{ school: "Z", degree: "Student" }];
+  check("a school called Z is not Z Fellows", held(justZ).includes("Z Fellow"), false);
+  const zScholar = bare("zscholar", ["Z Scholar"]);
+  check("and neither is a Z Scholar", held(zScholar).includes("Z Fellow"), false);
+  const real = bare("realz");
+  real.enriched!.educations = [{ school: "Z Fellows", degree: "W24" }];
+  check("but the real batch row still is", held(real).includes("Z Fellow"), true);
+}
+
+console.log("\nnational is not international, and a withdrawn alias has to leave");
+{
+  const index = indexRegistry(TAX.tags);
+  const to = (label: string) => resolveAny(index, label)?.label ?? null;
+
+  /**
+   * `national` and `international` were noise words, and they were the most expensive
+   * two in the set. Stripping them made "National Biology Olympiad" and
+   * "International Biology Olympiad" one key, owned by the international tag, so a
+   * USABO semifinalist scored IBO's 2.0 instead of USABO's 0.5 — four times over, on
+   * the distinction that matters most in a competition credential.
+   */
+  check("a national olympiad is the national one", to("National Biology Olympiad Semifinalist"), "USABO");
+  check("and the world final is still the world final", to("International Biology Olympiad"), "IBO");
+  check("the same for physics", to("National Physics Olympiad"), "USAPhO");
+  check("and for its world final", to("International Physics Olympiad"), "IPhO");
+
+  /**
+   * The same word was also letting every state and regional fair read as ISEF.
+   * Vihaan Shringi's honour is "WSSEF First Place" — the Washington State Science and
+   * Engineering Fair — and it scored the International one.
+   */
+  check("a state fair is not ISEF", to("Washington State Science and Engineering Fair"), null);
+  check("the international one is", to("International Science and Engineering Fair"), "ISEF");
+
+  /**
+   * `mathematical-olympiad` was the only duplicate alias key in the taxonomy, held by
+   * both IMO and MOP, and `indexRegistry` is first-wins — so the summer programme
+   * resolved to the world final at 2.0. IMO now owns its full name instead.
+   */
+  check("the olympiad programme is not the olympiad", to("Mathematical Olympiad Program"), "MOP");
+  check("and the world final still resolves", to("International Mathematical Olympiad"), "IMO");
+
+  /**
+   * Withdrawing an alias from a seed list used to change nothing for a team that
+   * already had a taxonomy: `migrateFacets` unions stored aliases with seeded ones
+   * and only surrenders a key the seeds reassigned to somebody else, so an alias with
+   * no owner at all was nobody's to take away. Both fixes above were no-ops in
+   * production until PURGED_ALIASES existed.
+   */
+  const seedOwned = new Set<string>();
+  for (const def of Object.values(emptyTeam().taxonomy.tags)) {
+    for (const a of def.aliases) seedOwned.add(a);
+  }
+  check(
+    "nothing purged is still owned by a seed",
+    PURGED_ALIASES.filter((a) => seedOwned.has(a)),
+    []
+  );
+
+  const carrying = emptyTeam().taxonomy;
+  const ibo = Object.values(carrying.tags).find((d) => d.label === "IBO")!;
+  const withStale = hydrateTeam({
+    taxonomy: {
+      ...carrying,
+      tags: { ...carrying.tags, [ibo.id]: { ...ibo, aliases: [...ibo.aliases, "biology-olympiad"] } },
+    },
+  } as Parameters<typeof hydrateTeam>[0]);
+  check(
+    "a stored document loses a withdrawn alias",
+    withStale.taxonomy.tags[ibo.id].aliases.includes("biology-olympiad"),
+    false
+  );
+  check(
+    "and keeps the one it should have",
+    withStale.taxonomy.tags[ibo.id].aliases.includes("international-biology-olympiad"),
+    true
+  );
+
+  // Four lab ids moved when `national` stopped being deleted. RENAMED carries the
+  // team's tuning across rather than leaving it on a row nobody holds.
+  // The destination id is removed first, because a document written before the move
+  // has only the old row. Leaving both in would test the collision rule instead.
+  const beforeMove = { ...carrying.tags };
+  delete beforeMove["argonne-national-laboratory"];
+  const oldLab = hydrateTeam({
+    taxonomy: {
+      ...carrying,
+      // Stamped, or `behindSeeds` fires and adoptSeedWeights resets the hand weight
+      // this check is about. A document written by the current app carries it.
+      seedVersion: SEED_VERSION,
+      tags: {
+        ...beforeMove,
+        "argonne-laboratory": {
+          id: "argonne-laboratory",
+          label: "Argonne National Laboratory",
+          facet: "lab",
+          aliases: [],
+          weight: 1.9,
+          cluster: null,
+          promoted: true,
+        },
+      },
+    },
+  } as Parameters<typeof hydrateTeam>[0]);
+  check("a moved id carries its weight", oldLab.taxonomy.tags["argonne-national-laboratory"]?.weight, 1.9);
+  check("and leaves nothing behind", oldLab.taxonomy.tags["argonne-laboratory"], undefined);
 }
 
 console.log("\nlabs, clubs and startups — everything that was filed as a company");

@@ -6,6 +6,8 @@ import {
   FLAGS,
   LOW_SIGNAL,
   PURGED,
+  MATCH_POLICY,
+  PURGED_ALIASES,
   RENAMED,
   RETIRED,
   COLLEGES,
@@ -23,6 +25,7 @@ import {
   seedRegistry,
   type TagFacet,
   type TagRegistry,
+  type TagDef,
 } from "./tagRegistry";
 import type { Hit } from "./types";
 import type { Selection } from "./query";
@@ -356,6 +359,7 @@ function seededTags(): TagRegistry {
     companies: COMPANIES,
     startWeight: START_WEIGHT,
     termCluster: TERM_CLUSTER,
+    matchPolicy: MATCH_POLICY,
     states: US_STATES,
     facetDefaults: defaultFacetWeights(),
   });
@@ -613,6 +617,12 @@ function migrateFacets(tags: TagRegistry, removed: string[] = []): TagRegistry {
 
   const colleges = new Set(COLLEGES.map((c) => c.label.toLowerCase()));
   const authoritative = seedFacets();
+  /**
+   * Withdrawn aliases. Union-never-replace keeps a hand-added alias, and that same
+   * rule kept every alias a seed list had stopped naming, because nothing was there
+   * to say it should go.
+   */
+  const purgedAliases = new Set(PURGED_ALIASES);
   const seeded = seededTags();
 
   /**
@@ -660,7 +670,9 @@ function migrateFacets(tags: TagRegistry, removed: string[] = []): TagRegistry {
     const fresh = seeded[updated.id];
     const merged = [...new Set([...updated.aliases, ...(fresh?.aliases ?? [])])].filter(
       (a) =>
-        aliasIsUsable(a, updated.id) && (aliasOwner.get(a) ?? updated.id) === updated.id
+        aliasIsUsable(a, updated.id) &&
+        !purgedAliases.has(a) &&
+        (aliasOwner.get(a) ?? updated.id) === updated.id
     );
     if (
       merged.length !== updated.aliases.length ||
@@ -672,6 +684,21 @@ function migrateFacets(tags: TagRegistry, removed: string[] = []): TagRegistry {
     // this the home state silently stays empty for every seeded school already
     // stored — Groton, Phillips Exeter and Brooklyn Tech all lost theirs.
     if (fresh?.state && !updated.state) updated = { ...updated, state: fresh.state };
+
+    /**
+     * The prose-matching policy follows the seed, in both directions.
+     *
+     * Unlike a weight this is not tuning. It is a claim about whether a name is
+     * ambiguous in English, and a stored document must not be allowed to keep an
+     * older answer to that: every document written before the policy existed has no
+     * `match` at all and would go on reading "imo" as the International Mathematical
+     * Olympiad. Dropping a policy propagates too, so deciding a name is safe after
+     * all reaches the same documents.
+     */
+    if (fresh && fresh.match !== updated.match) {
+      const { match: _was, ...rest } = updated;
+      updated = fresh.match ? { ...rest, match: fresh.match } : (rest as TagDef);
+    }
 
     if (updated !== def) {
       next[updated.id] = updated;

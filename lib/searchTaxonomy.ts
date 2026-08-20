@@ -1,3 +1,5 @@
+import type { TagMatch } from "./tagRegistry";
+
 /**
  * ═══════════════════════════════════════════════════════════════════════════
  * THE SELECTION MENUS. Edit these lists directly.
@@ -22,6 +24,84 @@
  * locations that have nothing to do with where someone grew up.
  */
 export type Seed = { label: string; aliases?: string[]; state?: string };
+
+/**
+ * Which names are safe to read out of prose, and which need vouching for.
+ *
+ * A label-keyed table rather than a field on each seed, so the whole hazard list can
+ * be reviewed in one place — which is the only way to tell whether it is complete.
+ *
+ * Everything absent from here is `text`: the name is distinctive enough that seeing
+ * it is enough. What is listed is a name that is also an ordinary English word, or an
+ * initialism with a second life, where a bare sighting proves nothing:
+ *
+ *   "imo the best approach is RL"                IMO, 2.0
+ *   "twin primes conjecture"                     MIT PRIMES, 1.4
+ *   "contributed to the rise of transformers"    Rise, 1.2
+ *   "mentors from the Lightspeed Studios"        Lightspeed, 1.5 — Tencent's studio
+ *   "Sequoia National Park volunteer"            Sequoia, 2.0
+ *   "IMU accel and gyro fusion"                  Accel, 1.5
+ *   "Antler on the deer skull dataset"           Antler, 0.7
+ *   "on the contrary, we found"                  Contrary, 1.2
+ *   "afore mentioned"                            Afore Capital, 1.5
+ *   "1517 Broadway suite 400"                    1517 Fund, 1.5
+ *   "drank a Coke at lunch"                      Coca-Cola Scholar, 0.8
+ *   "SPARC Solaris kernel work"                  SPARC, 0.9
+ *   "repetitive strain injury (RSI)"             RSI, 1.6
+ *
+ * Every one of those was verified to fire. `qualified` keeps them all, because each
+ * is also a real credential that real people in this population hold, and asks the
+ * clause around the name to be talking about holding something.
+ *
+ * Benchmark is the single `structured` entry. The others have a sentence shape that
+ * tells their two senses apart; "benchmark" does not, in a population that publishes
+ * machine-learning papers for a living, and a Benchmark-backed high schooler is
+ * vanishingly rare. It still tags from an employer or a school the vendor resolved.
+ */
+export const MATCH_POLICY: Record<string, TagMatch> = {
+  // Funds and fellowships whose name is also a word.
+  Benchmark: "structured",
+  Accel: "qualified",
+  Greylock: "qualified",
+  Antler: "qualified",
+  Contrary: "qualified",
+  Sequoia: "qualified",
+  Lightspeed: "qualified",
+  Bessemer: "qualified",
+  "Khosla Ventures": "qualified",
+  "General Catalyst": "qualified",
+  "Afore Capital": "qualified",
+  "1517 Fund": "qualified",
+  "Founders Fund": "qualified",
+  "Pear VC": "qualified",
+
+  /**
+   * Competitions and programmes, and the line here is narrower than it first looks.
+   *
+   * The test is "would somebody write this word in an ordinary sentence", not "could
+   * this abbreviation mean something else somewhere". RSI is also repetitive strain
+   * injury and STS is also the Space Shuttle, but nobody in this population writes
+   * either of those, and they do write the credential bare: Davido Zhang's whole
+   * headline is "Stanford Math & CS | Phillips Exeter | RSI", and Brian Zhang's is
+   * "Research Science Institute (RSI)". Gating those cost three of the four real RSI
+   * holders in the roster their 1.6, to guard against a false positive that has never
+   * once occurred. So RSI, STS, SSP, IOI and ISEF are read freely.
+   *
+   * What stays gated is a name that really does appear in this population's prose in
+   * its other sense: "imo the best approach is RL", "mop", "the rise of transformers",
+   * "twin primes conjecture", "SPARC Solaris kernel". IBO is here for a different
+   * reason — the International Baccalaureate Organization is common among exactly
+   * these students, and at 2.0 it is the most expensive collision in the table.
+   */
+  IMO: "qualified",
+  IBO: "qualified",
+  MOP: "qualified",
+  SPARC: "qualified",
+  Rise: "qualified",
+  "MIT PRIMES": "qualified",
+  "Jane Street AMP": "qualified",
+  "Coca-Cola Scholar": "qualified",
+};
 
 /** Selective programs, competitions and credentials. */
 export const PROGRAMS: Seed[] = [
@@ -52,18 +132,36 @@ export const PROGRAMS: Seed[] = [
   },
   { label: "USAMO", aliases: ["USA Mathematical Olympiad"] },
   { label: "USACO Platinum", aliases: ["USA Computing Olympiad Platinum"] },
-  { label: "USAPhO", aliases: ["USA Physics Olympiad"] },
-  { label: "USABO", aliases: ["USA Biolympiad", "USA Biology Olympiad"] },
+  { label: "USAPhO", aliases: ["USA Physics Olympiad", "National Physics Olympiad"] },
+  /**
+   * Now that `national` survives normalisation, the national olympiads can hold the
+   * spellings that used to resolve to the international tag at four times the weight.
+   */
+  {
+    label: "USABO",
+    aliases: [
+      "USA Biolympiad",
+      "USA Biology Olympiad",
+      "National Biology Olympiad",
+      "US Biology Olympiad",
+      "National US Biology Olympiad",
+    ],
+  },
   { label: "IMO", aliases: ["International Mathematical Olympiad"] },
   { label: "IOI", aliases: ["International Olympiad in Informatics"] },
   // The other three internationals, which carry the same weight as IMO and IOI and
   // were simply missing — an IPhO medallist scored nothing for it.
   { label: "IPhO", aliases: ["International Physics Olympiad"] },
-  { label: "IBO", aliases: ["International Biology Olympiad", "IBmO"] },
+  // "IBmO" is dropped: it is the International Biology-Medicine Olympiad, a separate
+  // and far less selective competition, and it was holding IBO's 2.0.
+  { label: "IBO", aliases: ["International Biology Olympiad"] },
   { label: "IChO", aliases: ["International Chemistry Olympiad"] },
   { label: "Mathcamp", aliases: ["Canada/USA Mathcamp"] },
   { label: "SPARC", aliases: ["Summer Program on Applied Rationality and Cognition"] },
-  { label: "TASP", aliases: ["Telluride Association Summer Program", "TASS"] },
+  // "TASS" is gone from here twice over: it is the Telluride Association Sophomore
+  // Seminar, a different and younger programme priced the same 0.9, and it is the
+  // Russian state news agency. An alias has to name the thing it is an alias for.
+  { label: "TASP", aliases: ["Telluride Association Summer Program"] },
   { label: "Hack Club" },
   { label: "Coca-Cola Scholar", aliases: ["Coca-Cola Scholars", "Coke Scholar"] },
   { label: "QuestBridge", aliases: ["QuestBridge Scholar", "QuestBridge National College Match"] },
@@ -136,7 +234,62 @@ export const PROGRAMS: Seed[] = [
 export const RENAMED: Record<string, string> = {
   competition: "Hackathon winner",
   olympiad: "Olympiad camper",
+  /**
+   * Not a rename: the same label, a key that stopped being one character.
+   *
+   * "Z Fellow" normalised to `z`, because `fellow` is noise, and `resolveAny` is
+   * facet-blind — so "Z", "Z Scholar", "Z Institute" and an education row named
+   * simply "Z" all took the heaviest weight in the taxonomy. `keyFromWords` now
+   * keeps the noise when stripping it would leave a single character, and every
+   * stored document has the team's tuning on the old row.
+   */
+  z: "Z Fellow",
+  /**
+   * Also not renames: `national` stopped being a noise word, so every id that had
+   * it silently deleted moved. All four are national labs, and all four keys are
+   * more nearly their own name than they were.
+   */
+  "argonne-laboratory": "Argonne National Laboratory",
+  "oak-ridge-laboratory": "Oak Ridge National Laboratory",
+  "los-alamos-laboratory": "Los Alamos National Laboratory",
+  "sandia-laboratories": "Sandia National Laboratories",
 };
+
+/**
+ * Aliases withdrawn from the vocabulary, to be dropped from documents that have them.
+ *
+ * The same problem `PURGED` solves for tags. Taking an alias out of a seed list stops
+ * it being *created* and does nothing about the copies already stored: `migrateFacets`
+ * unions stored aliases with seeded ones and only surrenders a key the seeds have
+ * reassigned to somebody else. An alias with no owner at all is nobody's to reassign,
+ * so it simply persists — which meant deleting `speedrun` from a16z, or moving
+ * `biology-olympiad` off IBO, changed nothing whatsoever for a team that already had
+ * a taxonomy. Verified: Megan D'Souza kept IBO at 2.0 for a USABO semifinal, and
+ * Vihaan Shringi kept ISEF for a Washington state fair, after both were "fixed".
+ *
+ * Normalised keys, not display spellings, because that is the form stored.
+ *
+ * Only keys no seed owns any more belong here. `mathematical-olympiad` is absent on
+ * purpose: it moved off IMO but MOP holds it legitimately, and the existing
+ * reassignment rule is what settles that. `npm run check` asserts the distinction.
+ */
+export const PURGED_ALIASES: string[] = [
+  // Deleted: each named something other than the tag it was on.
+  "speedrun", // a16z, 2.0 — a gaming verb
+  "tass", // TASP, 0.9 — a different Telluride programme, and a news agency
+  "ibmo", // IBO, 2.0 — the Biology-Medicine Olympiad, far less selective
+
+  // Moved, because `national` and `international` stopped being noise. The old key
+  // is the one that could not tell a national competition from a world final.
+  "science-engineering-fair", // ISEF — also every state and regional fair
+  "biology-olympiad", // IBO 2.0 — was taking USABO's semifinalists
+  "physics-olympiad", // IPhO 2.0 — likewise USAPhO
+  "chemistry-olympiad", // IChO 2.0
+  "olympiad-in-informatics", // IOI 2.0
+  "aeronautics-space-administration", // NASA
+  "questbridge-match", // QuestBridge
+  "fermi-accelerator-laboratory", // Fermilab
+];
 
 /**
  * Tags withdrawn from the vocabulary, to be switched off in documents that have them.
@@ -582,7 +735,9 @@ export const ACCELERATORS: Seed[] = [
   // scout role far more often than it means an analyst job.
   {
     label: "a16z",
-    aliases: ["Andreessen Horowitz", "a16z Speedrun", "Speedrun", "a16z SPEEDRUN"],
+    // Bare "Speedrun" is dropped: it is a gaming verb, and it carried the heaviest
+    // weight in the taxonomy. "a16z Speedrun" still resolves.
+    aliases: ["Andreessen Horowitz", "a16z Speedrun", "a16z SPEEDRUN"],
   },
   { label: "Z Fellow", aliases: ["Z Fellows", "Z-Fellow", "ZFellows", "Z Fellowship"] },
   { label: "Neo Scholar", aliases: ["Neo Scholars", "Neo Accelerator"] },

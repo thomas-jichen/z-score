@@ -13,6 +13,7 @@ import {
   TAG_FACETS,
   clampWeight,
   isTagFacet,
+  isTagMatch,
   tagId,
   usableAliases,
   type TagDef,
@@ -93,6 +94,9 @@ export function cleanTaxonomy(raw: Partial<TaxonomyPrefs>): TaxonomyPrefs {
       // A school's state, which is what makes a home state knowable. Dropping it
       // here would have quietly emptied every home state on the next save.
       ...(str(def.state, 60) ? { state: str(def.state, 60) } : {}),
+      // Whether this name may be read out of prose. Dropping it on save would have
+      // quietly re-armed every ambiguous name the moment anyone touched a slider.
+      ...(isTagMatch(def.match) ? { match: def.match } : {}),
       promoted: def.promoted === true,
     };
   }

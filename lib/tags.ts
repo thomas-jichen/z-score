@@ -18,6 +18,7 @@ import {
   type TagDef,
   type TagFacet,
 } from "./tagRegistry";
+import { hasQualifier, scanText } from "./tagMatch";
 import type { Signal } from "./zscore";
 
 /**
@@ -123,7 +124,23 @@ export type MatchedTerm = {
   source: Signal["source"];
 };
 
-type Field = { text: string; source: Signal["source"]; venture?: true; founded?: true };
+type Field = {
+  text: string;
+  source: Signal["source"];
+  venture?: true;
+  founded?: true;
+  /**
+   * A list of credentials rather than prose.
+   *
+   * An honours entry is a claim to hold something — that is the entire semantics of
+   * the field — so a name appearing in one needs no corroborating word around it.
+   * Requiring one cost a bare "IMO" or "Jane Street AMP" in an honours list its
+   * tag, which is precisely the place those names are least ambiguous. The
+   * `qualified` policy exists for prose, where "imo" is an opinion; it has no
+   * business second-guessing a section whose every line is an award.
+   */
+  claim?: true;
+};
 
 /**
  * The record's own words, split by section so a breakdown can cite one.
@@ -151,6 +168,7 @@ function fieldedText(p: Person): Field[] {
     ...e.honors.map((h) => ({
       text: [h.title, h.issuedBy, h.description, h.associatedWith].filter(Boolean).join(" "),
       source: "honors" as const,
+      claim: true as const,
     })),
     ...e.projects.map((x) => ({
       text: [x.title, x.description].filter(Boolean).join(" "),
@@ -372,6 +390,15 @@ export type HeldTag = {
   inferred?: boolean;
   /** Claimed in the headline rather than backed by a record. */
   selfReported?: boolean;
+  /**
+   * The words that produced this tag, verbatim.
+   *
+   * Diagnosing why Philip Meng held a Benchmark tag took a script and a dump of the
+   * whole roster, because the matcher tested a regex and threw the match away. The
+   * words are the only thing that makes a wrong tag arguable rather than mysterious.
+   * Only prose can supply them; a tag read from a structured entity has no span.
+   */
+  evidence?: { text: string; section: Signal["source"] };
 };
 
 /**
@@ -438,9 +465,7 @@ export function heldTags(p: Person, tax: TaxonomyPrefs): HeldTag[] {
    * fire on any passing mention — "interned at a Google-backed startup" is not a
    * Google role.
    */
-  const fields = fieldedText(p);
-  for (const def of Object.values(tax.tags)) {
-    if (!TEXT_FACETS.has(def.facet) || seen.has(def.id)) continue;
+  for (const f of fieldedText(p)) {
     /**
      * An accelerator is only read from what the person says about themselves.
      *
@@ -448,23 +473,25 @@ export function heldTags(p: Person, tax: TaxonomyPrefs): HeldTag[] {
      * afford a coincidence. A programme name in prose about a company is usually
      * about the company.
      */
-    const usable =
-      def.facet === "accelerator"
-        ? fields.filter((f) => (!f.venture || f.founded) && !BORROWED_NAME.test(f.text))
-        : fields;
-    /**
-     * Aliases count — "Z-Fellow" in a headline is the Z Fellow tag — but only the
-     * ones long enough to mean something on their own.
-     *
-     * "YC" is an alias of Y Combinator, and Yasin Ehsan's experience description
-     * reads "10 companies into yc/a16z sr." He places other people into YC; he was
-     * never in it. A two-character token in prose is a coincidence waiting to
-     * happen, and nothing real is lost by ignoring it: everyone actually in a batch
-     * has it in their education section or in their company's registered name.
-     */
-    const forms = [def.label, ...def.aliases.filter((a) => a.length >= 3)];
-    const hit = usable.find((f) => forms.some((form) => mentions(f.text, form)));
-    if (hit) take(def, hit.source);
+    const ventureProse = f.venture && !f.founded;
+    const borrowed = BORROWED_NAME.test(f.text);
+
+    for (const { def, span } of scanText(f.text, index)) {
+      /**
+       * The facet gate stays. A company or a school is already known exactly from a
+       * structured field, and reading one from prose would make "interned at a
+       * Google-backed startup" a Google role. `TagDef.match` refines within the two
+       * facets that are read from prose; it does not open the others.
+       */
+      if (!TEXT_FACETS.has(def.facet)) continue;
+      if (def.facet === "accelerator" && (ventureProse || borrowed)) continue;
+
+      const policy = def.match ?? "text";
+      if (policy === "structured") continue;
+      if (policy === "qualified" && !f.claim && !hasQualifier(f.text, span, def.facet)) continue;
+
+      take(def, f.source, { evidence: { text: span.text, section: f.source } });
+    }
   }
 
   /**

@@ -98,6 +98,31 @@ export function isTagFacet(v: unknown): v is TagFacet {
   return typeof v === "string" && (TAG_FACETS as readonly string[]).includes(v);
 }
 
+/**
+ * How a tag may be found in prose.
+ *
+ * `text` is free: the name is distinctive enough that seeing it is enough. `RSI`,
+ * `TreeHacks`, `Y Combinator`.
+ *
+ * `qualified` needs the sentence around it to be talking about holding something.
+ * For the names that are simultaneously a credential and an ordinary word: IMO the
+ * olympiad and "imo" the opinion, Rise the fellowship and "the rise of
+ * transformers", `primes` the programme and "twin primes" in a population of
+ * mathematicians.
+ *
+ * `structured` is never read from prose at all, only from a school or an employer
+ * the vendor already resolved to an entity. For the funds whose name is a plain
+ * English word, and for the late-stage ones that appear in a student's text only
+ * ever as somebody else's backer: Benchmark, Index, Battery, Accel, Greylock,
+ * Antler, Sequoia. Davido Zhang carried Lightspeed +1.5 from "mentors from the
+ * Lightspeed Studios", which is Tencent's game studio.
+ */
+export type TagMatch = "text" | "qualified" | "structured";
+
+export function isTagMatch(v: unknown): v is TagMatch {
+  return v === "text" || v === "qualified" || v === "structured";
+}
+
 export type TagDef = {
   /** Canonical key, from `normalizeKey(label)`. Stable across relabelling. */
   id: string;
@@ -121,6 +146,8 @@ export type TagDef = {
    * zero". Nothing enters the score without someone saying so.
    */
   promoted: boolean;
+  /** How this may be read from prose. Absent means `text`. */
+  match?: TagMatch;
 };
 
 export type TagRegistry = Record<string, TagDef>;
@@ -195,8 +222,21 @@ const NOISE = new Set([
   "scholar",
   "member",
   "cohort",
-  "national",
-  "international",
+  /**
+   * `national` and `international` used to be here, and they were the single most
+   * expensive words in the set.
+   *
+   * Stripping them made "National Biology Olympiad" and "International Biology
+   * Olympiad" one key, and the international tag owned it, so a USABO semifinalist
+   * scored IBO's 2.0 instead of USABO's 0.5 — a 4x error on the distinction that
+   * matters most in a competition credential. It did the same to physics, and it
+   * made "Washington State Science and Engineering Fair" indistinguishable from the
+   * *International* Science and Engineering Fair, which is how a state fair first
+   * place became an ISEF tag.
+   *
+   * They read as noise because they look like filler in an organisation's legal
+   * name. In a competition's name they are the tier.
+   */
 ]);
 
 /**
@@ -323,19 +363,69 @@ export function tagId(label: string, facet: TagFacet): string {
   return facet === "state" || facet === "homestate" ? `${facet}:${base}` : base;
 }
 
-export function normalizeKey(label: string): string {
-  const folded = label
+/**
+ * The words of a label, folded to the alphabet a key is written in.
+ *
+ * Split out and exported so the prose scanner in lib/tagMatch.ts can fold each
+ * token of a profile once and then assemble candidate keys incrementally, instead
+ * of re-running the whole of `normalizeKey` over every window it considers.
+ *
+ * The two paths sharing this is not a tidiness point. A label and the sentence
+ * naming that label have to produce the same key or the tag never fires, and for a
+ * long time they did not: aliases are stored *as keys*, and the text matcher fed
+ * those hyphenated keys straight to a regex, so `research-science` needed a literal
+ * hyphen and "Research Science Institute" matched nothing at all. Deriving both
+ * from one function makes that class of disagreement unrepresentable.
+ *
+ * `&` is neither a letter nor a digit, so it reads as a separator on both sides.
+ * That is safe only because `and` is a noise word: "R&D" and "R and D" both land
+ * on `r-d`.
+ */
+export function foldWords(label: string): string[] {
+  return label
     .normalize("NFKD")
     .replace(/[̀-ͯ]/g, "")
     .toLowerCase()
     .replace(/&/g, " and ")
     .replace(/[^a-z0-9]+/g, " ")
-    .trim();
+    .trim()
+    .split(" ")
+    .filter(Boolean);
+}
 
-  const kept = folded.split(" ").filter((w) => w && !NOISE.has(w));
-  // A label made entirely of noise words still needs a key. "Scholar" alone is
-  // not a useful tag, but it must not collide with every other such label.
-  return (kept.length > 0 ? kept : folded.split(" ").filter(Boolean)).join("-");
+/** Exported for the scanner, which has to skip noise exactly as a key does. */
+export function isNoiseWord(word: string): boolean {
+  return NOISE.has(word);
+}
+
+/**
+ * The longest key any seeded label produces is seven tokens
+ * (`stanford-center-for-ai-in-medicine-imaging`), so eight is the width past which
+ * a wider window cannot match anything and the scanner can stop growing it.
+ */
+export const MAX_KEY_TOKENS = 8;
+
+/**
+ * Assemble a key from already-folded words.
+ *
+ * A label made entirely of noise words still needs a key: "Scholar" alone is not a
+ * useful tag, but it must not collide with every other such label.
+ *
+ * The same fallback now covers one more case, because a key also has to survive
+ * noise removal with something left to identify it. "Z Fellow" reduced to `z` —
+ * `fellow` is noise — and a one-character key is a live hazard on the heaviest tag
+ * in the taxonomy: `resolveAny` is facet-blind, so "Z", "Z Scholar", "Z Institute"
+ * and an education row named simply "Z" all resolved to Z Fellow at 2.0, and
+ * suppressing any of those strings suppressed the real tag along with them.
+ * "Z Fellow" is now `z-fellow`. "Z Fellows" was already `z-fellows`, unchanged.
+ */
+export function keyFromWords(folded: string[]): string {
+  const kept = folded.filter((w) => !NOISE.has(w));
+  return (kept.join("").length >= 2 ? kept : folded).join("-");
+}
+
+export function normalizeKey(label: string): string {
+  return keyFromWords(foldWords(label));
 }
 
 /* ── Similarity ─────────────────────────────────────────────────────────── */
@@ -634,6 +724,8 @@ export function seedRegistry(input: {
   companies: { label: string; aliases?: string[] }[];
   startWeight: Record<string, number>;
   termCluster: Record<string, Archetype | null>;
+  /** How each label may be read from prose. Absent means `text`. */
+  matchPolicy: Record<string, TagMatch>;
   states: Record<string, string>;
   facetDefaults: Record<TagFacet, number>;
 }): TagRegistry {
@@ -675,6 +767,7 @@ export function seedRegistry(input: {
       ),
       cluster: input.termCluster[label] ?? null,
       ...(state ? { state } : {}),
+      ...(input.matchPolicy[label] ? { match: input.matchPolicy[label] } : {}),
       promoted: true,
     };
   };
