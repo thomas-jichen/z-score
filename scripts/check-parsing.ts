@@ -1682,6 +1682,32 @@ console.log("\naccelerators — the signal that was invisible");
   check("but their own headline does", held(claimed).includes("a16z[accelerator]"), true);
 
   /**
+   * A paper's title names its subject, not its author's backers.
+   *
+   * Philip Meng published "EnDive: A Cross-Dialect Benchmark for Fairness and
+   * Performance in Large Language Models", and the word benchmark in it read as
+   * Benchmark the fund: +1.5 on the second-ranked person in the queue, off a
+   * credential that appears nowhere on his profile. The population is full of ML
+   * researchers and the investor list is full of common English words, so this was
+   * every paper any of them will ever write, not one unlucky title.
+   */
+  const author = bare("author");
+  author.enriched!.publications = [
+    "EnDive: A Cross-Dialect Benchmark for Fairness and Performance in Large Language Models",
+  ];
+  check("a paper title is not a claim", held(author).includes("Benchmark[accelerator]"), false);
+
+  // Patents read the same way. A certification does not: it is a claim about the
+  // person in the way a headline is, not the name of a thing they made.
+  const patented = bare("patented");
+  patented.enriched!.patents = ["Index structures for sparse retrieval"];
+  check("nor is a patent title", held(patented).includes("Index Ventures[accelerator]"), false);
+
+  const certified = bare("certified");
+  certified.enriched!.certifications = ["Emergent Ventures Fellowship 2025"];
+  check("but a certification is", held(certified).includes("Emergent Ventures[accelerator]"), true);
+
+  /**
    * A famous name attached to an open-enrolment product.
    *
    * YC Startup School is a free online course. It read as YC itself and put the

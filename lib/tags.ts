@@ -181,10 +181,26 @@ function fieldedText(p: Person): Field[] {
       venture: true as const,
       ...(FOUNDING_ROLE.test(x.title ?? "") ? { founded: true as const } : {}),
     })),
+    /**
+     * Publications and patents are deliberately absent.
+     *
+     * A paper's title names its subject, not its author's backers. Philip Meng
+     * published "EnDive: A Cross-Dialect Benchmark for Fairness and Performance in
+     * Large Language Models", and the word benchmark in it read as Benchmark the
+     * fund and put +1.5 on him, second in the whole queue, off a credential that
+     * appears nowhere on his profile. The population this app searches is full of
+     * ML researchers and the investor list is full of common English words —
+     * Benchmark, Index, Battery, Accel, Contrary, Antler — so this was not one
+     * unlucky title, it was every paper any of them will ever write.
+     *
+     * The count of publications still scores, through extractTags, which is the
+     * honest thing a publication says about someone.
+     *
+     * Certifications stay. A certification is a claim about the person in the same
+     * way a headline is, not the name of a thing they made.
+     */
     {
-      text: [e.headline, e.about, ...e.publications, ...e.patents, ...e.certifications]
-        .filter(Boolean)
-        .join(" "),
+      text: [e.headline, e.about, ...e.certifications].filter(Boolean).join(" "),
       source: "experience" as const,
     },
     { text: p.snippet ?? "", source: "snippet" as const },
