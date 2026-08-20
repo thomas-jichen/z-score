@@ -1,6 +1,7 @@
 node_modules/
 .next/
 .next-check/
+.next-e2e/
 out/
 .env
 .env*.local
