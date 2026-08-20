@@ -29,6 +29,21 @@ import {
 
 const YEARS = ["2026", "2027", "2028", "2029", "2030", "2031", "2032", "2033"];
 
+/**
+ * Enriched, not enriched, or both.
+ *
+ * "Not enriched" is the half that was missing and the half that does work: a
+ * search result carries a name, a headline and almost no score, and the way it
+ * becomes a candidate is that somebody pulls the profile. Filtering to exactly
+ * those people, ticking the header checkbox and pressing the button the bulk bar
+ * is already offering is the whole loop, in three clicks.
+ */
+const ENRICHMENT_OPTIONS: { id: QueueFilters["enrichment"]; label: string; hint?: string }[] = [
+  { id: "all", label: "All" },
+  { id: "enriched", label: "Enriched", hint: "Profile pulled, so honours and experience count" },
+  { id: "thin", label: "Not enriched", hint: "Search result only, nothing pulled yet" },
+];
+
 type View = "queued" | "known" | "rejected";
 type Sort = "score" | "recent";
 
@@ -140,7 +155,7 @@ function QueueInner() {
     (filters.band !== "all" ? 1 : 0) +
     (filters.years.length ? 1 : 0) +
     (filters.pinnedOnly ? 1 : 0) +
-    (filters.enrichedOnly ? 1 : 0) +
+    (filters.enrichment !== "all" ? 1 : 0) +
     (filters.polymathOnly ? 1 : 0);
 
   const rows = useMemo(() => {
@@ -157,7 +172,8 @@ function QueueInner() {
       if (filters.band !== "all" && c.score < (bandFloor[filters.band] ?? -Infinity)) return false;
       if (filters.years.length && !filters.years.includes(c.graduation_year ?? "")) return false;
       if (filters.pinnedOnly && !marks[c.slug]?.pinned) return false;
-      if (filters.enrichedOnly && !c.enriched) return false;
+      if (filters.enrichment === "enriched" && !c.enriched) return false;
+      if (filters.enrichment === "thin" && c.enriched) return false;
       if (filters.polymathOnly && !c.polymath) return false;
 
       if (term) {
@@ -427,7 +443,7 @@ function QueueInner() {
             </div>
           </div>
 
-          {/* Filters stay collapsed. Six control groups laid flat is clutter;
+          {/* Filters stay collapsed. Five control groups laid flat is clutter;
               behind a disclosure they cost one line until wanted. */}
           <details className="z-disclosure" style={{ marginBottom: "var(--z-space-6)" }}>
             <summary>
@@ -488,6 +504,28 @@ function QueueInner() {
                 ))}
               </FilterRow>
 
+              {/**
+                * Its own row, because unlike Pinned and Polymath it is a choice
+                * rather than a switch, and because "Not enriched" is the one that
+                * finishes a job: filter to it, select all, and the bulk bar is
+                * already offering to enrich exactly that list at a stated price.
+                * As a fourth toggle in "Only show" it could have been on at the
+                * same time as Enriched, which is a filter that returns nobody.
+                */}
+              <FilterRow label="Enrichment">
+                {ENRICHMENT_OPTIONS.map((o) => (
+                  <Pill
+                    key={o.id}
+                    as="button"
+                    active={filters.enrichment === o.id}
+                    onClick={() => setFilter({ enrichment: o.id })}
+                    title={o.hint}
+                  >
+                    {o.label}
+                  </Pill>
+                ))}
+              </FilterRow>
+
               <FilterRow label="Only show">
                 <Pill
                   as="button"
@@ -495,13 +533,6 @@ function QueueInner() {
                   onClick={() => setFilter({ pinnedOnly: !filters.pinnedOnly })}
                 >
                   Pinned
-                </Pill>
-                <Pill
-                  as="button"
-                  active={filters.enrichedOnly}
-                  onClick={() => setFilter({ enrichedOnly: !filters.enrichedOnly })}
-                >
-                  Enriched
                 </Pill>
                 <Pill
                   as="button"

@@ -168,7 +168,17 @@ export type QueueFilters = {
   band: string;
   years: string[];
   pinnedOnly: boolean;
-  enrichedOnly: boolean;
+  /**
+   * Three states, not a boolean.
+   *
+   * This was `enrichedOnly`, and the missing half of it was the more useful one:
+   * the whole point of the queue is to find who still needs a profile pulled, and
+   * "not enriched" is the list you then select all of and hand to the Enrich
+   * button. Adding a second boolean beside the first would have let both be on at
+   * once, which is a filter that can only ever return nobody, so the two are one
+   * choice. "thin" is what the queue screen already calls a search-only person.
+   */
+  enrichment: "all" | "enriched" | "thin";
   polymathOnly: boolean;
 };
 
@@ -403,7 +413,7 @@ export const emptyFilters = (): QueueFilters => ({
   band: "all",
   years: [],
   pinnedOnly: false,
-  enrichedOnly: false,
+  enrichment: "all",
   polymathOnly: false,
 });
 

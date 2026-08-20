@@ -162,7 +162,14 @@ function cleanFilters(raw: unknown): QueueFilters {
     band: str(o.band, 20) || base.band,
     years: strList(o.years, 20, 8),
     pinnedOnly: o.pinnedOnly === true,
-    enrichedOnly: o.enrichedOnly === true,
+    // `enrichedOnly` is the boolean this replaced. Read so that anyone who had the
+    // filter on when it shipped keeps it on rather than silently seeing everyone.
+    enrichment:
+      o.enrichment === "enriched" || o.enrichment === "thin"
+        ? o.enrichment
+        : o.enrichedOnly === true
+          ? "enriched"
+          : "all",
     polymathOnly: o.polymathOnly === true,
   };
 }

@@ -315,14 +315,28 @@ Each row carries the score, the archetype, and which of the campaign's own searc
       {
         title: "The ranked queue",
         description:
-          "The team's whole queue, ranked: everyone not yet marked known or rejected, across every campaign and everyone added by hand. The same list the Digest screen shows. `signals` is the score broken into the terms that produced it.",
-        inputSchema: z.object({
-          limit: z.number().int().min(1).max(50).default(10),
-          enrichedOnly: z.boolean().default(false),
-        }),
+          "The team's whole queue, ranked: everyone not yet marked known or rejected, across every campaign and everyone added by hand. The same list the Digest screen shows. `signals` is the score broken into the terms that produced it. Pass enrichment to ask for only the people whose profile has been pulled, or only the ones still waiting for it.",
+        inputSchema: z
+          .object({
+            limit: z.number().int().min(1).max(50).default(10),
+            /**
+             * Three states, matching the Enrichment filter on the queue screen.
+             *
+             * `.strict()` because this replaced a boolean named enrichedOnly, and a
+             * caller still sending that would otherwise be handed the whole queue
+             * with no hint that its filter had been dropped.
+             */
+            enrichment: z
+              .enum(["all", "enriched", "thin"])
+              .default("all")
+              .describe(
+                'Which half of the queue. "enriched" means the LinkedIn profile has been pulled, so honours and experience are scored. "thin" means search only: a name and a headline, almost nothing scored yet, and the people worth considering spending an enrichment on.'
+              ),
+          })
+          .strict(),
         annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
       },
-      async ({ limit, enrichedOnly }, ctx) => {
+      async ({ limit, enrichment }, ctx) => {
         const owner = identity(ctx);
         await migrateIfNeeded();
         const [roster, team] = await Promise.all([readRoster(), readTeam()]);
@@ -330,7 +344,7 @@ Each row carries the score, the archetype, and which of the campaign's own searc
 
         const rows = Object.values(roster)
           .filter((p) => (marks[p.slug]?.status ?? "queued") === "queued")
-          .filter((p) => !enrichedOnly || p.enriched)
+          .filter((p) => enrichment === "all" || !!p.enriched === (enrichment === "enriched"))
           .map((p) => scoreOne(p, team.taxonomy))
           .sort((a, b) => b.score - a.score);
 
@@ -348,8 +362,10 @@ Each row carries the score, the archetype, and which of the campaign's own searc
           signals: dominantSignals(c, 3).map((s) => ({ label: s.label, points: s.points })),
         }));
 
+        const of =
+          enrichment === "all" ? "" : enrichment === "enriched" ? " enriched" : " not yet enriched";
         return reply(
-          `${rows.length} in the queue. Top ${people.length}:\n` +
+          `${rows.length}${of} in the queue. Top ${people.length}:\n` +
             people
               .map((p, i) => `${i + 1}. ${p.name}: ${p.score.toFixed(1)}, ${p.archetype}\n   ${p.headline}`)
               .join("\n"),

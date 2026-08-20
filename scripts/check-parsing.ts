@@ -71,7 +71,11 @@ import {
 import { buildGraph, edgePath, DEFAULT_MAX_HOLDERS, DEFAULT_MIN_HOLDERS, EDGE_SOURCES } from "../lib/graph";
 
 let failures = 0;
+// Counted so the summary can say how many, which is the number the README quotes.
+// Left to be worked out by hand it goes stale the first time anyone adds a check.
+let total = 0;
 function check(label: string, actual: unknown, expected: unknown) {
+  total++;
   const a = JSON.stringify(actual);
   const e = JSON.stringify(expected);
   const ok = a === e;
@@ -2789,6 +2793,10 @@ void (async () => {
     ["National YoungArts"]
   );
 
-  console.log(failures === 0 ? "\nAll checks passed.\n" : `\n${failures} check(s) failed.\n`);
+  console.log(
+    failures === 0
+      ? `\nAll ${total} checks passed.\n`
+      : `\n${failures} of ${total} check(s) failed.\n`
+  );
   process.exit(failures === 0 ? 0 : 1);
 })();
