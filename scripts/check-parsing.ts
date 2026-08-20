@@ -2013,6 +2013,56 @@ console.log("\ntiers — a finalist is not a winner");
   // And bare gold is still a medal everywhere else. Brian Zhang has one.
   check("but IPhO Gold is", readTier("IPhO Gold '25"), "winner");
 
+  /**
+   * Containment resolving to the wrong institution, all fifteen verified wrong.
+   *
+   * A LinkedIn education row wraps the school in extra words, so containment is what
+   * makes "UC Berkeley M.E.T. program" resolve to Berkeley. The hazard is the school
+   * whose name merely *contains* another's: "Penn State University" scored a UPenn
+   * degree, "Cal Poly San Luis Obispo" and "Cal State Fullerton" both scored
+   * Berkeley through the `cal` alias, "Duke Kunshan" scored Duke.
+   *
+   * The high schools were worse, because the facet split that saves the colleges
+   * cannot help — Exeter Township Senior High School and Phillips Exeter are both
+   * high schools, so containment could only ever get it wrong.
+   */
+  const at = (label: string, facet: "college" | "highschool" | "lab") => {
+    const r = resolveTag(indexRegistry(TAX.tags), { label, facet });
+    return r.kind === "exact" ? r.def.label : null;
+  };
+
+  for (const [label, facet] of [
+    ["Penn State University", "college"],
+    ["Pennsylvania State University", "college"],
+    ["Cal Poly San Luis Obispo", "college"],
+    ["Cal State Fullerton", "college"],
+    ["Michigan Technological University", "college"],
+    ["University of Michigan-Dearborn", "college"],
+    ["Duke Kunshan University", "college"],
+    ["Columbia College Chicago", "college"],
+    ["Exeter Township Senior High School", "highschool"],
+    ["Andover High School", "highschool"],
+    ["Groton-Dunstable Regional High School", "highschool"],
+    ["Dalton High School", "highschool"],
+    ["Media Lab Helsinki", "lab"],
+    ["Broad Research Group", "lab"],
+  ] as [string, "college" | "highschool" | "lab"][]) {
+    check(`${label} is not a tag`, at(label, facet), null);
+  }
+
+  // And the real ones still resolve, including the wrapped-in-a-programme case that
+  // containment exists for.
+  check("Penn is still Penn", at("University of Pennsylvania", "college"), "UPenn");
+  check("Chicago is still Chicago", at("University of Chicago", "college"), "UChicago");
+  check("Columbia is still Columbia", at("Columbia University", "college"), "Columbia");
+  check("Exeter is still Exeter", at("Phillips Exeter Academy", "highschool"), "Phillips Exeter");
+  check("Groton is still Groton", at("Groton School", "highschool"), "Groton");
+  check(
+    "and a programme around a school is still the school",
+    at("UC Berkeley Management, Entrepreneurship, & Technology program", "college"),
+    "Berkeley"
+  );
+
   // A tag with no ladder reads the tier and charges the same for it. Most
   // credentials either happened or did not.
   check("an unladdered tag still reports the rung", tier("USAMO Qualifier", "USAMO"), "qualifier");

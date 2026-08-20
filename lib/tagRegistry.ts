@@ -537,13 +537,55 @@ export function containsTokens(haystack: string, needle: string): boolean {
  * Keyed on the normalised form of the *other* institution.
  */
 const NOT_THE_SAME: Record<string, string[]> = {
-  michigan: ["michigan-state", "western-michigan", "eastern-michigan", "central-michigan"],
+  michigan: [
+    "michigan-state",
+    "western-michigan",
+    "eastern-michigan",
+    "central-michigan",
+    "michigan-technological",
+    "michigan-tech",
+    "michigan-dearborn",
+    "michigan-flint",
+  ],
   washington: ["washington-state", "washington-st-louis", "george-washington"],
   miami: ["miami-ohio"],
   berkeley: ["berkeley-city"],
   "uc-berkeley": ["berkeley-city"],
   brown: ["brown-mackie"],
-  columbia: ["columbia-southern", "columbia-basin"],
+  columbia: ["columbia-southern", "columbia-basin", "columbia-chicago"],
+
+  /**
+   * The second half of this list, and every entry in it was verified resolving to
+   * the wrong institution.
+   *
+   * "Penn State University" scored a UPenn degree; so did "Pennsylvania State".
+   * "Cal Poly San Luis Obispo", "Cal State Fullerton" and "Cal State Long Beach"
+   * each scored Berkeley, through the `cal` alias. "Duke Kunshan" scored Duke,
+   * "Columbia College Chicago" scored Columbia, "Michigan Tech" scored Michigan.
+   *
+   * The high schools are the same shape and were worse, because the facet split that
+   * saves the colleges cannot help: "Exeter Township Senior High School" in
+   * Pennsylvania and "Andover High School" in Massachusetts, Minnesota or Kansas are
+   * high schools competing against Phillips Exeter and Phillips Andover, which are
+   * also high schools. Containment could only ever get those wrong.
+   */
+  penn: ["penn-state", "pennsylvania-state"],
+  upenn: ["penn-state", "pennsylvania-state"],
+  pennsylvania: ["pennsylvania-state"],
+  // Columbia College Chicago is neither Columbia nor UChicago, and excluding it from
+  // one left it resolving to the other. A containment veto has to name every
+  // institution whose form the string contains, not just the one it hit first.
+  chicago: ["columbia-chicago"],
+  cal: ["cal-poly", "cal-state", "cal-maritime", "cal-lutheran", "cal-baptist"],
+  duke: ["duke-kunshan"],
+  exeter: ["exeter-township"],
+  "phillips-exeter": ["exeter-township"],
+  andover: ["andover-high"],
+  "phillips-andover": ["andover-high"],
+  groton: ["groton-dunstable"],
+  dalton: ["dalton-high"],
+  "media-lab": ["media-lab-helsinki"],
+  broad: ["broad-research"],
 };
 
 /**
