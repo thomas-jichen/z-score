@@ -19,7 +19,7 @@ import {
   type TagFacet,
   type Tier,
 } from "./tagRegistry";
-import { hasQualifier, readTier, scanText, tieredWeight } from "./tagMatch";
+import { hasQualifier, readTier, scanText, tieredWeight, type Span } from "./tagMatch";
 import type { Signal } from "./zscore";
 
 /**
@@ -475,6 +475,127 @@ function isSuppressedTag(keys: Set<string>, id: string, label: string): boolean 
   return keys.has(id) || keys.has(normalizeKey(label));
 }
 
+/**
+ * Every tag named in a person's prose, with whether the text vouches for it.
+ *
+ * One walk, two readers. `heldTags` wants the vouched ones; `unvouchedTags` wants
+ * the rest, to ask the model about. Splitting the decision out is what stops those
+ * two disagreeing about which candidates exist, which would show up as a tag the
+ * model approved and the scorer then ignored.
+ */
+type ProseTag = {
+  def: TagDef;
+  span: Span;
+  source: Signal["source"];
+  tier?: Tier;
+  /** The text corroborates it, or the tag never needed corroborating. */
+  vouched: boolean;
+};
+
+function proseTags(p: Person, index: ReturnType<typeof indexRegistry>): ProseTag[] {
+  const out: ProseTag[] = [];
+  for (const f of fieldedText(p)) {
+    /**
+     * An accelerator is only read from what the person says about themselves.
+     *
+     * Being funded is the heaviest signal here, so it is the one that can least
+     * afford a coincidence. A programme name in prose about a company is usually
+     * about the company.
+     */
+    const ventureProse = f.venture && !f.founded;
+    const borrowed = BORROWED_NAME.test(f.text);
+
+    for (const { def, span } of scanText(f.text, index)) {
+      /**
+       * The facet gate stays. A company or a school is already known exactly from a
+       * structured field, and reading one from prose would make "interned at a
+       * Google-backed startup" a Google role. `TagDef.match` refines within the two
+       * facets that are read from prose; it does not open the others.
+       */
+      if (!TEXT_FACETS.has(def.facet)) continue;
+      if (def.facet === "accelerator" && (ventureProse || borrowed)) continue;
+
+      const policy = def.match ?? "text";
+      // Never from prose, so not a candidate for anything: no amount of context
+      // makes the word "benchmark" in a paper title into the fund.
+      if (policy === "structured") continue;
+
+      const vouched =
+        policy !== "qualified" || Boolean(f.claim) || hasQualifier(f.text, span, def.facet);
+
+      out.push({
+        def,
+        span,
+        source: f.source,
+        tier: readTier(f.text, span),
+        vouched,
+      });
+    }
+  }
+  return out;
+}
+
+/**
+ * The prose matches the rules could not settle, for the model to judge.
+ *
+ * A `qualified` tag is one whose name is also an ordinary word, and the qualifier
+ * rule reads the clause around it looking for something that means "holds this".
+ * When that finds nothing the answer is genuinely unknown rather than no: Grace
+ * Kasten's headline is "Z Fellows" because that is where she works, and Sand Rao's
+ * is "Building something new | Z Fellows" because he went through it. Nothing in
+ * the words tells those apart, and a rule that guesses is wrong half the time.
+ *
+ * Bounded per person, because this is the input to a paid call and an unbounded
+ * candidate list is an unbounded bill.
+ */
+export type Unvouched = {
+  /** The tag's registry id, which is the key a verdict is cached under. */
+  id: string;
+  label: string;
+  facet: TagFacet;
+  /** The words that matched, verbatim. */
+  span: string;
+  /** Enough of the surrounding text to judge by. */
+  context: string;
+  section: Signal["source"];
+};
+
+/** Six is more candidates than any real profile has produced. */
+export const MAX_UNVOUCHED = 6;
+
+/** About a sentence either side, which is what the model needs and no more. */
+const CONTEXT_REACH = 200;
+
+export function unvouchedTags(p: Person, tax: TaxonomyPrefs): Unvouched[] {
+  const index = indexRegistry(tax.tags);
+  const decided = p.adjudicated ?? {};
+  const seen = new Set<string>();
+  const out: Unvouched[] = [];
+
+  for (const f of fieldedText(p)) {
+    for (const t of proseTags(p, index)) {
+      if (t.vouched || seen.has(t.def.id)) continue;
+      // Already judged, either way. A verdict is paid for once.
+      if (t.def.id in decided) continue;
+      if (t.source !== f.source || !f.text.includes(t.span.text)) continue;
+      seen.add(t.def.id);
+      out.push({
+        id: t.def.id,
+        label: t.def.label,
+        facet: t.def.facet,
+        span: t.span.text,
+        context: f.text
+          .slice(Math.max(0, t.span.start - CONTEXT_REACH), t.span.end + CONTEXT_REACH)
+          .replace(/\s+/g, " ")
+          .trim(),
+        section: t.source,
+      });
+      if (out.length >= MAX_UNVOUCHED) return out;
+    }
+  }
+  return out;
+}
+
 export function heldTags(p: Person, tax: TaxonomyPrefs): HeldTag[] {
   const index = indexRegistry(tax.tags);
   const out: HeldTag[] = [];
@@ -512,34 +633,11 @@ export function heldTags(p: Person, tax: TaxonomyPrefs): HeldTag[] {
    * fire on any passing mention — "interned at a Google-backed startup" is not a
    * Google role.
    */
-  for (const f of fieldedText(p)) {
-    /**
-     * An accelerator is only read from what the person says about themselves.
-     *
-     * Being funded is the heaviest signal here, so it is the one that can least
-     * afford a coincidence. A programme name in prose about a company is usually
-     * about the company.
-     */
-    const ventureProse = f.venture && !f.founded;
-    const borrowed = BORROWED_NAME.test(f.text);
-
-    for (const { def, span } of scanText(f.text, index)) {
-      /**
-       * The facet gate stays. A company or a school is already known exactly from a
-       * structured field, and reading one from prose would make "interned at a
-       * Google-backed startup" a Google role. `TagDef.match` refines within the two
-       * facets that are read from prose; it does not open the others.
-       */
-      if (!TEXT_FACETS.has(def.facet)) continue;
-      if (def.facet === "accelerator" && (ventureProse || borrowed)) continue;
-
-      const policy = def.match ?? "text";
-      if (policy === "structured") continue;
-      if (policy === "qualified" && !f.claim && !hasQualifier(f.text, span, def.facet)) continue;
-
-      take(def, f.source, {
-        evidence: { text: span.text, section: f.source },
-        ...(readTier(f.text, span) ? { tier: readTier(f.text, span) } : {}),
+  for (const found of proseTags(p, index)) {
+    if (found.vouched || p.adjudicated?.[found.def.id] === true) {
+      take(found.def, found.source, {
+        evidence: { text: found.span.text, section: found.source },
+        ...(found.tier ? { tier: found.tier } : {}),
       });
     }
   }

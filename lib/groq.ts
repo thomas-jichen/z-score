@@ -217,12 +217,23 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
  *
  * Retrying on 429 remains the backstop, not the mechanism.
  */
-const LIMITS = {
-  rpm: envNumber(process.env.ZSCORE_GROQ_RPM, 30),
-  tpm: envNumber(process.env.ZSCORE_GROQ_TPM, 8_000),
-  rpd: envNumber(process.env.ZSCORE_GROQ_RPD, 1_000),
-  tpd: envNumber(process.env.ZSCORE_GROQ_TPD, 200_000),
-};
+/**
+ * Read per call rather than captured at import.
+ *
+ * The numbers are a property of the account and the plan, not of this build, and a
+ * module-scope const meant nothing could observe the pacer without a redeploy —
+ * including the test suite, which had to either skip the limits entirely or wait out
+ * a real sixty-second window to see one engage. Four `process.env` reads per call is
+ * nothing beside the HTTP request they gate.
+ */
+function limits() {
+  return {
+    rpm: envNumber(process.env.ZSCORE_GROQ_RPM, 30),
+    tpm: envNumber(process.env.ZSCORE_GROQ_TPM, 8_000),
+    rpd: envNumber(process.env.ZSCORE_GROQ_RPD, 1_000),
+    tpd: envNumber(process.env.ZSCORE_GROQ_TPD, 200_000),
+  };
+}
 
 /**
  * Spend only this share of the per-minute budget. Token cost is estimated before
@@ -261,10 +272,21 @@ function parseReset(v: string | null): number | undefined {
  * budget, and only Groq can see that.
  */
 function noteHeaders(headers: Headers) {
-  const remaining = Number(headers.get("x-ratelimit-remaining-tokens"));
+  /**
+   * Absent is not zero.
+   *
+   * `Number(null)` is 0, and 0 is finite, so a response without the header booked
+   * the *entire* per-minute token budget as already spent — and the next call then
+   * paced for a full minute against a limit nobody had touched. Inside a campaign
+   * tick that is the difference between tagging ten people and tagging one, and it
+   * is the same empty-string-is-zero trap `envNumber` carries a comment about.
+   */
+  const raw = headers.get("x-ratelimit-remaining-tokens");
+  if (raw === null || raw.trim() === "") return;
+  const remaining = Number(raw);
   if (!Number.isFinite(remaining)) return;
 
-  const used = Math.max(LIMITS.tpm - remaining, 0);
+  const used = Math.max(limits().tpm - remaining, 0);
   const ledger = window.reduce((n, s) => n + s.tokens, 0);
   if (used > ledger) {
     // Someone else has been spending. Book the difference so we pace for it.
@@ -297,29 +319,44 @@ async function reserve(cost: number): Promise<{ ok: true } | { ok: false; error:
     }
     // A daily cap cannot be waited out inside one request, so say so plainly
     // rather than sleeping for hours.
-    if (daily.requests >= LIMITS.rpd) {
-      return { ok: false, error: `Groq daily request cap reached (${LIMITS.rpd}). Resets at midnight UTC.` };
+    const cap = limits();
+    if (daily.requests >= cap.rpd) {
+      return { ok: false, error: `Groq daily request cap reached (${cap.rpd}). Resets at midnight UTC.` };
     }
-    if (daily.tokens + cost > LIMITS.tpd) {
-      return { ok: false, error: `Groq daily token cap reached (${LIMITS.tpd}). Resets at midnight UTC.` };
+    if (daily.tokens + cost > cap.tpd) {
+      return { ok: false, error: `Groq daily token cap reached (${cap.tpd}). Resets at midnight UTC.` };
     }
 
     // Up to a minute and a bit of waiting, in small steps, so the window can drain.
     for (let i = 0; i < 130; i++) {
       const now = Date.now();
-      while (window.length > 0 && now - window[0].at >= 60_000) window.shift();
+      /**
+       * Pruned by scanning, not by shifting off the front.
+       *
+       * The front was assumed to be the oldest, and `noteHeaders` breaks that: when a
+       * response says somebody else has been spending it pushes an entry back-dated
+       * to the start of the window, which lands *behind* newer ones. The shift loop
+       * then stopped at the newer entry and left the stale one in the ledger for a
+       * full minute — so the pacer throttled against tokens nobody was using. Inside
+       * a campaign tick that was the difference between tagging ten people and one.
+       */
+      for (let k = window.length - 1; k >= 0; k--) {
+        if (now - window[k].at >= 60_000) window.splice(k, 1);
+      }
 
       const requests = window.length;
       const tokens = window.reduce((n, s) => n + s.tokens, 0);
       const fits =
-        requests + 1 <= Math.floor(LIMITS.rpm * HEADROOM) &&
-        tokens + cost <= Math.floor(LIMITS.tpm * HEADROOM);
+        requests + 1 <= Math.floor(cap.rpm * HEADROOM) &&
+        tokens + cost <= Math.floor(cap.tpm * HEADROOM);
       if (fits) break;
 
-      // Wait until the oldest entry ages out, which is exactly when room appears.
-      const wait = Math.min(Math.max(60_000 - (now - (window[0]?.at ?? now)), 250), 5_000);
+      // Wait until the oldest entry ages out, which is exactly when room appears —
+      // and the oldest is whichever it is, for the same reason as above.
+      const oldest = window.reduce((m, s) => Math.min(m, s.at), now);
+      const wait = Math.min(Math.max(60_000 - (now - oldest), 250), 5_000);
       if (i === 0) {
-        log.info("groq.paced", { requests, tokens, cost, rpm: LIMITS.rpm, tpm: LIMITS.tpm });
+        log.info("groq.paced", { requests, tokens, cost, rpm: cap.rpm, tpm: cap.tpm });
       }
       await sleep(wait);
     }
@@ -920,6 +957,118 @@ function parseClassification(raw: unknown): Classification | null {
  * lifetime of that term, and the answer is a suggestion you edit before it
  * lands.
  */
+/* ── Adjudicating a match the rules could not settle ────────────────────── */
+
+/**
+ * Whether a person holds a credential their profile happens to name.
+ *
+ * The last resort, and deliberately the narrowest of the four prompts in this file.
+ * `MATCH_POLICY` marks the names that are also ordinary English words — Benchmark,
+ * Rise, IMO, Accel — and `hasQualifier` reads the clause around one looking for
+ * something that means "holds this". Where that finds nothing the honest answer is
+ * unknown rather than no. Grace Kasten's headline is "Z Fellows" because that is
+ * where she works; Sand Rao's is "Building something new | Z Fellows" because he
+ * went through it. No rule over the words separates those two.
+ *
+ * Batched per person, one call for up to six candidates, because a call is the unit
+ * the rate limiter counts and six calls of one candidate each cost six times the
+ * budget for the same answer.
+ */
+const ADJUDICATE_SYSTEM = `You decide whether a person holds a credential that their profile happens to mention.
+
+Each item gives a CREDENTIAL, the exact WORDS that matched on the profile, and the SURROUNDING text.
+
+Answer true only if the surrounding text says this person holds, held, or took part in the credential themselves.
+
+Answer false when the mention is about somebody or something else. The common cases:
+- They work at the fund or the programme rather than having been through it. "Experience: Z Fellows" is a job.
+- It is the backer of a company they merely worked at, not one they founded.
+- It is an ordinary use of the word: "a cross-dialect benchmark", "imo the best approach", "the rise of transformers", "IMU accel and gyro", "twin primes conjecture", "Sequoia National Park".
+- It is a different organisation with a similar name: Lightspeed Studios is a game studio, not Lightspeed Venture Partners.
+- It is a competition or programme they are naming as context, not one they entered.
+
+If the text genuinely does not say either way, answer false. A credential that cannot be read off the profile is one the profile does not evidence.
+
+Reply with JSON only: {"verdicts":[{"id":"<the id given>","holds":true|false}]}`;
+
+const ADJUDICATE_SCHEMA: Schema = {
+  name: "adjudication",
+  schema: {
+    type: "object",
+    properties: {
+      verdicts: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: { id: { type: "string" }, holds: { type: "boolean" } },
+          required: ["id", "holds"],
+          additionalProperties: false,
+        },
+      },
+    },
+    required: ["verdicts"],
+    additionalProperties: false,
+  },
+};
+
+export type AdjudicationItem = {
+  id: string;
+  label: string;
+  span: string;
+  context: string;
+  section: string;
+};
+
+function parseVerdicts(raw: unknown, asked: string[]): Record<string, boolean> | null {
+  const list = (raw as { verdicts?: unknown })?.verdicts;
+  if (!Array.isArray(list)) return null;
+  const wanted = new Set(asked);
+  const out: Record<string, boolean> = {};
+  for (const v of list) {
+    const id = typeof (v as { id?: unknown })?.id === "string" ? (v as { id: string }).id : null;
+    const holds = (v as { holds?: unknown })?.holds;
+    // Only ids we asked about, so a hallucinated tag cannot switch itself on.
+    if (id && wanted.has(id) && typeof holds === "boolean") out[id] = holds;
+  }
+  return Object.keys(out).length > 0 ? out : null;
+}
+
+/**
+ * One call, up to six candidates, all for the same person.
+ *
+ * Every candidate asked about gets an answer, whatever the model returns: anything
+ * missing from the reply defaults to `false`. That matters because the verdict is
+ * cached, and an absent key would mean "ask again next time" — so a model that
+ * answers four of six would otherwise be re-asked about the other two forever.
+ */
+export async function adjudicateMatches(
+  items: AdjudicationItem[]
+): Promise<{ ok: true; value: Record<string, boolean> } | { ok: false; error: string }> {
+  if (items.length === 0) return { ok: true, value: {} };
+
+  const asked = items.map((i) => i.id);
+  const body = items
+    .map(
+      (i) =>
+        `id: ${i.id}\nCREDENTIAL: ${i.label}\nWORDS: ${i.span}\nSECTION: ${i.section}\nSURROUNDING: ${i.context}`
+    )
+    .join("\n\n");
+
+  const r = await chatJson(
+    [
+      { role: "system", content: ADJUDICATE_SYSTEM },
+      { role: "user", content: body },
+    ],
+    ADJUDICATE_SCHEMA,
+    (raw) => parseVerdicts(raw, asked)
+  );
+  if (!r.ok) return r;
+
+  const filled: Record<string, boolean> = {};
+  for (const id of asked) filled[id] = r.value[id] === true;
+  return { ok: true, value: filled };
+}
+
 export async function suggestClassification(
   term: string
 ): Promise<{ ok: true; value: Classification } | { ok: false; error: string }> {

@@ -38,11 +38,15 @@ import {
   writeDefaults,
 } from "../lib/campaignRun";
 import { tagFresh } from "../lib/campaignTag";
+import { adjudicateFresh } from "../lib/tagAdjudicate";
+import { MAX_UNVOUCHED, heldTags, unvouchedTags } from "../lib/tags";
+import type { Person } from "../lib/people";
 import { EMPTY_SELECTION, type Selection } from "../lib/query";
 import type { ProfileId } from "../lib/profiles";
 import { MAX_PROFILES_PER_RUN } from "../lib/apify";
+import { HOURLY_TAG_CAP, reserveTagging } from "../lib/ratelimit";
 import { hasGroq } from "../lib/groq";
-import { readTeam } from "../lib/serverState";
+import { readRoster, readTeam, writePeople } from "../lib/serverState";
 import { TEAM_KEY } from "../lib/state";
 import { del, get, set } from "../lib/store";
 import { stateKey, hydrate, type ProfileState } from "../lib/state";
@@ -79,6 +83,64 @@ const realFetch = globalThis.fetch;
 /** Every call the run made, so a test can assert what was and was not paid for. */
 let calls: { host: string; body?: string }[] = [];
 
+/**
+ * What the stubbed model says next.
+ *
+ * `verdicts` maps a tag id to the answer. `groqStatus` and `groqFailures` drive the
+ * retry cases: a 429 with a retry-after header must be retried and a 400 must not,
+ * and the number of times `fetch` is reached is the thing under test.
+ */
+let verdicts: Record<string, boolean> = {};
+let groqFailures = 0;
+let groqStatus = 429;
+let groqRetryAfter: string | null = "0";
+/** Set to return ids nobody asked about, or to answer only some of them. */
+let groqExtraIds: string[] = [];
+let groqAnswerOnly: string[] | null = null;
+
+/** Set to have the stub report how much of the minute's budget is left. */
+let groqRemainingTokens: string | null = null;
+let groqResetTokens = "250ms";
+
+function groqReply(body: string | undefined): Response {
+  if (groqFailures > 0) {
+    groqFailures--;
+    return new Response(JSON.stringify({ error: { message: "slow down" } }), {
+      status: groqStatus,
+      headers: groqRetryAfter === null ? {} : { "retry-after": groqRetryAfter },
+    });
+  }
+  // Answer about exactly the ids the prompt asked about, which is how the real
+  // model behaves and what makes the hallucination guard meaningful.
+  const asked = [...(body ?? "").matchAll(/id: ([a-z0-9-]+)/g)].map((m) => m[1]);
+  const answering = groqAnswerOnly ?? asked;
+  const list = [
+    ...answering.map((id) => ({ id, holds: verdicts[id] === true })),
+    ...groqExtraIds.map((id) => ({ id, holds: true })),
+  ];
+  return new Response(
+    JSON.stringify({
+      choices: [{ finish_reason: "stop", message: { content: JSON.stringify({ verdicts: list }) } }],
+    }),
+    {
+      status: 200,
+      headers: {
+        "content-type": "application/json",
+        ...(groqRemainingTokens === null
+          ? {}
+          : {
+              "x-ratelimit-remaining-tokens": groqRemainingTokens,
+              "x-ratelimit-reset-tokens": groqResetTokens,
+            }),
+      },
+    }
+  );
+}
+
+function groqCalls() {
+  return calls.filter((c) => c.host === "api.groq.com").length;
+}
+
 /** Serper hits, keyed by nothing: every query returns the same page of people. */
 let serperPeople: { name: string; slug: string; snippet: string }[] = [];
 /** Set to make the next N Serper calls fail, for the mid-tick failure cases. */
@@ -108,6 +170,8 @@ function install() {
       }
       return new Response(serperBody(), { status: 200 });
     }
+
+    if (host === "api.groq.com") return groqReply(init?.body as string | undefined);
     // Anything else is a call this harness did not expect to be made, and the
     // point of failing loudly here is that a paid call sneaking in is exactly
     // the bug class worth catching.
@@ -158,6 +222,53 @@ async function freshStore() {
   serperFailures = 0;
 }
 
+/** A search-only person with whatever prose a case needs. */
+function personWith(slug: string, over: { headline?: string; about?: string; snippet?: string }): Person {
+  return {
+    slug,
+    name: `Person ${slug}`,
+    url: `https://www.linkedin.com/in/${slug}`,
+    headline: over.headline ?? "",
+    snippet: over.snippet ?? "",
+    addedAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    searchLabels: [],
+    ...(over.about
+      ? {
+          enriched: {
+            slug,
+            name: `Person ${slug}`,
+            headline: over.headline ?? "",
+            about: over.about,
+            url: "",
+            honors: [],
+            projects: [],
+            volunteering: [],
+            educations: [],
+            experience: [],
+            skills: [],
+            certifications: [],
+            languages: [],
+            publications: [],
+            patents: [],
+            courses: [],
+            featured: [],
+            recommendations: [],
+            neighbors: [],
+          },
+        }
+      : {}),
+  } as unknown as Person;
+}
+
+function heldLabels(p: Person, team: Awaited<ReturnType<typeof readTeam>>) {
+  return heldTags(p, team.taxonomy).map((t) => t.def.label);
+}
+
+function heldEvidence(p: Person, team: Awaited<ReturnType<typeof readTeam>>, label: string) {
+  return heldTags(p, team.taxonomy).find((t) => t.def.label === label)?.evidence?.text;
+}
+
 async function marksFor(owner: ProfileId) {
   return hydrate(await get<Partial<ProfileState>>(stateKey(owner))).marks;
 }
@@ -174,6 +285,20 @@ async function main() {
 
   process.env.ZSCORE_APIFY_MOCK = "1";
   process.env.ZSCORE_SERPER_API_KEY = "test-key";
+  /**
+   * Generous per-minute limits for the bulk of the run.
+   *
+   * Not a way of dodging the pacer: the first version of this file ran into it with
+   * real numbers and hung for minutes, which is the pacer working exactly as it
+   * should. A test suite cannot wait out a sixty-second sliding window twenty times,
+   * so the window is opened wide here and closed deliberately in the one block that
+   * is about the limits, which uses the daily caps because those refuse immediately
+   * instead of waiting.
+   */
+  process.env.ZSCORE_GROQ_RPM = "100000";
+  process.env.ZSCORE_GROQ_TPM = "100000000";
+  process.env.ZSCORE_GROQ_RPD = "100000";
+  process.env.ZSCORE_GROQ_TPD = "100000000";
   install();
 
   try {
@@ -744,6 +869,324 @@ async function run() {
     checkThat("saying why", /tagger is off/.test(off.note ?? ""), off.note);
     if (savedKey) process.env.ZSCORE_GROQ_API_KEY = savedKey;
     if (savedAlt) process.env.GROQ_API_KEY = savedAlt;
+  }
+
+  console.log("\nadjudication asks only about what the rules could not settle");
+  {
+    await freshStore();
+    process.env.ZSCORE_GROQ_API_KEY = "test-key";
+    const team = await readTeam();
+
+    // "the rise of transformers" names Rise, which is `qualified`, with nothing in
+    // the clause to vouch for it. That is the whole candidate set.
+    const ambiguous = personWith("amb", { about: "contributed to the rise of transformers in vision" });
+    // "Selected as a Rise Global winner" vouches for itself, so it is not a candidate.
+    const clear = personWith("clear", { about: "Selected as a Rise winner in 2025" });
+    // A name that is never read from prose is never a candidate either: no amount of
+    // context turns the word benchmark in a paper title into the fund.
+    const never = personWith("never", { about: "EnDive: A Cross-Dialect Benchmark for Fairness" });
+    await writePeople([ambiguous, clear, never]);
+
+    check("an ambiguous match is a candidate", unvouchedTags(ambiguous, team.taxonomy).map((u) => u.id), ["rise"]);
+    check("a vouched one is not", unvouchedTags(clear, team.taxonomy).length, 0);
+    check("and a structured-only name is not", unvouchedTags(never, team.taxonomy).length, 0);
+    checkThat(
+      "the candidate carries the words and their context",
+      unvouchedTags(ambiguous, team.taxonomy)[0]?.span.toLowerCase() === "rise" &&
+        /transformers/.test(unvouchedTags(ambiguous, team.taxonomy)[0]?.context ?? ""),
+      JSON.stringify(unvouchedTags(ambiguous, team.taxonomy)[0])
+    );
+
+    // Unadjudicated, the tag does not score. That is the conservative answer and the
+    // one the rules already gave.
+    check("and it does not score until judged", heldLabels(ambiguous, team).includes("Rise"), false);
+  }
+
+  console.log("\na verdict is asked once, respected, and cached");
+  {
+    await freshStore();
+    const team = await readTeam();
+    const p1 = personWith("v1", { about: "contributed to the rise of transformers" });
+    const p2 = personWith("v2", { about: "worked on the twin primes conjecture" });
+    await writePeople([p1, p2]);
+
+    verdicts = { rise: false, "mit-primes": false };
+    calls = [];
+    const r = await adjudicateFresh(OWNER, ["v1", "v2"], Date.now() + 30_000);
+    check("one call per person", groqCalls(), 2);
+    check("both verdicts recorded", r.judged, 2);
+    check("neither approved", r.approved, 0);
+
+    const roster = await readRoster();
+    check("a no is stored as a no", roster["v1"]?.adjudicated?.rise, false);
+    check("and the tag still does not score", heldLabels(roster["v1"]!, team).includes("Rise"), false);
+
+    /**
+     * The cache is the difference between paying once and paying on every pass. A
+     * `false` has to be kept for that: an absent key means "not yet asked".
+     */
+    calls = [];
+    const again = await adjudicateFresh(OWNER, ["v1", "v2"], Date.now() + 30_000);
+    check("asking again costs nothing", groqCalls(), 0);
+    check("and judges nothing", again.judged, 0);
+  }
+
+  console.log("\na yes makes the tag score, and only for the person it was about");
+  {
+    await freshStore();
+    const team = await readTeam();
+    const yes = personWith("yes", { about: "contributed to the rise of transformers" });
+    const other = personWith("other", { about: "contributed to the rise of transformers" });
+    await writePeople([yes, other]);
+
+    verdicts = { rise: true };
+    await adjudicateFresh(OWNER, ["yes"], Date.now() + 30_000);
+    const roster = await readRoster();
+    check("the judged person holds it", heldLabels(roster["yes"]!, team).includes("Rise"), true);
+    check("with the words that produced it", heldEvidence(roster["yes"]!, team, "Rise")?.toLowerCase(), "rise");
+    check("and the unjudged one does not", heldLabels(roster["other"]!, team).includes("Rise"), false);
+  }
+
+  console.log("\nthe model cannot switch on a tag nobody asked about");
+  {
+    await freshStore();
+    const team = await readTeam();
+    const p = personWith("halluc", { about: "contributed to the rise of transformers" });
+    await writePeople([p]);
+
+    verdicts = { rise: false };
+    groqExtraIds = ["z-fellow", "y-combinator", "rsi"];
+    await adjudicateFresh(OWNER, ["halluc"], Date.now() + 30_000);
+    groqExtraIds = [];
+    const roster = await readRoster();
+    check("ids nobody asked about are dropped", Object.keys(roster["halluc"]?.adjudicated ?? {}), ["rise"]);
+    check("so the invented ones do not score", heldLabels(roster["halluc"]!, team).includes("Z Fellow"), false);
+  }
+
+  console.log("\na candidate the model ignores is recorded as a no, not re-asked");
+  {
+    await freshStore();
+    const p = personWith("silent", {
+      about: "contributed to the rise of transformers and the twin primes conjecture",
+    });
+    await writePeople([p]);
+
+    verdicts = {};
+    groqAnswerOnly = ["rise"];
+    await adjudicateFresh(OWNER, ["silent"], Date.now() + 30_000);
+    groqAnswerOnly = null;
+    const roster = await readRoster();
+    const decided = roster["silent"]?.adjudicated ?? {};
+    checkThat(
+      "every candidate asked about gets an answer",
+      "rise" in decided && "mit-primes" in decided,
+      JSON.stringify(decided)
+    );
+    calls = [];
+    await adjudicateFresh(OWNER, ["silent"], Date.now() + 30_000);
+    check("so nothing is asked twice", groqCalls(), 0);
+  }
+
+  /* ── The limits ──────────────────────────────────────────────────────── */
+  console.log("\nadjudication cannot outrun its limits");
+  {
+    await freshStore();
+    // More people than one invocation may take, each with a candidate.
+    const many = Array.from({ length: 12 }, (_, i) =>
+      personWith(`lim${i}`, { about: "contributed to the rise of transformers" })
+    );
+    await writePeople(many);
+    verdicts = { rise: false };
+
+    calls = [];
+    await adjudicateFresh(
+      OWNER,
+      many.map((p) => p.slug),
+      Date.now() + 30_000
+    );
+    check("one invocation makes at most CHUNK calls", groqCalls(), 4);
+
+    // And a person with a wall of candidates is one call, not one per candidate.
+    await freshStore();
+    const crowded = personWith("crowd", {
+      about:
+        "the rise of transformers, twin primes, IMU accel and gyro, on the contrary, " +
+        "Sequoia National Park, a mop, SPARC Solaris, drank a Coke, IBO diploma candidate",
+    });
+    await writePeople([crowded]);
+    const team2 = await readTeam();
+    const candidates = unvouchedTags(crowded, team2.taxonomy);
+    checkThat("candidates are capped per person", candidates.length <= MAX_UNVOUCHED, String(candidates.length));
+    calls = [];
+    await adjudicateFresh(OWNER, ["crowd"], Date.now() + 30_000);
+    check("and judged in a single call", groqCalls(), 1);
+  }
+
+  console.log("\na 429 is retried, bounded, and a 400 is not retried at all");
+  {
+    await freshStore();
+    const p = personWith("retry", { about: "contributed to the rise of transformers" });
+    await writePeople([p]);
+    verdicts = { rise: true };
+
+    // Two refusals then success: the ladder rides it out.
+    calls = [];
+    groqStatus = 429;
+    groqRetryAfter = "0";
+    groqFailures = 2;
+    const ok = await adjudicateFresh(OWNER, ["retry"], Date.now() + 30_000);
+    check("a transient refusal is retried", ok.judged, 1);
+    check("three attempts, not more", groqCalls(), 3);
+
+    /**
+     * The one that matters for a loop nobody is watching: a permanent 429 must stop,
+     * not hammer. chatJson allows five attempts and then gives up.
+     */
+    await freshStore();
+    await writePeople([personWith("storm", { about: "contributed to the rise of transformers" })]);
+    calls = [];
+    groqFailures = 99;
+    const gaveUp = await adjudicateFresh(OWNER, ["storm"], Date.now() + 30_000);
+    check("a permanent refusal gives up", gaveUp.judged, 0);
+    check("after a bounded number of attempts", groqCalls(), 5);
+    const stormRoster = await readRoster();
+    check(
+      "recording no verdict, so it is retried later rather than wrongly denied",
+      stormRoster["storm"]?.adjudicated,
+      undefined
+    );
+
+    // A 400 is the model's fault, not the clock's, and repeating it is waste.
+    await freshStore();
+    await writePeople([personWith("bad", { about: "contributed to the rise of transformers" })]);
+    calls = [];
+    groqStatus = 400;
+    groqFailures = 99;
+    const notRetried = await adjudicateFresh(OWNER, ["bad"], Date.now() + 30_000);
+    check("a bad request is not retried", groqCalls(), 1);
+    check("and judges nothing", notRetried.judged, 0);
+    groqStatus = 429;
+    groqFailures = 0;
+  }
+
+  console.log("\na spent daily cap stops the call before it is made");
+  {
+    await freshStore();
+    await writePeople([personWith("daily", { about: "contributed to the rise of transformers" })]);
+    verdicts = { rise: true };
+
+    /**
+     * The property that matters for an unattended loop: a cap that cannot be waited
+     * out inside one request must not be waited on, and must not be retried. The
+     * ledger has already counted this run's calls, so a cap of one is spent.
+     */
+    process.env.ZSCORE_GROQ_RPD = "1";
+    calls = [];
+    const capped = await adjudicateFresh(OWNER, ["daily"], Date.now() + 30_000);
+    check("the request cap stops it before the network", groqCalls(), 0);
+    check("and it judges nothing", capped.judged, 0);
+    const roster = await readRoster();
+    check("recording no verdict, so it is asked again tomorrow", roster["daily"]?.adjudicated, undefined);
+
+    process.env.ZSCORE_GROQ_RPD = "100000";
+    process.env.ZSCORE_GROQ_TPD = "1";
+    calls = [];
+    const tokenCapped = await adjudicateFresh(OWNER, ["daily"], Date.now() + 30_000);
+    check("the token cap does the same", groqCalls(), 0);
+    check("judging nothing", tokenCapped.judged, 0);
+    process.env.ZSCORE_GROQ_TPD = "100000000";
+
+    // And with the caps restored it goes through, so the block above proved the cap
+    // and not some other breakage.
+    calls = [];
+    const fine = await adjudicateFresh(OWNER, ["daily"], Date.now() + 30_000);
+    check("with room again it works", fine.judged, 1);
+    check("in one call", groqCalls(), 1);
+  }
+
+  console.log("\nthe pacer books what the response says somebody else has spent");
+  {
+    await freshStore();
+    await writePeople([personWith("pace1", { about: "contributed to the rise of transformers" })]);
+    verdicts = { rise: true };
+
+    /**
+     * The reconciliation path, which is what makes the pacer safe when the same key
+     * is in use elsewhere: the response says none of the minute is left, and the
+     * ledger books the difference so the *next* call waits rather than being refused.
+     *
+     * A missing header used to take this same branch, because `Number(null)` is 0 and
+     * 0 is finite — so one ordinary response booked the whole minute and the next call
+     * slept for it. That is why the reset is short here: the wait is real and measured,
+     * and it should be a quarter of a second rather than sixty.
+     */
+    process.env.ZSCORE_GROQ_TPM = "4000";
+    groqRemainingTokens = "0";
+    groqResetTokens = "250ms";
+    calls = [];
+    const began = Date.now();
+    const paced = await adjudicateFresh(OWNER, ["pace1"], Date.now() + 90_000);
+    const took = Date.now() - began;
+    groqRemainingTokens = null;
+    process.env.ZSCORE_GROQ_TPM = "100000000";
+
+    /**
+     * One person, because the ledger is process-wide and every block above this one
+     * has already put entries in it. Counting calls against a shared minute would be
+     * measuring the order of this file rather than the pacer.
+     */
+    check("the work still gets done", paced.judged, 1);
+    checkThat("having waited for room rather than being refused", took >= 200, `${took}ms`);
+  }
+
+  console.log("\nthe app's own hourly cap gates it too");
+  {
+    await freshStore();
+    await writePeople([personWith("hourly", { about: "contributed to the rise of transformers" })]);
+    verdicts = { rise: true };
+
+    /**
+     * `reserveTagging` is the app's cap, separate from Groq's and counted per profile
+     * per hour. Adjudication charges one unit per person, which is also one call per
+     * person, so the unit means something. Burning it here proves the gate is in the
+     * path rather than assumed.
+     */
+    // Burn until refused rather than asking for the whole cap in one go: earlier
+    // blocks in this file have already spent some of the hour.
+    for (let i = 0; i < 20; i++) {
+      const r = await reserveTagging(OWNER, Math.ceil(HOURLY_TAG_CAP / 4));
+      if (!r.ok) break;
+    }
+    calls = [];
+    const gated = await adjudicateFresh(OWNER, ["hourly"], Date.now() + 30_000);
+    check("a spent hourly cap makes no call", groqCalls(), 0);
+    checkThat("and says which cap it was", /paused/i.test(gated.note ?? ""), gated.note);
+  }
+
+  console.log("\nadjudication is gated the same three ways tagging is");
+  {
+    await freshStore();
+    await writePeople([personWith("gate", { about: "contributed to the rise of transformers" })]);
+
+    const savedKey = process.env.ZSCORE_GROQ_API_KEY;
+    delete process.env.ZSCORE_GROQ_API_KEY;
+    calls = [];
+    const off = await adjudicateFresh(OWNER, ["gate"], Date.now() + 30_000);
+    check("no key, no calls", groqCalls(), 0);
+    checkThat("and it says so", /tagger is off/.test(off.note ?? ""), off.note);
+    process.env.ZSCORE_GROQ_API_KEY = savedKey;
+
+    // A deadline already past means the reservation is taken but no call is made.
+    calls = [];
+    const late = await adjudicateFresh(OWNER, ["gate"], Date.now() - 1);
+    check("an expired deadline makes no call", groqCalls(), 0);
+    check("and judges nothing", late.judged, 0);
+
+    // Nobody with a candidate means no reservation and no call.
+    calls = [];
+    const nothing = await adjudicateFresh(OWNER, ["does-not-exist"], Date.now() + 30_000);
+    check("an unknown slug costs nothing", groqCalls(), 0);
+    check("and judges nothing", nothing.judged, 0);
   }
 
   console.log("\nan empty target list costs nothing");

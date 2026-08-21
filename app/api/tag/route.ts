@@ -11,6 +11,7 @@ import type { Archetype } from "@/lib/clusters";
 import type { TagFacet } from "@/lib/tagRegistry";
 import { reserveTagging } from "@/lib/ratelimit";
 import { cleanSlugs, isBad, readJson, str } from "@/lib/validate";
+import { adjudicateFresh } from "@/lib/tagAdjudicate";
 import { log, timed } from "@/lib/log";
 
 /**
@@ -130,11 +131,30 @@ export async function POST(req: Request) {
       return [] as string[];
     });
 
+    /**
+     * Then judge the prose matches the rules could not settle.
+     *
+     * After the terms are written, because a new term can resolve to a tag and so
+     * change which matches are still unvouched. Best effort for the same reason
+     * auto-promotion is: the people are already saved, and a rate limit here must not
+     * turn a successful tagging run into a 500.
+     */
+    const judged = await adjudicateFresh(
+      r.profile,
+      updated.map((p) => p.slug),
+      Date.now() + 60_000
+    ).catch((e) => {
+      log.warn("tag.adjudicate.failed", { error: e instanceof Error ? e.message : "unknown" });
+      return { judged: 0, approved: 0 };
+    });
+
     const termCount = results.reduce((n, x) => n + x.terms.length, 0);
     return NextResponse.json({
       ok: true,
       tagged: updated.length,
       terms: termCount,
+      adjudicated: judged.judged,
+      approved: judged.approved,
       promoted,
       people: updated,
       // Partial failure is reported rather than swallowed: some people did get

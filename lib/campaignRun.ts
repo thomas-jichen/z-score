@@ -22,6 +22,7 @@ import {
 import { planQueries, queriesFrom } from "./campaignQueries";
 import { buildSearchLabels } from "./tags";
 import { tagFresh } from "./campaignTag";
+import { adjudicateFresh } from "./tagAdjudicate";
 import { scoreOne } from "./candidates";
 import { COST_PER_PROFILE, type Provenance } from "./enrichment";
 import { applyEnrichJob } from "./enrichApply";
@@ -634,6 +635,23 @@ async function runTick(start: Campaign, deadline: number): Promise<TickResult> {
     const res = await tagFresh(c.owner, enrichedNow, deadline);
     taggedNow = res.tagged;
     if (res.note) notes.push(res.note);
+
+    /**
+     * Then judge the prose matches the rules could not settle, if any time is left.
+     *
+     * Last on purpose. It is the least valuable of the three paid steps — a verdict
+     * only moves a score when a name is ambiguous — and it is the one whose absence
+     * costs nothing, because an unadjudicated match simply does not score, which is
+     * the same answer the rules already gave. So it gets whatever the searching and
+     * the tagging did not need, and the next advance picks up the rest.
+     */
+    if (Date.now() < deadline) {
+      const verdicts = await adjudicateFresh(c.owner, enrichedNow, deadline);
+      if (verdicts.note) notes.push(verdicts.note);
+      else if (verdicts.judged > 0) {
+        notes.push(`${verdicts.judged} ambiguous ${verdicts.judged === 1 ? "match" : "matches"} judged, ${verdicts.approved} held up.`);
+      }
+    }
   }
 
   /* 8. Record and persist. */

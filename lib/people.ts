@@ -62,6 +62,22 @@ export type Person = {
    * statement from "this tag is worthless", and the second one is `taxonomy.dismissed`.
    */
   suppressedTags?: string[];
+  /**
+   * The model's verdict on a match the rules could not settle, by tag id.
+   *
+   * `MATCH_POLICY` marks the names that are also ordinary English words, and the
+   * qualifier rule reads the clause around one looking for something that means
+   * "holds this". Where it finds nothing the honest answer is unknown, not no:
+   * Grace Kasten's headline is "Z Fellows" because that is where she works, and Sand
+   * Rao's is "Building something new | Z Fellows" because he went through it. No rule
+   * over the words tells those apart.
+   *
+   * Cached because it costs money, and stored per person rather than per tag because
+   * it is a fact about one sentence on one profile. `false` is a real answer and has
+   * to be kept — an absent key means "not yet asked", and conflating the two would
+   * re-ask and re-pay for every rejection on every tagging pass.
+   */
+  adjudicated?: Record<string, boolean>;
   /** When the tagger last ran, so it is not paid for twice. */
   taggedAt?: string;
   location?: string;

@@ -113,6 +113,16 @@ export function scanText(text: string, index: RegistryIndex): Found[] {
     const words: string[] = [];
     let kept = 0;
     let best: Found | null = null;
+    /**
+     * The key `best` was found under, so a wider window that resolves to the same
+     * key does not replace it.
+     *
+     * Noise words are dropped when the key is built, so "the rise of transformers"
+     * matched Rise at "rise" and then again at "rise of" — same key, longer span —
+     * and the quote shown to a human, and the context sent to the model, ended in a
+     * dangling preposition. A wider window only wins when it means something more.
+     */
+    let bestKey = "";
 
     for (let j = i; j < tokens.length && j - i < MAX_WINDOW; j++) {
       words.push(tokens[j].fold);
@@ -123,7 +133,8 @@ export function scanText(text: string, index: RegistryIndex): Found[] {
       const def = key.replace(/-/g, "").length >= MIN_PROSE_KEY
         ? index.byKey.get(key)
         : undefined;
-      if (def && !seen.has(def.id)) {
+      if (def && !seen.has(def.id) && key !== bestKey) {
+        bestKey = key;
         best = {
           def,
           span: {
