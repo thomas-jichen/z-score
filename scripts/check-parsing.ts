@@ -33,7 +33,7 @@ import {
   type TeamState,
 } from "../lib/state";
 import { PURGED_ALIASES } from "../lib/searchTaxonomy";
-import { readTier } from "../lib/tagMatch";
+import { readTier, scanText } from "../lib/tagMatch";
 import { scoreOne, toCandidates } from "../lib/candidates";
 import {
   budgetLeft,
@@ -1851,6 +1851,24 @@ console.log("\nprose — the text says it, however it is spelled");
     experience: [{ title: "Founder", company: "Q", description: "raised a seed round backed by Accel" }],
   });
   check("being backed by Accel is", held(round).includes("Accel"), true);
+
+  // ── The quote ───────────────────────────────────────────────────────────
+  /**
+   * The evidence is shown to a human and sent to the model, so the words matter.
+   *
+   * A window can widen without the key changing, because noise words are dropped
+   * when the key is built — and whether that is an improvement depends on which
+   * noise word it swallowed. "Institute" is part of the programme's name and
+   * "Finalist" is how far somebody got; "of" is a dangling preposition.
+   */
+  const quote = (text: string) => {
+    const found = scanText(text, indexRegistry(TAX.tags));
+    return found.length === 1 ? found[0].span.text : found.map((f) => f.span.text);
+  };
+  check("the quote is the whole name", quote("Research Science Institute 2024"), "Research Science Institute");
+  check("including the rung", quote("Neo Scholar Finalist"), "Neo Scholar Finalist");
+  check("and the sponsor", quote("Regeneron Science Talent Search Scholar"), "Regeneron Science Talent Search Scholar");
+  check("but not a trailing join", quote("contributed to the rise of transformers"), "rise");
 
   // ── The one-character key ────────────────────────────────────────────────
   /**

@@ -65,6 +65,15 @@ const MAX_WINDOW = 16;
 const MIN_PROSE_KEY = 3;
 
 /**
+ * The noise words that carry nothing, as opposed to the ones that name something.
+ *
+ * NOISE exists to keep a key stable, so it drops "institute" and "award" alongside
+ * "of" and "the". For a quote the difference matters: one is part of the name and
+ * the other is a join.
+ */
+const JOIN_WORDS = new Set(["the", "a", "an", "of", "and"]);
+
+/**
  * Split into words, keeping each one's offsets in the original string.
  *
  * The offsets are the reason this is not just `foldWords(text)`: a tag has to be
@@ -114,13 +123,19 @@ export function scanText(text: string, index: RegistryIndex): Found[] {
     let kept = 0;
     let best: Found | null = null;
     /**
-     * The key `best` was found under, so a wider window that resolves to the same
-     * key does not replace it.
+     * The key `best` was found under, so a wider window resolving to the same key
+     * only extends the quote when the extra word is worth quoting.
      *
-     * Noise words are dropped when the key is built, so "the rise of transformers"
-     * matched Rise at "rise" and then again at "rise of" — same key, longer span —
-     * and the quote shown to a human, and the context sent to the model, ended in a
-     * dangling preposition. A wider window only wins when it means something more.
+     * Noise words are dropped when the key is built, so a window can widen without
+     * the key changing at all — and whether that is an improvement depends entirely
+     * on which noise word it swallowed. "Research Science" and "Research Science
+     * Institute" are one key, and the second is the programme's actual name. "Neo
+     * Scholar" and "Neo Scholar Finalist" are one key, and the second says how far
+     * they got. But "rise" and "rise of" are also one key, and the second is a
+     * dangling preposition.
+     *
+     * So the line is drawn at function words rather than at noise: everything in
+     * NOISE names something except the handful of joins below.
      */
     let bestKey = "";
 
@@ -133,6 +148,20 @@ export function scanText(text: string, index: RegistryIndex): Found[] {
       const def = key.replace(/-/g, "").length >= MIN_PROSE_KEY
         ? index.byKey.get(key)
         : undefined;
+
+      // Same key, and the word just swallowed is part of the name: widen the quote
+      // without pretending anything new was matched.
+      if (def && best && key === bestKey && !JOIN_WORDS.has(tokens[j].fold)) {
+        best = {
+          def,
+          span: {
+            text: text.slice(best.span.start, tokens[j].end),
+            start: best.span.start,
+            end: tokens[j].end,
+          },
+        };
+      }
+
       if (def && !seen.has(def.id) && key !== bestKey) {
         bestKey = key;
         best = {
