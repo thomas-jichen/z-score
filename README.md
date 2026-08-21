@@ -270,6 +270,7 @@ works.
 
 ```bash
 npm run check        # 542 assertions over the pure functions. No network, no API key
+npm run check:agent  # 93 assertions over the campaign engine end to end, stubs for the paid calls
 npm run build:check  # type-check build into .next-check, so it cannot clobber a running dev server
 ```
 

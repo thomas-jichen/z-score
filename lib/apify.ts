@@ -46,8 +46,16 @@ const SCRAPER_MODE = "Profile details no email ($4 per 1k)";
  * refuses the whole run and writes an error item instead, so asking for 17 returns
  * zero profiles and still bills for the run. Configurable because the right number
  * is a property of the account, not of this code.
+ *
+ * The default is the free-tier number, and it used to be 250. The two failure modes
+ * are not symmetrical: setting this too low makes enrichment slower, and setting it
+ * too high makes it *pay for nothing*. A campaign is the place that matters, because
+ * it is the one caller nobody is watching — raise enrichPerDay past 10 on the Agent
+ * screen, which it lets you do up to 100, and the nightly tick asks for a batch the
+ * actor refuses, gets billed, and only then clamps itself. Slower is the right way
+ * to be wrong, so an account with a paid plan opts into the bigger batch.
  */
-export const MAX_PROFILES_PER_RUN = envNumber(process.env.ZSCORE_APIFY_MAX_PER_RUN, 250);
+export const MAX_PROFILES_PER_RUN = envNumber(process.env.ZSCORE_APIFY_MAX_PER_RUN, 10);
 
 export type RunStatus =
   | "READY"
