@@ -21,6 +21,9 @@ import { formatSigma } from "@/lib/zscore";
  * is open and the campaign list is an empty state; afterwards setup collapses to
  * a line and the campaigns take the top, because that is what you come back for.
  *
+ * With one exception: a token just minted keeps the block open where it is, because
+ * the secret is shown once and collapsing it is how you lose it.
+ *
  * Every number a campaign obeys is on this screen and editable here, and the
  * ceilings that come from the vendors rather than from us are shown as read-only
  * facts. A loop that runs unattended for a week and cannot be asked why it
@@ -116,6 +119,22 @@ export default function AgentPage() {
   const [limits, setLimits] = useState<Limits | null>(null);
   const [facts, setFacts] = useState<Facts | null>(null);
   const [tokens, setTokens] = useState<TokenRow[]>([]);
+  /**
+   * Where the setup block lives, decided once and never moved underneath you.
+   *
+   * It used to be derived from `tokens.length`, so minting a token relocated the
+   * panel mid-click: the open block at the top unmounted and the same component
+   * re-mounted inside a *closed* disclosure further down, taking the `claude mcp add`
+   * command and its one-time secret with it. Creating a token was the one moment the
+   * app hid it, and the only recovery was to notice, scroll, expand and hope.
+   *
+   * Reacting to the count is the bug in both directions — pinning it open would
+   * simply have moved the second token's panel the other way, from the disclosure up
+   * to the top. Placement is a fact about the page you arrived at, not about the
+   * button you just pressed, so it is latched on the first load and left alone. A
+   * reload puts it wherever it now belongs.
+   */
+  const [setupInline, setSetupInline] = useState<boolean | null>(null);
   const [profile, setProfile] = useState<string>("");
 
   const [loading, setLoading] = useState(true);
@@ -154,7 +173,12 @@ export default function AgentPage() {
         setProfile(c.profile);
         setDraft((d) => d ?? c.defaults);
       } else setError(c.error);
-      if (t.ok) setTokens(t.tokens);
+      if (t.ok) {
+        setTokens(t.tokens);
+        // Latched on the first load only. Every later load leaves it alone, which is
+        // what stops the panel relocating the moment a token is created.
+        setSetupInline((prev) => (prev === null ? t.tokens.length === 0 : prev));
+      }
     } catch {
       setError("Could not reach the server.");
     } finally {
@@ -327,7 +351,7 @@ export default function AgentPage() {
       )}
 
       {/* Setup leads while it is outstanding, and steps aside once it is not. */}
-      {!connected && !loading && (
+      {setupInline === true && (
         <div style={{ marginBottom: "var(--z-space-8)" }}>
           <Connect
             origin={origin}
@@ -457,7 +481,7 @@ export default function AgentPage() {
       )}
 
       <div className="z-section-gap z-stack" style={{ gap: "var(--z-space-6)" }}>
-        {connected && (
+        {setupInline === false && (
           <details className="z-disclosure">
             <summary>
               Connect Claude
@@ -881,13 +905,27 @@ function CampaignRow({
 
 /* ── Settings ───────────────────────────────────────────────────────────── */
 
+/**
+ * Two of these carry a unit, and the label is where it belongs.
+ *
+ * "Ceiling" and "Score bar" were bare numbers next to four other bare numbers, so
+ * neither said what it was counting: a ceiling of 5 could as easily have been five
+ * days or five hundred queries, and a bar of 0.5 means nothing at all unless you
+ * already know the score is in sigma. The unit goes in the label rather than the
+ * hint because the hint is the second line and people set a number off the first.
+ */
 const FIELDS: { key: keyof CampaignSettings; label: string; hint: string; step: number }[] = [
   { key: "days", label: "Days", hint: "It advances once a day", step: 1 },
   { key: "searchesPerDay", label: "Searches a day", hint: "A tenth of a cent each", step: 5 },
   { key: "queuePerDay", label: "Queued a day", hint: "The best of what it finds", step: 5 },
   { key: "enrichPerDay", label: "Enriched a day", hint: "Four tenths of a cent each", step: 1 },
-  { key: "budgetUsd", label: "Ceiling", hint: "It stops here", step: 1 },
-  { key: "scoreBar", label: "Score bar", hint: "Optional, 0 means take the best", step: 0.5 },
+  { key: "budgetUsd", label: "Ceiling ($)", hint: "Total spend, and it stops here", step: 1 },
+  {
+    key: "scoreBar",
+    label: "Score bar (\u03c3)",
+    hint: "Optional, 0 means take the best",
+    step: 0.5,
+  },
 ];
 
 function Settings({
