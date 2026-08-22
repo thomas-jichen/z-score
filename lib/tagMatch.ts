@@ -285,12 +285,14 @@ export function readTier(text: string, span?: Span): Tier | undefined {
    * Never across a line.
    *
    * One honours entry is often a list. Philip Meng's is titled "HS Awards" and holds
-   * five separate honours on five lines — a Coca-Cola scholarship, a Davidson
-   * fellowship, "United States Senate Youth Program Finalist", a NeurIPS award and
-   * "State Champion at Massachusetts DECA". A window measured in characters read
-   * that State Champion as the tier of the Senate Youth Program, which has a ladder,
-   * so a finalist was paid 1.1 instead of 0.6. The line is the unit here, and a
-   * character count was only ever standing in for it.
+   * five separate honours on five lines, one of which reads "State Champion" at a
+   * club competition that scores nothing here and never will. A window measured in
+   * characters read that champion as the tier of the line above it, "United States
+   * Senate Youth Program Finalist" — which does have a ladder — so a finalist was
+   * paid 1.1 instead of 0.6, and in the other direction his Davidson Fellow took a
+   * neighbouring "Finalist" and was paid 0.6 for a fellowship he holds outright.
+   *
+   * The line is the unit. A character count was only ever standing in for it.
    */
   const near = span ? window(text, span) : text;
   for (const { tier, is, unless } of TIER_PATTERNS) {

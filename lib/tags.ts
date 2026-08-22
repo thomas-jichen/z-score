@@ -19,6 +19,7 @@ import {
   type TagFacet,
   type Tier,
 } from "./tagRegistry";
+import { isBannedTag } from "./searchTaxonomy";
 import { hasQualifier, readTier, scanText, tieredWeight, type Span } from "./tagMatch";
 import type { Signal } from "./zscore";
 
@@ -897,7 +898,10 @@ export function unmatchedTerms(people: Person[], tax: TaxonomyPrefs): Unmatched[
     const term = raw.trim();
     if (!term) return;
     const key = normalizeKey(term);
-    if (!key || resolveAny(index, term) || dismissed.has(key)) return;
+    // Banned names are not offered at all. Leaving them in the queue would be an
+    // invitation to promote something that can never be promoted, and the row would
+    // sit there forever because Dismiss is the only thing that would move it.
+    if (!key || resolveAny(index, term) || dismissed.has(key) || isBannedTag(key)) return;
     const entry = tally.get(key) ?? { term, slugs: [], facet };
     if (!entry.slugs.includes(slug)) entry.slugs.push(slug);
     // A facet from a structured field beats one guessed from prose, which has none.

@@ -32,7 +32,7 @@ import {
   type TaxonomyPrefs,
   type TeamState,
 } from "../lib/state";
-import { PURGED_ALIASES } from "../lib/searchTaxonomy";
+import { PURGED_ALIASES, isBannedTag } from "../lib/searchTaxonomy";
 import { readTier, scanText } from "../lib/tagMatch";
 import { scoreOne, toCandidates } from "../lib/candidates";
 import {
@@ -59,7 +59,7 @@ import {
 } from "../lib/tags";
 import { classifyOrg, extractTags, inferHomeState } from "../lib/extract";
 import { extractTerms, groundedIn } from "../lib/groq";
-import { cleanDeleted, cleanTaxonomy } from "../lib/team";
+import { cleanDeleted, cleanTaxonomy, withPromoted } from "../lib/team";
 import { START_WEIGHT, assignCluster, round } from "../lib/clusters";
 import {
   aliasIsUsable,
@@ -69,6 +69,8 @@ import {
   resolveAny,
   resolveTag,
   usableAliases,
+  tagId,
+  type TagRegistry,
 } from "../lib/tagRegistry";
 import { buildGraph, edgePath, DEFAULT_MAX_HOLDERS, DEFAULT_MIN_HOLDERS, EDGE_SOURCES } from "../lib/graph";
 
@@ -2022,6 +2024,112 @@ console.log("\nnational is not international, and a withdrawn alias has to leave
   } as Parameters<typeof hydrateTeam>[0]);
   check("a moved id carries its weight", oldLab.taxonomy.tags["argonne-national-laboratory"]?.weight, 1.9);
   check("and leaves nothing behind", oldLab.taxonomy.tags["argonne-laboratory"], undefined);
+}
+
+console.log("\nDECA never counts, however it is spelled");
+{
+  /**
+   * `PURGED` deletes a tag by its exact key, which is right for one withdrawn name
+   * and wrong for a family: "DECA" is purged, and "DECA ICDC", "DECA States" and
+   * "Collegiate DECA" are three different keys that walk straight past it. The
+   * dangerous path is `autoPromote`, which writes to the shared taxonomy with no
+   * human in the loop — so the tagger returning any one of those was all it took.
+   *
+   * These are open-entry organisations with six-figure memberships. Placing at their
+   * international finals is not the point, because the field is self-selected, so
+   * there is no weight at which they belong. Hence a ban rather than a zero.
+   */
+  const names = [
+    "DECA",
+    "DECA ICDC",
+    "DECA States",
+    "Collegiate DECA",
+    "ICDC",
+    "DECA ICDC International Finalist",
+    "FBLA Nationals",
+    "HOSA ICC",
+  ];
+
+  for (const name of names) {
+    check(`${name} is banned`, isBannedTag(tagId(name, "program")), true);
+  }
+
+  // The tagger cannot create one, and it needs no human to try.
+  const auto: TagRegistry = withPromoted(TAX.tags, [
+    { label: "DECA ICDC", facet: "program", weight: 1.5, cluster: null },
+  ]);
+  check(
+    "auto-promotion cannot create one",
+    Object.values(auto).some((d) => d.label === "DECA ICDC"),
+    false
+  );
+
+  // Nor can a human, from the review queue: every UI write lands in cleanTaxonomy.
+  const forced = tagId("DECA ICDC", "program");
+  const saved = cleanTaxonomy(
+    {
+      ...TAX,
+      tags: {
+        ...TAX.tags,
+        [forced]: {
+          id: forced,
+          label: "DECA ICDC",
+          facet: "program",
+          aliases: [],
+          weight: 2,
+          cluster: null,
+          promoted: true,
+        },
+      },
+    } as Parameters<typeof cleanTaxonomy>[0]
+  );
+  check("and a human cannot save one", saved.tags[forced], undefined);
+
+  // A document that already acquired one loses it on the next read.
+  const infected = hydrateTeam({
+    taxonomy: {
+      ...TAX,
+      tags: {
+        ...TAX.tags,
+        [forced]: {
+          id: forced,
+          label: "DECA ICDC",
+          facet: "program",
+          aliases: ["deca"],
+          weight: 2,
+          cluster: null,
+          promoted: true,
+        },
+      },
+    },
+  } as Parameters<typeof hydrateTeam>[0]);
+  check("a stored one is deleted on read", infected.taxonomy.tags[forced], undefined);
+  check(
+    "and nothing answers to the name",
+    resolveAny(indexRegistry(infected.taxonomy.tags), "DECA"),
+    null
+  );
+
+  // Nor may it attach itself to a real tag as an alias and score as that.
+  check("it cannot be an alias either", usableAliases(["DECA", "DECA ICDC"], "rsi"), []);
+
+  // And it is not offered for promotion, since offering something unpromotable is
+  // a row that can never leave the queue.
+  const holder = {
+    ...bare("deca-holder"),
+    extractedTerms: ["DECA ICDC Finalist", "State Champion at DECA"],
+  } as Person;
+  check("and it is never offered for promotion", unmatchedTerms([holder], TAX), []);
+
+  /**
+   * Whole tokens, never substrings. Decatur High School is a real school in Georgia.
+   * This is also why the ban can only ever hold distinctive acronyms: Science Olympiad
+   * is purged by key and cannot be here, because banning "science" and "olympiad"
+   * would take every real olympiad with it.
+   */
+  check("a school that merely contains the letters is safe", isBannedTag("decatur-high"), false);
+  check("and it is still in the vocabulary", Boolean(TAX.tags["decatur-high"]), true);
+  check("real olympiads are untouched", isBannedTag("usabo"), false);
 }
 
 console.log("\ntiers — a finalist is not a winner");

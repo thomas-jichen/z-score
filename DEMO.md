@@ -73,7 +73,7 @@ plan to advance a campaign live, be Thomas.**
 Run these in order. Each one has a known-good answer.
 
 ```bash
-npm run check          # → All 546 checks passed.
+npm run check          # → All 563 checks passed.
 npm run check:agent    # → All 139 agent checks passed.   (~70s, it is doing real work)
 npx tsc --noEmit       # → silence
 ```

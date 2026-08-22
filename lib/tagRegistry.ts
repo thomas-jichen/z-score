@@ -1,3 +1,4 @@
+import { isBannedTag } from "./searchTaxonomy";
 import type { Archetype } from "./clusters";
 
 /**
@@ -376,7 +377,9 @@ export function usableAliases(aliases: readonly string[], id: string): string[] 
  * meant to inspect.
  */
 export function aliasIsUsable(alias: string, id: string): boolean {
-  return Boolean(alias) && alias !== id && !AMBIGUOUS_ALONE.has(alias);
+  // A banned name is banned as an alias too, or "DECA" simply attaches itself to a
+  // real tag and scores that instead.
+  return Boolean(alias) && alias !== id && !AMBIGUOUS_ALONE.has(alias) && !isBannedTag(alias);
 }
 
 /**
@@ -883,7 +886,7 @@ export function seedRegistry(input: {
     state?: string
   ) => {
     const id = tagId(label, facet);
-    if (!id) return;
+    if (!id || isBannedTag(id)) return;
     const existing = reg[id];
     if (existing) {
       // Two seed lists naming the same thing merge rather than collide, first list

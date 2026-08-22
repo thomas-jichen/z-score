@@ -1,3 +1,4 @@
+import { isBannedTag } from "./searchTaxonomy";
 import { isArchetype, type Archetype } from "./clusters";
 import { toSlug } from "./enrichment";
 import { COUNT_KINDS } from "./extract";
@@ -102,7 +103,9 @@ export function cleanTaxonomy(raw: Partial<TaxonomyPrefs>): TaxonomyPrefs {
     // and computing a bare key here silently merged "California the current state"
     // with "California the home state".
     const id = tagId(label, def.facet);
-    if (!id || tags[id]) continue;
+    // `isBannedTag` here is what stops a human promoting one out of the review queue,
+    // since every UI write lands in this function.
+    if (!id || tags[id] || isBannedTag(id)) continue;
     tags[id] = {
       id,
       label,
@@ -252,7 +255,9 @@ export function withPromoted(
   const next = { ...tags };
   for (const a of additions) {
     const id = tagId(a.label, a.facet);
-    if (!id || next[id]) continue;
+    // And this is what stops the tagger auto-promoting one, which needs no human at
+    // all. The prompt already says to skip these; a prompt is not a guarantee.
+    if (!id || next[id] || isBannedTag(id)) continue;
     next[id] = {
       id,
       label: a.label,

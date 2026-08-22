@@ -390,6 +390,36 @@ export const PURGED_ALIASES: string[] = [
  * — a tag for either says nothing about the person holding it, and leaving them
  * visible invites someone to switch them back on.
  */
+/**
+ * Names that may never become a tag, however they are spelled.
+ *
+ * `PURGED` deletes a tag by its exact key, which is the right tool for one name that
+ * was seeded once and withdrawn. It is the wrong tool for a *family*. "DECA" is
+ * purged, and "DECA ICDC", "DECA States", "DECA International Career Development
+ * Conference" and "Collegiate DECA" are four different keys that walk straight past
+ * it — and `autoPromote` writes to the shared taxonomy with no human in the loop, so
+ * the tagger returning any one of them was all it would have taken for DECA to start
+ * scoring for everybody.
+ *
+ * These are open-entry organisations with six-figure memberships. Placing at their
+ * international finals is not the point: the field is self-selected, so no rung of it
+ * says what this app is trying to measure. There is no weight at which they belong,
+ * which is why this is a ban and not a zero.
+ *
+ * Matched on whole normalised tokens, never on substrings — "Decatur High School" is
+ * a real school in Georgia and contains "deca".
+ *
+ * Only distinctive acronyms can be banned this way. Science Olympiad is purged by key
+ * and cannot be here, because its tokens are "science" and "olympiad" and banning
+ * those would take every real olympiad with them.
+ */
+export const NEVER_A_TAG = new Set(["deca", "icdc", "fbla", "hosa", "bpa"]);
+
+/** Whether a normalised key contains a banned token. */
+export function isBannedTag(key: string): boolean {
+  return key.split("-").some((token) => NEVER_A_TAG.has(token));
+}
+
 export const PURGED: string[] = [
   "DECA",
   "AIME",

@@ -8,6 +8,7 @@ import {
   PURGED,
   MATCH_POLICY,
   PURGED_ALIASES,
+  isBannedTag,
   RENAMED,
   TIER_LADDERS,
   RETIRED,
@@ -592,6 +593,15 @@ function renameTags(tags: TagRegistry): TagRegistry {
 
 function migrateFacets(tags: TagRegistry, removed: string[] = []): TagRegistry {
   tags = renameTags(tags);
+
+  /**
+   * Banned outright, whatever the key. Checked first because every other pass here
+   * either preserves what it finds or unions more in, and a document that acquired
+   * "DECA ICDC" through auto-promotion would otherwise keep it forever.
+   */
+  if (Object.keys(tags).some((id) => isBannedTag(id))) {
+    tags = Object.fromEntries(Object.entries(tags).filter(([id]) => !isBannedTag(id)));
+  }
 
   /**
    * Deleted by hand, and it has to be checked before the seeding pass below or the
