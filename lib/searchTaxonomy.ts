@@ -139,6 +139,9 @@ export const TIER_LADDERS: Record<string, Partial<Record<Tier, number>>> = {
   // A Coolidge Senator is the rung below a Coolidge Scholar, and shared its weight.
   "Coolidge Scholar": { finalist: 0.6, semifinalist: 0.4 },
   QuestBridge: { finalist: 0.3 },
+  // A Jack Kent Cooke Scholar gets a full ride and there are about forty a year; a
+  // semifinalist is a much larger set. Andra Campos is the second.
+  "Jack Kent Cooke Scholar": { finalist: 0.5, semifinalist: 0.3 },
   USSYP: { finalist: 0.6 },
   "Cameron Impact Scholar": { finalist: 0.4 },
   "National YoungArts": { winner: 0.9, finalist: 0.6 },

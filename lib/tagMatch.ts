@@ -270,10 +270,29 @@ const TIER_PATTERNS: { tier: Tier; is: RegExp; unless?: RegExp }[] = [
  */
 const TIER_REACH = 120;
 
+function window(text: string, span: Span): string {
+  const lineStart = text.lastIndexOf("\n", span.start) + 1;
+  const nl = text.indexOf("\n", span.end);
+  const lineEnd = nl === -1 ? text.length : nl;
+  return text.slice(
+    Math.max(lineStart, span.start - TIER_REACH),
+    Math.min(lineEnd, span.end + TIER_REACH)
+  );
+}
+
 export function readTier(text: string, span?: Span): Tier | undefined {
-  const near = span
-    ? text.slice(Math.max(0, span.start - TIER_REACH), span.end + TIER_REACH)
-    : text;
+  /**
+   * Never across a line.
+   *
+   * One honours entry is often a list. Philip Meng's is titled "HS Awards" and holds
+   * five separate honours on five lines — a Coca-Cola scholarship, a Davidson
+   * fellowship, "United States Senate Youth Program Finalist", a NeurIPS award and
+   * "State Champion at Massachusetts DECA". A window measured in characters read
+   * that State Champion as the tier of the Senate Youth Program, which has a ladder,
+   * so a finalist was paid 1.1 instead of 0.6. The line is the unit here, and a
+   * character count was only ever standing in for it.
+   */
+  const near = span ? window(text, span) : text;
   for (const { tier, is, unless } of TIER_PATTERNS) {
     if (is.test(near) && !(unless && unless.test(near))) return tier;
   }

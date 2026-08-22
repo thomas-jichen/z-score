@@ -5,33 +5,31 @@ the live data, not assumed. Times and numbers are what it actually did.
 
 ---
 
-## 1. One decision to make before you start
+## 1. Done: the Z Fellows people
 
-**Grace Kasten is in the roster, scored 2.0, tagged Z Fellow.**
+**Grace Kasten is deleted permanently.** She is on the blocklist, so no future sweep
+or campaign can re-add her. Her headline was literally `Z Fellows` — she works there —
+and no rule over the words separates "my employer is Z Fellows" from "I am a Z
+Fellow". Showing Grace a screen listing Grace as a candidate was the one outcome
+worth spending a deletion on. Roster is 55; Cory's queue is 39.
 
-Her LinkedIn headline is literally `Z Fellows`, because that is where she works, and
-her Google snippet reads `Experience: Z Fellows`. The employment case is now
-handled — Baylor Adams and Sonith Sunku lost the tag for exactly this reason — but
-Grace's *headline* is the company name, and no rule over the words separates "my
-employer is Z Fellows" from "I am a Z Fellow". She is the one case text cannot call.
+**Two more are worth a look, and I left them for you** because deletion cannot be
+undone and both are judgement calls about a real person:
 
-She is currently in Cory's queue and in Grace's queue. **Showing Grace a screen that
-lists Grace as a candidate is the worst thing that can happen in this demo.**
-
-Three options, in the order I would pick them:
-
-| | What it does | Where |
+| | Headline | Why it is ambiguous |
 |---|---|---|
-| **Mark her Already known** | She leaves the queue for that profile. Honest — you do know her. Reversible. | The ◆ button on her row |
-| Suppress the tag | Keeps her in the roster, drops the 2.0. The × on the Z Fellow chip on her candidate page. | `/candidate/gracekasten` |
-| Delete permanently | She never comes back on any sweep. Irreversible. | Queue row × → confirm |
+| `Baylor Adams` | "Early stage investor" | Only mention of Z Fellows is `Experience:`, so he no longer carries the tag — but he is probably staff or a scout, not a candidate |
+| `Sonith Sunku` | *(none)* | Same shape: `Experience: Z Fellows` and nothing else |
 
-Marking known is per profile, so **do it on every profile you might demo from**.
-Worth two minutes to check the same for anyone else on the Z Fellows team who has
-been swept up: `Baylor Adams` is the other one, already untagged but still in the
-queue as a person.
+Both are already untagged and score near zero, so they sit near the bottom of the
+queue rather than in the demo's top ten. The ◆ Already known button handles either
+one in a click if you would rather they were not there at all.
 
----
+**Tarun Batchu's RSI tag is suppressed.** His honours section is *headed* "Research &
+Science Awards", which normalises to the same key as "Research Science Institute", so
+he was carrying a 1.6 for a programme he never attended. Suppressed on him
+specifically — the tag is wrong about him, not worthless in general. If anyone asks,
+this is a good demonstration of the × on a tag chip.
 
 ## 2. Demo on the production build, not the dev server
 
@@ -60,8 +58,8 @@ disabled and the badge goes away too.
 
 | Profile | State | Good for |
 |---|---|---|
-| **Cory** | 40 queued, 16 removed | The main demo. Looks used, not empty. |
-| **Grace** | 18 queued, no removals | Showing it "through her eyes", but see §1 first. |
+| **Cory** | 39 queued, 16 removed | The main demo. Looks used, not empty. |
+| **Grace** | 17 queued, no removals | Showing it "through her eyes". |
 | **Thomas** | 52 queued, 5 saved sweeps, **owns the only campaign** | Anything on the Agent screen you want to *drive* |
 
 The campaign controls are owner-only by design. As Cory the finished campaign shows
@@ -103,7 +101,7 @@ Apify account allows — so nothing can buy a refused batch mid-demo.
 An order that shows the product's argument, not just its screens. Roughly 12 minutes.
 
 **1. Digest — "here is the answer."** Open on `/digest`. Sebastian Tan +17.1σ,
-Davido Zhang +12.7σ, Olaoluwa Oguneye +12.2σ. Lead with the ranking, not the
+Philip Meng +13.5σ, Davido Zhang +12.7σ. Lead with the ranking, not the
 plumbing. The two signals beside each name are the argument for the number.
 
 **2. One candidate — "and here is why."** Click Davido Zhang. The score breakdown
@@ -114,7 +112,7 @@ is traceable to a sentence on the profile. Open **Everything else** to show the
 long tail with the same treatment.
 
 **3. Queue — "and here is the work."** `/queue`. Show Filters → **Enrichment → Not
-enriched**, then the header checkbox: the bulk bar offers *"Enrich 37, $0.15"*. Three
+enriched**, then the header checkbox: the bulk bar offers to enrich them at a stated price. Three
 clicks from "who still needs a profile pulled" to a priced action. Then the ★ ◆ ×
 triage on a row.
 
@@ -122,7 +120,7 @@ triage on a row.
 Hubs** and toggle a link type or two. Do not linger; it is a supporting act.
 
 **5. Taxonomy — "and you control all of it."** `/taxonomy`. Move one weight slider
-and show the score change. Then the right column, **Unmatched but notable**: 93 terms
+and show the score change. Then the right column, **Unmatched but notable**: ~90 terms
 the tagger found that are not yet in the vocabulary, each with Promote and Dismiss.
 This is the honest answer to "what happens when it meets a credential you have never
 heard of".
@@ -147,8 +145,9 @@ number the loop obeys is on screen, including the ones you do not control.
   only means something if you then run it. Better as a follow-up than a live step.
 - **Do not advance the finished campaign** hoping it does something. It is done, and
   raising its day count would restart real spending mid-demo.
-- **Do not demo on a phone.** The narrow layout works — bottom tab bar, five tabs —
-  but the graph and the queue table are desktop stories.
+- **A phone is fine if you need it.** Digest, queue and Agent were all walked at
+  402px with zero real overflow: the table becomes cards, the nav becomes a bottom tab
+  bar, headlines ellipsise. The graph is the only screen that wants a laptop.
 
 ---
 

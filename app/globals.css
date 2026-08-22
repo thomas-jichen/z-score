@@ -269,11 +269,34 @@ button {
   white-space: nowrap;
 }
 
+/**
+ * The links sit at the centre of the bar, not the centre of what is left over.
+ *
+ * `margin: 0 auto` splits the free space evenly either side of the links, which
+ * centres them between the wordmark and the identity group — and those two are not
+ * the same width. The wordmark is 72px; the avatar, the name and the button come to
+ * 194px. So the five labels sat 61px left of true centre, which is exactly half the
+ * difference, and looked it.
+ *
+ * Equal flanks instead: both sides take an equal share of the slack and the links
+ * keep their own width, so the row is centred whatever either side grows into. On a
+ * phone the links are hidden and the flanks simply split the bar, which is what the
+ * narrow layout wanted anyway.
+ */
+.z-nav-inner > .z-wordmark {
+  flex: 1 1 0;
+}
+
 .z-nav-links {
   display: flex;
   align-items: center;
   gap: var(--z-space-1);
-  margin: 0 auto;
+  flex: none;
+}
+
+.z-nav-inner > :last-child {
+  flex: 1 1 0;
+  justify-content: flex-end;
 }
 
 .z-nav-link {
