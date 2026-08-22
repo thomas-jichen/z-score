@@ -385,56 +385,68 @@ export default function AgentPage() {
         <Card size="lg">
           <div className="z-stack" style={{ gap: "var(--z-space-5)" }}>
             <input
-              className="z-input"
+              className="z-name-input"
               autoFocus
               placeholder="What are you looking for?"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              style={{ fontSize: "var(--z-fs-h4)", padding: "var(--z-space-3) 0", border: "none" }}
+              aria-label="Campaign name"
             />
 
-            <div className="z-stack" style={{ gap: "var(--z-space-2)" }}>
-              {CATEGORIES.map((c) => (
-                <Category
-                  key={c.key}
-                  label={c.label}
-                  builtIn={c.facets ? c.facets.flatMap((f) => menus.get(f) ?? []) : c.builtIn}
-                  custom={team.customTerms[c.key] ?? []}
-                  selected={sel[c.key] ?? []}
-                  onToggle={(o) =>
-                    setSel((p) => ({
-                      ...p,
-                      [c.key]: (p[c.key] ?? []).includes(o)
-                        ? (p[c.key] ?? []).filter((x) => x !== o)
-                        : [...(p[c.key] ?? []), o],
-                    }))
-                  }
-                  onAdd={() => {}}
-                  onRemove={() => {}}
-                  onAll={() => {}}
-                  onClear={() => setSel((p) => ({ ...p, [c.key]: [] }))}
-                />
-              ))}
-            </div>
-
-            <details className="z-disclosure">
-              <summary>Queries of your own</summary>
-              <div className="z-disclosure-body">
-                <textarea
-                  className="z-seed-input"
-                  rows={3}
-                  placeholder={"One per line.\nstanford dropout building\nintitle:founder -recruiter"}
-                  value={rawQueries}
-                  onChange={(e) => setRawQueries(e.target.value)}
-                />
-                <p className="z-micro" style={{ marginTop: "var(--z-space-2)" }}>
-                  For anything the menus cannot express, such as a minus term or a quoted phrase.
-                  The LinkedIn filter is added if you leave it out.
-                </p>
+            {/**
+             * Menus on the left, how it runs on the right.
+             *
+             * One column gave seven collapsed menus the full width of the card, each
+             * a single word with its chevron a thousand pixels away, and pushed the
+             * settings below the fold. The sweep screen already answers this with a
+             * 300px rail, which is the width `Category` was built for.
+             */}
+            <div className="z-campaign-grid">
+              <div className="z-stack" style={{ gap: "var(--z-space-2)" }}>
+                {CATEGORIES.map((c) => (
+                  <Category
+                    key={c.key}
+                    label={c.label}
+                    builtIn={c.facets ? c.facets.flatMap((f) => menus.get(f) ?? []) : c.builtIn}
+                    custom={team.customTerms[c.key] ?? []}
+                    selected={sel[c.key] ?? []}
+                    onToggle={(o) =>
+                      setSel((p) => ({
+                        ...p,
+                        [c.key]: (p[c.key] ?? []).includes(o)
+                          ? (p[c.key] ?? []).filter((x) => x !== o)
+                          : [...(p[c.key] ?? []), o],
+                      }))
+                    }
+                    onAdd={() => {}}
+                    onRemove={() => {}}
+                    onAll={() => {}}
+                    onClear={() => setSel((p) => ({ ...p, [c.key]: [] }))}
+                  />
+                ))}
               </div>
-            </details>
 
-            <Settings limits={limits} value={draft} onChange={setDraft} facts={facts} />
+              <div className="z-stack" style={{ gap: "var(--z-space-5)" }}>
+                <Settings limits={limits} value={draft} onChange={setDraft} facts={facts} />
+
+                <details className="z-disclosure">
+                  <summary>Queries of your own</summary>
+                  <div className="z-disclosure-body">
+                    <textarea
+                      className="z-seed-input"
+                      rows={3}
+                      placeholder={"One per line.\nstanford dropout building\nintitle:founder -recruiter"}
+                      value={rawQueries}
+                      onChange={(e) => setRawQueries(e.target.value)}
+                    />
+                    <p className="z-micro" style={{ marginTop: "var(--z-space-2)" }}>
+                      For anything the menus cannot express, such as a minus term or a quoted
+                      phrase. The LinkedIn filter is added if you leave it out.
+                    </p>
+                  </div>
+                </details>
+              </div>
+            </div>
 
             <div className="z-row" style={{ gap: "var(--z-space-3)" }}>
               <Button size="sm" onClick={createCampaign} disabled={!name.trim() || busy === "create"}>

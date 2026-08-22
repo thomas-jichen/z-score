@@ -1015,12 +1015,83 @@ a.z-archetype:hover {
   }
 }
 
+/* ── The campaign composer ─────────────────────────────────────────────── */
+
+/**
+ * The name is the form's headline, so it reads as a canvas rather than a field.
+ *
+ * It was a `.z-input` with its border removed inline and its size raised to h4,
+ * which left nothing but the global focus ring: a two-pixel blue rectangle the full
+ * width of the card, wrapped around text that had no boundary of its own the moment
+ * you clicked away. The seed composer already solved this exact shape — a flat tone
+ * that sits back, white and bordered once you are typing in it — so this is that,
+ * one size up.
+ */
+.z-name-input {
+  width: 100%;
+  display: block;
+  font-family: var(--z-font);
+  font-size: var(--z-fs-h4);
+  letter-spacing: var(--z-ls-h4);
+  font-weight: 600;
+  color: var(--z-ink);
+  background: var(--z-surface-blue);
+  border: 1px solid transparent;
+  border-radius: var(--z-r-card);
+  padding: var(--z-space-4) var(--z-space-5);
+  transition:
+    background-color var(--z-t-fast),
+    border-color var(--z-t-fast);
+}
+
+.z-name-input::placeholder {
+  color: var(--z-ink-faint);
+  font-weight: 500;
+}
+
+.z-name-input:focus {
+  background: #ffffff;
+  border-color: var(--z-border);
+  outline: none;
+}
+
+/**
+ * Menus on the left, everything else on the right — the same split as the sweep
+ * screen, and for the same reason.
+ *
+ * `Category` was lifted out of that screen, where it lives in a 300px column. Handed
+ * the whole width of a card it becomes a row with one word at one end and a chevron
+ * at the other, a thousand pixels apart, seven times over. The component was never
+ * the problem; the column was missing.
+ */
+.z-campaign-grid {
+  display: grid;
+  grid-template-columns: 300px minmax(0, 1fr);
+  gap: var(--z-space-6);
+  align-items: start;
+}
+
+/**
+ * Three across, not whatever the width happens to allow.
+ *
+ * `.z-set-grid` is `auto-fit` over a 150px minimum, which lands on six across in the
+ * defaults block where it has the whole card. Beside a 300px rail it has 820px, which
+ * is five — so the six settings came out five and one, with the orphan's hint wrapping
+ * to three lines and the row under it ragged. Two rows of three is the same six fields
+ * with nothing left over, and 262px is wide enough that most hints fit on two lines.
+ */
+.z-campaign-grid .z-set-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-items: start;
+}
+
 /* ── Responsive collapse for the two-column screens ─────────────────────── */
 
 @media (max-width: 900px) {
   .z-sweep-grid,
   .z-detail-grid,
-  .z-taxonomy-grid {
+  .z-taxonomy-grid,
+  .z-campaign-grid {
     grid-template-columns: minmax(0, 1fr) !important;
     gap: var(--z-space-6);
   }
