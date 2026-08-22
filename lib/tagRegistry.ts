@@ -198,24 +198,17 @@ export const MIN_WEIGHT = 0;
 /**
  * The ceiling on a single tag, and it is deliberately low.
  *
- * Nothing should be able to out-vote everything else, and the slider should spend
- * its travel in the range tags actually occupy rather than above it. 0.7 sits just
- * over the heaviest tag in the table, which is 0.67.
+ * Nothing should be able to out-vote everything else. With the whole table repriced
+ * so that the strongest person in a real roster lands near 10, a ceiling of 5 meant
+ * two tags could account for a top score — and made the taxonomy slider spend most
+ * of its travel in a range no tag should ever occupy. Two is the top of the scale
+ * and the slider now has resolution across all of it.
  */
-export const MAX_WEIGHT = 0.7;
+export const MAX_WEIGHT = 2;
 
-/**
- * Two decimals, not one.
- *
- * A tenth was enough while the heaviest tag was 2.0. On the third-scale table it is
- * not: nineteen distinct weights would collapse onto ten, 1.5 and 1.6 would become
- * the same number, and the count rules would round to nothing at all — a per-
- * experience 0.03 is 0.0 at one decimal, so breadth would stop counting by accident
- * rather than by decision. A hundredth keeps every distinction the table draws.
- */
 export function clampWeight(n: number): number {
   if (!Number.isFinite(n)) return 0;
-  return Math.min(Math.max(Math.round(n * 100) / 100, MIN_WEIGHT), MAX_WEIGHT);
+  return Math.min(Math.max(Math.round(n * 10) / 10, MIN_WEIGHT), MAX_WEIGHT);
 }
 
 /* ── Normalisation ──────────────────────────────────────────────────────── */
@@ -944,16 +937,16 @@ export function seedRegistry(input: {
    * first seen on a profile. "Decatur High School" and "Harker" are both high
    * schools and should not start at the same number.
    */
-  for (const c of input.colleges) add(c.label, "college", c.aliases, 0.13, c.state);
-  for (const h of input.highSchools) add(h.label, "highschool", h.aliases, 0.1, h.state);
+  for (const c of input.colleges) add(c.label, "college", c.aliases, 0.4, c.state);
+  for (const h of input.highSchools) add(h.label, "highschool", h.aliases, 0.3, h.state);
   for (const t of input.titles) add(t.label, "title", t.aliases, 0);
   // A major is what you study, not how good you are at it.
   for (const m of input.majors) add(m.label, "major", m.aliases, 0);
-  for (const c of input.companies) add(c.label, "company", c.aliases, 0.13);
-  for (const l of input.labs) add(l.label, "lab", l.aliases, 0.13);
-  for (const c of input.clubs) add(c.label, "club", c.aliases, 0.1);
-  for (const st of input.startups) add(st.label, "startup", st.aliases, 0.07);
-  for (const f of input.flags) add(f.label, "flag", f.aliases, 0.07);
+  for (const c of input.companies) add(c.label, "company", c.aliases, 0.4);
+  for (const l of input.labs) add(l.label, "lab", l.aliases, 0.4);
+  for (const c of input.clubs) add(c.label, "club", c.aliases, 0.3);
+  for (const st of input.startups) add(st.label, "startup", st.aliases, 0.2);
+  for (const f of input.flags) add(f.label, "flag", f.aliases, 0.2);
 
   return reg;
 }

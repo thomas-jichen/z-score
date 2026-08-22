@@ -131,24 +131,24 @@ export const MATCH_POLICY: Record<string, TagMatch> = {
  */
 export const TIER_LADDERS: Record<string, Partial<Record<Tier, number>>> = {
   // A Thiel finalist is interviewed; a Thiel Fellow is paid to drop out.
-  "Thiel Fellow": { finalist: 0.27, semifinalist: 0.13 },
-  "Neo Scholar": { finalist: 0.27 },
-  "Davidson Fellow": { finalist: 0.2 },
-  "Coca-Cola Scholar": { finalist: 0.17, semifinalist: 0.1 },
-  Rise: { finalist: 0.2 },
+  "Thiel Fellow": { finalist: 0.8, semifinalist: 0.4 },
+  "Neo Scholar": { finalist: 0.8 },
+  "Davidson Fellow": { finalist: 0.6 },
+  "Coca-Cola Scholar": { finalist: 0.5, semifinalist: 0.3 },
+  Rise: { finalist: 0.6 },
   // A Coolidge Senator is the rung below a Coolidge Scholar, and shared its weight.
-  "Coolidge Scholar": { finalist: 0.2, semifinalist: 0.13 },
-  QuestBridge: { finalist: 0.1 },
+  "Coolidge Scholar": { finalist: 0.6, semifinalist: 0.4 },
+  QuestBridge: { finalist: 0.3 },
   // A Jack Kent Cooke Scholar gets a full ride and there are about forty a year; a
   // semifinalist is a much larger set. Andra Campos is the second.
-  "Jack Kent Cooke Scholar": { finalist: 0.17, semifinalist: 0.1 },
-  USSYP: { finalist: 0.2 },
-  "Cameron Impact Scholar": { finalist: 0.13 },
-  "National YoungArts": { winner: 0.3, finalist: 0.2 },
-  "NCWIT Aspirations": { winner: 0.23, semifinalist: 0.07, qualifier: 0.07 },
-  "Elks Most Valuable Student": { semifinalist: 0.05 },
+  "Jack Kent Cooke Scholar": { finalist: 0.5, semifinalist: 0.3 },
+  USSYP: { finalist: 0.6 },
+  "Cameron Impact Scholar": { finalist: 0.4 },
+  "National YoungArts": { winner: 0.9, finalist: 0.6 },
+  "NCWIT Aspirations": { winner: 0.7, semifinalist: 0.2, qualifier: 0.2 },
+  "Elks Most Valuable Student": { semifinalist: 0.15 },
   // Scholar, then Candidate, then nominated. Low stakes either way at 0.5.
-  "Presidential Scholar": { finalist: 0.1, semifinalist: 0.07, qualifier: 0.07 },
+  "Presidential Scholar": { finalist: 0.3, semifinalist: 0.2, qualifier: 0.2 },
 };
 
 /** Selective programs, competitions and credentials. */

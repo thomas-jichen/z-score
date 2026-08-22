@@ -52,15 +52,6 @@ import { Button, Card, EmptyState, Pill } from "@/components/primitives";
 /** How many unmatched terms show before the rest is one tap away. */
 const PENDING_WINDOW = 12;
 
-/**
- * A hundredth, matching `clampWeight`.
- *
- * The whole table is a third of what it was, so the heaviest tag is 0.67 and the
- * lightest that still counts is 0.03. A tenth would step straight over most of the
- * vocabulary and round every edit onto one of seven positions.
- */
-const WEIGHT_STEP = 0.01;
-
 type Promoting = {
   term: string;
   /**
@@ -795,7 +786,7 @@ function TuneRow({
           className="z-range"
           min={0}
           max={MAX_WEIGHT}
-          step={WEIGHT_STEP}
+          step={0.1}
           value={weight}
           data-zero={weight === 0 || undefined}
           style={{ ["--fill" as string]: `${(weight / MAX_WEIGHT) * 100}%` }}
@@ -823,8 +814,8 @@ function TuneRow({
         type="number"
         min={0}
         max={MAX_WEIGHT}
-        step={WEIGHT_STEP}
-        value={typed ?? weight.toFixed(2)}
+        step={0.1}
+        value={typed ?? weight.toFixed(1)}
         data-zero={weight === 0 || undefined}
         onChange={(e) => setTyped(e.target.value)}
         onBlur={() => {
@@ -974,7 +965,7 @@ function PromoteForm({
             className="z-range"
             min={0}
             max={MAX_WEIGHT}
-            step={WEIGHT_STEP}
+            step={0.1}
             value={promoting.weight}
             style={{ ["--fill" as string]: `${(promoting.weight / MAX_WEIGHT) * 100}%` }}
             onChange={(e) => onChange({ ...promoting, weight: Number(e.target.value) })}
@@ -985,8 +976,8 @@ function PromoteForm({
             type="number"
             min={0}
             max={MAX_WEIGHT}
-            step={WEIGHT_STEP}
-            value={promoting.weight.toFixed(2)}
+            step={0.1}
+            value={promoting.weight.toFixed(1)}
             onChange={(e) =>
               onChange({ ...promoting, weight: clampWeight(Number(e.target.value)) })
             }
@@ -1103,7 +1094,7 @@ function Rules({
                 type="number"
                 min={0}
                 max={MAX_WEIGHT}
-                step={WEIGHT_STEP}
+                step={0.1}
                 value={rule.points}
                 onChange={(e) =>
                   onPatch({
@@ -1145,7 +1136,7 @@ function Rules({
             className="z-stepper"
             type="number"
             min={0}
-            step={WEIGHT_STEP}
+            step={0.1}
             value={taxonomy.polymathPoints}
             onChange={(e) => onPatch({ polymathPoints: num(e.target.value, taxonomy.polymathPoints) })}
             aria-label="Polymath threshold"

@@ -232,67 +232,55 @@ export const TERM_CLUSTER: Record<string, Archetype | null> = {
  * is its own qualifying round. Both are fixed.
  *
  * ── Descriptions are not achievements ─────────────────────────────────────
- * Titles start at zero and majors at 0.03. "Intern" and "Software Engineer" were
- * each worth 0.2 on the old scale, so listing five ordinary roles paid the same as a
- * Coca-Cola Scholarship. Founding something is the exception, because it is a fact
- * about what you did rather than what you were called.
- *
- * ── The numbers below are a third of what they were ───────────────────────
- * Every figure in this table was divided by three in seed version 5, and nothing
- * else about it changed: no ratio moved, so no ranking moved, only the unit. The
- * heaviest tag is 0.67 and the strongest person in a real roster lands near 6, where
- * before the vocabulary grew they landed near 10 and had drifted to 17. Weights are
- * held to two decimals for the same reason — at a tenth this table would collapse
- * onto ten distinct values and the count rules would round to nothing.
- *
- * Historical numbers quoted above are left as they were written. They describe what
- * something *used* to be worth, and rewriting them would make the reasoning harder
- * to follow rather than easier.
+ * Titles start at zero and majors at 0.1. "Intern" and "Software Engineer" were each
+ * worth 0.2, so listing five ordinary roles paid the same as a Coca-Cola
+ * Scholarship. Founding something is the exception, because it is a fact about what
+ * you did rather than what you were called.
  */
 export const START_WEIGHT: Record<string, number> = {
   /* ── Accelerators, fellowships, funds ─────────────────────────────────── */
   // The ceiling. Somebody wrote a cheque, which is the hardest filter there is.
-  "Y Combinator": 0.67,
-  "Thiel Fellow": 0.67,
-  a16z: 0.67,
-  "Z Fellow": 0.67,
-  Sequoia: 0.67,
-  "Founders Fund": 0.67,
-  "Neo Scholar": 0.5,
-  "Pear VC": 0.5,
-  "South Park Commons": 0.5,
-  "1517 Fund": 0.5,
-  "Afore Capital": 0.5,
-  "Battery Ventures": 0.5,
-  Lightspeed: 0.5,
-  "General Catalyst": 0.5,
-  "Khosla Ventures": 0.5,
-  "Index Ventures": 0.5,
-  Accel: 0.5,
-  Greylock: 0.5,
-  Benchmark: 0.5,
-  Bessemer: 0.47,
-  "645 Ventures": 0.4,
-  "Emergent Ventures": 0.4,
-  Contrary: 0.4,
-  "Entrepreneur First": 0.4,
+  "Y Combinator": 2.0,
+  "Thiel Fellow": 2.0,
+  a16z: 2.0,
+  "Z Fellow": 2.0,
+  Sequoia: 2.0,
+  "Founders Fund": 2.0,
+  "Neo Scholar": 1.5,
+  "Pear VC": 1.5,
+  "South Park Commons": 1.5,
+  "1517 Fund": 1.5,
+  "Afore Capital": 1.5,
+  "Battery Ventures": 1.5,
+  Lightspeed: 1.5,
+  "General Catalyst": 1.5,
+  "Khosla Ventures": 1.5,
+  "Index Ventures": 1.5,
+  Accel: 1.5,
+  Greylock: 1.5,
+  Benchmark: 1.5,
+  Bessemer: 1.4,
+  "645 Ventures": 1.2,
+  "Emergent Ventures": 1.2,
+  Contrary: 1.2,
+  "Entrepreneur First": 1.2,
   // A student-run fund is real but junior to the firms above it.
-  "Dorm Room Fund": 0.33,
-  Techstars: 0.23,
-  Antler: 0.23,
+  "Dorm Room Fund": 1.0,
+  Techstars: 0.7,
+  Antler: 0.7,
   // Open enrolment, tens of thousands of people.
-  buildspace: 0.07,
+  buildspace: 0.2,
 
   /* ── Competitions and programmes ──────────────────────────────────────── */
   // International olympiad: a few hundred people on earth per year.
-  IMO: 0.67,
-  IOI: 0.67,
-  IPhO: 0.67,
-  IBO: 0.67,
-  IChO: 0.67,
-  MOP: 0.53,
-  RSI: 0.53,
-  "Palantir Meritocracy Fellow": 0.5,
+  IMO: 2.0,
+  IOI: 2.0,
+  IPhO: 2.0,
+  IBO: 2.0,
+  IChO: 2.0,
+  MOP: 1.6,
+  RSI: 1.6,
+  "Palantir Meritocracy Fellow": 1.5,
   /**
    * Priced by how many people a year hold the thing, which is the only comparison
    * that makes a taxonomy readable. USSYP takes two per state; the Barron Prize
@@ -300,56 +288,56 @@ export const START_WEIGHT: Record<string, number> = {
    * hundred. NCWIT and Elks are broad at their base and only mean something at the
    * top, so both carry a ladder rather than a low flat number.
    */
-  USSYP: 0.37,
-  "Gloria Barron Prize": 0.37,
-  "NeurIPS High School Track": 0.4,
-  "Jack Kent Cooke Scholar": 0.33,
-  "Cameron Impact Scholar": 0.3,
-  "S.T. Yau Science Award": 0.33,
-  "Math Prize for Girls": 0.27,
-  "National YoungArts": 0.27,
-  NACLO: 0.2,
-  USESO: 0.17,
-  "National Economics Challenge": 0.17,
-  "NCWIT Aspirations": 0.1,
-  "Elks Most Valuable Student": 0.1,
-  "Cum Laude Society": 0.07,
-  "Pareto Fellowship": 0.4,
-  "ISEF Grand Award": 0.47,
-  "MIT PRIMES": 0.47,
-  "Davidson Fellow": 0.43,
-  "Berkeley M.E.T.": 0.43,
-  "Penn M&T": 0.43,
-  Rise: 0.4,
-  "Coolidge Scholar": 0.4,
-  USAMO: 0.4,
-  "Jane Street AMP": 0.4,
-  STS: 0.4,
-  "Huntsman Program": 0.37,
-  "Vagelos Program": 0.37,
-  "USACO Platinum": 0.33,
-  PROMYS: 0.33,
-  SSP: 0.3,
-  Mathcamp: 0.3,
-  TASP: 0.3,
-  SPARC: 0.3,
-  "Simons Fellow": 0.3,
-  "Coca-Cola Scholar": 0.27,
-  "Garcia Program": 0.27,
-  ISEF: 0.23,
-  "Presidential Scholar": 0.17,
-  USAPhO: 0.17,
-  USABO: 0.17,
-  QuestBridge: 0.17,
+  USSYP: 1.1,
+  "Gloria Barron Prize": 1.1,
+  "NeurIPS High School Track": 1.2,
+  "Jack Kent Cooke Scholar": 1.0,
+  "Cameron Impact Scholar": 0.9,
+  "S.T. Yau Science Award": 1.0,
+  "Math Prize for Girls": 0.8,
+  "National YoungArts": 0.8,
+  NACLO: 0.6,
+  USESO: 0.5,
+  "National Economics Challenge": 0.5,
+  "NCWIT Aspirations": 0.3,
+  "Elks Most Valuable Student": 0.3,
+  "Cum Laude Society": 0.2,
+  "Pareto Fellowship": 1.2,
+  "ISEF Grand Award": 1.4,
+  "MIT PRIMES": 1.4,
+  "Davidson Fellow": 1.3,
+  "Berkeley M.E.T.": 1.3,
+  "Penn M&T": 1.3,
+  Rise: 1.2,
+  "Coolidge Scholar": 1.2,
+  USAMO: 1.2,
+  "Jane Street AMP": 1.2,
+  STS: 1.2,
+  "Huntsman Program": 1.1,
+  "Vagelos Program": 1.1,
+  "USACO Platinum": 1.0,
+  PROMYS: 1.0,
+  SSP: 0.9,
+  Mathcamp: 0.9,
+  TASP: 0.9,
+  SPARC: 0.9,
+  "Simons Fellow": 0.9,
+  "Coca-Cola Scholar": 0.8,
+  "Garcia Program": 0.8,
+  ISEF: 0.7,
+  "Presidential Scholar": 0.5,
+  USAPhO: 0.5,
+  USABO: 0.5,
+  QuestBridge: 0.5,
   // Activities. A good builder does one on a weekend.
-  "Hack Club": 0.13,
-  TreeHacks: 0.1,
-  CalHacks: 0.1,
-  HackMIT: 0.1,
-  "Breakthrough Junior Challenge": 0.1,
-  "Conrad Challenge": 0.1,
-  "Diamond Challenge": 0.1,
-  "Bank of America Student Leader": 0.1,
+  "Hack Club": 0.4,
+  TreeHacks: 0.3,
+  CalHacks: 0.3,
+  HackMIT: 0.3,
+  "Breakthrough Junior Challenge": 0.3,
+  "Conrad Challenge": 0.3,
+  "Diamond Challenge": 0.3,
+  "Bank of America Student Leader": 0.3,
   // A two-week summer course, and it was scoring as a Yale degree.
 
   /**
@@ -359,88 +347,88 @@ export const START_WEIGHT: Record<string, number> = {
    * these started, and deliberately close to the competition tier. Getting hired by
    * one of these at nineteen is a harder filter than most awards.
    */
-  Google: 0.47,
-  Meta: 0.47,
-  Apple: 0.47,
-  Microsoft: 0.47,
-  Amazon: 0.47,
-  Nvidia: 0.47,
-  OpenAI: 0.47,
-  Anthropic: 0.47,
-  DeepMind: 0.47,
-  Palantir: 0.47,
-  Stripe: 0.47,
-  SpaceX: 0.47,
-  Tesla: 0.47,
-  IBM: 0.47,
-  Bloomberg: 0.47,
-  "Jane Street": 0.47,
-  Citadel: 0.47,
-  "Citadel Securities": 0.47,
-  "Hudson River Trading": 0.47,
-  "Two Sigma": 0.47,
-  "Jump Trading": 0.47,
-  "D. E. Shaw": 0.47,
-  Susquehanna: 0.47,
-  "McKinsey & Company": 0.47,
-  "Bain & Company": 0.47,
-  "Boston Consulting Group": 0.47,
-  "Goldman Sachs": 0.47,
-  NASA: 0.47,
-  Databricks: 0.4,
-  Snowflake: 0.4,
+  Google: 1.4,
+  Meta: 1.4,
+  Apple: 1.4,
+  Microsoft: 1.4,
+  Amazon: 1.4,
+  Nvidia: 1.4,
+  OpenAI: 1.4,
+  Anthropic: 1.4,
+  DeepMind: 1.4,
+  Palantir: 1.4,
+  Stripe: 1.4,
+  SpaceX: 1.4,
+  Tesla: 1.4,
+  IBM: 1.4,
+  Bloomberg: 1.4,
+  "Jane Street": 1.4,
+  Citadel: 1.4,
+  "Citadel Securities": 1.4,
+  "Hudson River Trading": 1.4,
+  "Two Sigma": 1.4,
+  "Jump Trading": 1.4,
+  "D. E. Shaw": 1.4,
+  Susquehanna: 1.4,
+  "McKinsey & Company": 1.4,
+  "Bain & Company": 1.4,
+  "Boston Consulting Group": 1.4,
+  "Goldman Sachs": 1.4,
+  NASA: 1.4,
+  Databricks: 1.2,
+  Snowflake: 1.2,
   // Real, and a rung below the names above.
-  Tencent: 0.23,
-  Intel: 0.23,
-  Waymo: 0.23,
-  Regeneron: 0.23,
-  "Bell Labs": 0.23,
+  Tencent: 0.7,
+  Intel: 0.7,
+  Waymo: 0.7,
+  Regeneron: 0.7,
+  "Bell Labs": 0.7,
 
   /* ── Universities ─────────────────────────────────────────────────────── */
-  MIT: 0.27,
-  Stanford: 0.27,
-  Caltech: 0.27,
-  Harvard: 0.27,
-  Princeton: 0.2,
-  Berkeley: 0.2,
-  "Carnegie Mellon": 0.2,
-  Yale: 0.2,
-  Columbia: 0.2,
-  Oxford: 0.2,
-  Cambridge: 0.2,
-  UChicago: 0.2,
-  UPenn: 0.2,
-  Cornell: 0.13,
+  MIT: 0.8,
+  Stanford: 0.8,
+  Caltech: 0.8,
+  Harvard: 0.8,
+  Princeton: 0.6,
+  Berkeley: 0.6,
+  "Carnegie Mellon": 0.6,
+  Yale: 0.6,
+  Columbia: 0.6,
+  Oxford: 0.6,
+  Cambridge: 0.6,
+  UChicago: 0.6,
+  UPenn: 0.6,
+  Cornell: 0.4,
 
   /* ── High schools ─────────────────────────────────────────────────────── */
   // A feeder is worth a little; where someone went to school is mostly not the point.
-  TJHSST: 0.13,
-  "Phillips Exeter": 0.13,
-  "Phillips Andover": 0.13,
-  Stuyvesant: 0.13,
-  IMSA: 0.13,
-  NCSSM: 0.13,
-  Harker: 0.13,
+  TJHSST: 0.4,
+  "Phillips Exeter": 0.4,
+  "Phillips Andover": 0.4,
+  Stuyvesant: 0.4,
+  IMSA: 0.4,
+  NCSSM: 0.4,
+  Harker: 0.4,
 
   /* ── Whole-profile facts ──────────────────────────────────────────────── */
   // The single most predictive flag here: they founded it and someone funded it.
-  "Funded founder": 0.4,
-  "Hackathon winner": 0.13,
+  "Funded founder": 1.2,
+  "Hackathon winner": 0.4,
   /**
    * A camp invitation is roughly the top twenty in the country, where a semifinal is
    * the top few hundred. Stacked on USABO at 0.5 that puts a camper at 1.5, between
    * USAMO and MOP, and leaves the semifinalist where they were.
    */
-  "Olympiad camper": 0.33,
-  Influencer: 0.1,
-  "Has a site": 0.03,
+  "Olympiad camper": 1,
+  Influencer: 0.3,
+  "Has a site": 0.1,
   Published: 0,
   "Patent holder": 0,
 
   /* ── Titles ───────────────────────────────────────────────────────────── */
-  Founder: 0.07,
-  CTO: 0.07,
-  CEO: 0.03,
+  Founder: 0.2,
+  CTO: 0.2,
+  CEO: 0.1,
 };
 
 /** Anything promoted from the review queue without an explicit weight. */
@@ -555,7 +543,7 @@ export function scoreBand(score: number, bands: BandThresholds): ScoreBand {
  * Kept because the product is called Z-Score and the notation is what the team
  * reads fluently.
  */
-export function formatSigma(score: number, dp: 1 | 2 = 1): string {
+export function formatSigma(score: number): string {
   const sign = score < 0 ? "−" : "+";
-  return `${sign}${Math.abs(score).toFixed(dp)}σ`;
+  return `${sign}${Math.abs(score).toFixed(1)}σ`;
 }

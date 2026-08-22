@@ -56,7 +56,7 @@ export const LIMITS = {
   queuePerDay: { min: 1, max: 200, fallback: 40 },
   enrichPerDay: { min: 0, max: 100, fallback: 10 },
   budgetUsd: { min: 0, max: 100, fallback: 5 },
-  scoreBar: { min: 0, max: 7, fallback: 0 },
+  scoreBar: { min: 0, max: 20, fallback: 0 },
 } as const satisfies Record<keyof CampaignSettings, { min: number; max: number; fallback: number }>;
 
 export const SETTING_KEYS = Object.keys(LIMITS) as (keyof CampaignSettings)[];

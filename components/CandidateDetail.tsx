@@ -191,11 +191,8 @@ export function CandidateDetail({ slug }: { slug: string }) {
                   <span className="z-h3" style={{ flex: 1, minWidth: 0 }}>
                     {s.label}
                   </span>
-                  {/* Two decimals, matching the breakdown beside it. These are the
-                      same three numbers rendered twice, and showing 0.7 here and
-                      0.67 there invites the reader to work out which one is real. */}
                   <span className="z-h4 z-num" style={{ color: "var(--z-blue)" }}>
-                    {formatSigma(s.points, 2)}
+                    {formatSigma(s.points)}
                   </span>
                 </div>
               ))}
@@ -225,7 +222,7 @@ export function CandidateDetail({ slug }: { slug: string }) {
                       <SignalWhy signal={s} />
                     </span>
                     <span className="z-breakdown-dev" data-negative={s.points < 0}>
-                      {formatSigma(s.points, 2)}
+                      {formatSigma(s.points)}
                     </span>
                   </div>
                 ))}
@@ -438,12 +435,12 @@ export function CandidateDetail({ slug }: { slug: string }) {
             <div className="z-row" style={{ marginBottom: "var(--z-space-5)" }}>
               <div>
                 <p className="z-small">In {archetypeLabel(c.archetype)}</p>
-                <p className="z-h3 z-num">{formatSigma(c.archetype_score, 2)}</p>
+                <p className="z-h3 z-num">{formatSigma(c.archetype_score)}</p>
               </div>
               <div style={{ marginLeft: "auto", textAlign: "right" }}>
                 <p className="z-small">Whole profile</p>
                 <p className="z-h3 z-num" style={{ color: "var(--z-blue)" }}>
-                  {formatSigma(c.score, 2)}
+                  {formatSigma(c.score)}
                 </p>
               </div>
             </div>

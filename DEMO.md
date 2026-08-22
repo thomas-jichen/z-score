@@ -100,13 +100,13 @@ Apify account allows — so nothing can buy a refused batch mid-demo.
 
 An order that shows the product's argument, not just its screens. Roughly 12 minutes.
 
-**1. Digest — "here is the answer."** Open on `/digest`. Sebastian Tan +5.7σ,
-Philip Meng +4.7σ, Davido Zhang +4.2σ. Lead with the ranking, not the
+**1. Digest — "here is the answer."** Open on `/digest`. Sebastian Tan +17.1σ,
+Philip Meng +13.5σ, Davido Zhang +12.7σ. Lead with the ranking, not the
 plumbing. The two signals beside each name are the argument for the number.
 
 **2. One candidate — "and here is why."** Click Davido Zhang. The score breakdown
-now quotes the words that produced each signal: `RSI +0.53σ` reads
-*"Research Science Institute"*, `STS +0.47σ` reads *"Regeneron STS Scholar"*.
+now quotes the words that produced each signal: `RSI +1.6σ` reads
+*"Research Science Institute"*, `MIT PRIMES +1.4σ` reads *"MIT PRIMES program"*.
 This is the strongest thing in the product to a sceptical audience — every number
 is traceable to a sentence on the profile. Open **Everything else** to show the
 long tail with the same treatment.
