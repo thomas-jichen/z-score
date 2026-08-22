@@ -238,7 +238,7 @@ export function worthPromoting(c: { sure: boolean; weight: number; facet: TagFac
  * right home for anything marginal, and a screen full of 0.2 rows nobody chose is how
  * a taxonomy stops being read.
  */
-export const AUTO_PROMOTE_FLOOR = 0.5;
+export const AUTO_PROMOTE_FLOOR = 0.17;
 
 /**
  * Fold newly classified tags into a registry.

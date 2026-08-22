@@ -809,7 +809,7 @@ console.log("\nhydrateTeam — a stored registry keeps up with the seed lists");
    * applies to documents nobody has written yet, which is no recalibration at all.
    */
   // A weight nobody's seed table would produce, so it can only survive by being kept.
-  const handTuned = (seedVersion?: number, weight = 1.9): Partial<TaxonomyPrefs> => ({
+  const handTuned = (seedVersion?: number, weight = 0.61): Partial<TaxonomyPrefs> => ({
     ...emptyTeam().taxonomy,
     seedVersion,
     tags: {
@@ -830,8 +830,8 @@ console.log("\nhydrateTeam — a stored registry keeps up with the seed lists");
       "jane-street"
     ].weight;
 
-  check("a current document keeps its own weight", weightAfterRead(handTuned(SEED_VERSION)), 1.9);
-  check("a stale one adopts the recalibration", weightAfterRead(handTuned(undefined)), 1.4);
+  check("a current document keeps its own weight", weightAfterRead(handTuned(SEED_VERSION)), 0.61);
+  check("a stale one adopts the recalibration", weightAfterRead(handTuned(undefined)), 0.47);
   check("and is marked so it only happens once", stale.taxonomy.seedVersion, SEED_VERSION);
 
   /**
@@ -846,14 +846,14 @@ console.log("\nhydrateTeam — a stored registry keeps up with the seed lists");
   check(
     "a tuned weight survives a save",
     weightAfterRead(cleanTaxonomy(handTuned(SEED_VERSION))),
-    1.9
+    0.61
   );
 
   // Nothing may out-vote everything else, on the way in as well as in the seeds.
   check(
     "and a weight above the ceiling is clamped, not stored",
     cleanTaxonomy(handTuned(SEED_VERSION, 4.5)).tags["jane-street"].weight,
-    2
+    0.7
   );
   // One key, one tag — checked on the alias that actually moved. A blanket sweep
   // would fail on the state pairs, where "CA" is deliberately an alias of both
@@ -1426,7 +1426,7 @@ console.log("\npromoting a term actually makes it score");
       "brooke-owens": makeTag({
         label: "Brooke Owens Fellow",
         facet: "program",
-        weight: 1.9,
+        weight: 0.61,
         cluster: "research",
         promoted: true,
       }),
@@ -1437,7 +1437,7 @@ console.log("\npromoting a term actually makes it score");
   // Now the score IS the sum, so the delta is the weight exactly. It used to be
   // the weight divided by sigma, and the assertion needed a tolerance.
   const delta = round(after.score - before.score);
-  check("the score moves by exactly the weight", delta, 1.9);
+  check("the score moves by exactly the weight", delta, 0.61);
   check("and it votes for its cluster", after.archetype, "research");
   check(
     "it leaves the review queue once promoted",
@@ -2148,8 +2148,8 @@ console.log("\ntiers — a finalist is not a winner");
   const w = (honor: string, label: string) => scored(honor).find((t) => t.label === label)?.weight;
   const tier = (honor: string, label: string) => scored(honor).find((t) => t.label === label)?.tier;
 
-  check("being a Neo Scholar is 1.5", w("Neo Scholar", "Neo Scholar"), 1.5);
-  check("reaching the final is 0.8", w("Neo Scholar Finalist", "Neo Scholar"), 0.8);
+  check("being a Neo Scholar is 0.5", w("Neo Scholar", "Neo Scholar"), 0.5);
+  check("reaching the final is 0.27", w("Neo Scholar Finalist", "Neo Scholar"), 0.27);
   check("and the rung is recorded", tier("Neo Scholar Finalist", "Neo Scholar"), "finalist");
 
   /**
@@ -2159,10 +2159,10 @@ console.log("\ntiers — a finalist is not a winner");
    */
   check("a hyphenated semi-final is a semi-final", tier("Coca-Cola Scholar Semi-Finalist", "Coca-Cola Scholar"), "semifinalist");
   check("and so is the one word", tier("Coca-Cola Scholar Semifinalist", "Coca-Cola Scholar"), "semifinalist");
-  check("priced below the finalist", w("Coca-Cola Scholar Semifinalist", "Coca-Cola Scholar"), 0.3);
-  check("which is priced below the scholar", w("Coca-Cola Scholar Finalist", "Coca-Cola Scholar"), 0.5);
+  check("priced below the finalist", w("Coca-Cola Scholar Semifinalist", "Coca-Cola Scholar"), 0.1);
+  check("which is priced below the scholar", w("Coca-Cola Scholar Finalist", "Coca-Cola Scholar"), 0.17);
   // The seeded base, not the 1.2 this team has tuned it to. Rungs are absolute.
-  check("and the scholar keeps the whole weight", w("Coca-Cola Scholar", "Coca-Cola Scholar"), 0.8);
+  check("and the scholar keeps the whole weight", w("Coca-Cola Scholar", "Coca-Cola Scholar"), 0.27);
 
   /**
    * USACO names its divisions after medals, so "a score of 1000/1000 on Gold" is a
@@ -2275,7 +2275,7 @@ console.log("\ntiers — a finalist is not a winner");
   check(
     "a tagger's own term carries its rung",
     matchedTerms(fromTagger, TAX).find((t) => t.label === "Neo Scholar")?.weight,
-    0.8
+    0.27
   );
 }
 
@@ -2462,17 +2462,17 @@ console.log("\nthe score is a sum — the documented worked examples");
     round(c.signals.reduce((s, x) => s + x.points, 0));
 
   const hackClub = scoreOne(bare("hc", ["Hack Club"]), TAX);
-  check("Hack Club alone", hackClub.score, 0.4);
+  check("Hack Club alone", hackClub.score, 0.13);
 
   // 1.6 + 0.7 + 1.2.
   const three = scoreOne(bare("three", ["RSI", "ISEF", "USAMO"]), TAX);
-  check("RSI + ISEF + USAMO", three.score, 3.5);
+  check("RSI + ISEF + USAMO", three.score, 1.16);
 
   const strong = bare("strong", ["IMO", "IOI", "RSI"]);
   strong.enriched!.publications = ["A paper"];
   const strongScored = scoreOne(strong, TAX);
   // 2.0 + 2.0 + 1.6 + 0.3.
-  check("IMO+IOI+RSI+1 pub", strongScored.score, 5.9);
+  check("IMO+IOI+RSI+1 pub", strongScored.score, 1.97);
 
   /**
    * Being funded outweighs any single competition.
@@ -2481,7 +2481,7 @@ console.log("\nthe score is a sum — the documented worked examples");
    * employer, a third of what an ISEF finalist got.
    */
   const backed = scoreOne(bare("yc", ["Y Combinator"]), TAX);
-  check("a YC batch alone", backed.score, 2.0);
+  check("a YC batch alone", backed.score, 0.67);
   check("which beats an ISEF finalist", backed.score > scoreOne(bare("isef", ["ISEF"]), TAX).score, true);
   check("and votes Founder", backed.archetype, "founder");
 
@@ -2508,14 +2508,14 @@ console.log("\ncapped counts");
   // 20 experiences, cap 4, 0.1 each. Volume must not beat quality — and it did:
   // counts alone could reach 7.6 against a top score of about 10, so most of a
   // ranking came from the one thing anybody can pad.
-  check("counting stops at the cap", row.points, 0.4);
+  check("counting stops at the cap", row.points, 0.12);
   check("and the row says what was dropped", row.label, "20 experiences, 4 counted");
 
   const few = bare("few", []);
   few.enriched!.projects = [{ title: "One" }, { title: "Two" }];
   const f = scoreOne(few, TAX);
   const prow = f.signals.find((s) => s.label.includes("project"))!;
-  check("under the cap, everything counts", prow.points, 0.2);
+  check("under the cap, everything counts", prow.points, 0.06);
   check("and the label is plain", prow.label, "2 projects");
 }
 

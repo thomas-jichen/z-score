@@ -226,8 +226,13 @@ export function ZScoreBreakdown({ candidate }: { candidate: Candidate }) {
             {s.label}
             <SignalWhy signal={s} />
           </span>
+          {/* Two decimals here and nowhere else. The panel's own copy promises the
+              total is the sum of these rows, and on a third-scale table a tenth is
+              a tenth of the row rather than a twentieth: twenty rows drifted the
+              visible sum away from the total by 0.14 on a 2.04 score. A list
+              headline is a summary nobody adds up, so it stays at one. */}
           <span className="z-breakdown-dev" data-negative={s.points < 0}>
-            {formatSigma(s.points)}
+            {formatSigma(s.points, 2)}
           </span>
         </div>
       ))}

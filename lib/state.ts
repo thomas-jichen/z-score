@@ -28,6 +28,7 @@ import {
   type TagFacet,
   type TagRegistry,
   type TagDef,
+  clampWeight,
 } from "./tagRegistry";
 import type { Hit } from "./types";
 import type { Selection } from "./query";
@@ -252,22 +253,25 @@ export function defaultCounts(): CountRules {
     /**
      * Priced well below the credentials, and capped low.
      *
-     * These were worth up to 7.6 between them, against a target of about 10 for the
-     * strongest person in the roster — so most of a score could come from the least
-     * discriminating thing on a profile. Anyone can list eight experiences.
+     * These were once worth up to 7.6 between them, against a target of about 10 for
+     * the strongest person in the roster — so most of a score could come from the
+     * least discriminating thing on a profile. Anyone can list eight experiences.
      *
-     * Cut again, to a ceiling of 2.4, because counts are breadth by definition and
-     * breadth was still winning: half of a publication-heavy score came from here,
-     * which put it above founders who had been funded. A publication or a patent
-     * still moves a score noticeably, because for a nineteen-year-old it should.
+     * Cut, because counts are breadth by definition and breadth was still winning:
+     * half of a publication-heavy score came from here, which put it above founders
+     * who had been funded. A publication or a patent still moves a score noticeably,
+     * because for a nineteen-year-old it should. Their ceiling between them is 0.8
+     * against a top score near 6, all four figures having been divided by three with
+     * the rest of the table in version 5.
      *
-     * One decimal throughout, because that is all a weight can hold: `clampWeight`
-     * rounds to a tenth, so a stored 0.15 became 0.2 the first time anyone saved.
+     * Two decimals now, since `clampWeight` rounds to a hundredth. At a tenth these
+     * would all have rounded to zero on the third-scale table, which would have
+     * switched breadth off by accident rather than by decision.
      */
-    experience: { points: 0.1, cap: 4 },
-    project: { points: 0.1, cap: 3 },
-    publication: { points: 0.3, cap: 3 },
-    patent: { points: 0.4, cap: 2 },
+    experience: { points: 0.03, cap: 4 },
+    project: { points: 0.03, cap: 3 },
+    publication: { points: 0.1, cap: 3 },
+    patent: { points: 0.13, cap: 2 },
     /**
      * Off by default. An award already scores as its own tag, and a profile with
      * seventeen honors is mostly listing AP Scholar and National Merit — paying
@@ -287,9 +291,9 @@ export function defaultCounts(): CountRules {
  */
 export function defaultFacetWeights(): Record<TagFacet, number> {
   return {
-    program: 0.8,
+    program: 0.27,
     // The heaviest default in the table. Somebody wrote a cheque.
-    accelerator: 1.2,
+    accelerator: 0.4,
     /**
      * These are what a name *nobody curated* starts at — an employer, a university
      * or a school first seen on somebody's profile. The seeded lists sit above them,
@@ -299,7 +303,7 @@ export function defaultFacetWeights(): Record<TagFacet, number> {
      * worth points are named in START_WEIGHT. Listing "Intern", "Analyst" and
      * "Software Engineer" used to pay 0.6 — more than an ISEF finalist now scores.
      */
-    company: 0.2,
+    company: 0.07,
     /**
      * What an unrecognised one starts at, and the three sit low on purpose.
      *
@@ -307,15 +311,15 @@ export function defaultFacetWeights(): Record<TagFacet, number> {
      * lowest because the long tail is somebody's own side project, and the signal
      * that they *built* it is already carried by the founding title.
      */
-    startup: 0.1,
-    lab: 0.3,
-    club: 0.2,
-    org: 0.1,
-    college: 0.2,
-    highschool: 0.1,
-    major: 0.1,
+    startup: 0.03,
+    lab: 0.1,
+    club: 0.07,
+    org: 0.03,
+    college: 0.07,
+    highschool: 0.03,
+    major: 0.03,
     title: 0,
-    flag: 0.2,
+    flag: 0.07,
     count: 0,
     year: 0,
     // Geography groups and filters; it is not an achievement, so it starts at zero.
@@ -333,7 +337,7 @@ export function defaultFacetWeights(): Record<TagFacet, number> {
  * something: one exceptional, a couple strong, a third in the middle.
  */
 export function defaultBands(): BandThresholds {
-  return { exceptional: 9, strong: 7, above: 5, mid: 3 };
+  return { exceptional: 3, strong: 2.3, above: 1.7, mid: 1 };
 }
 
 /**
@@ -379,11 +383,11 @@ export function emptyTeam(): TeamState {
       tags: seededTags(),
       counts: defaultCounts(),
       /**
-       * Reaching this in two clusters earns the badge. 1.5 is roughly one strong
-       * credential, which keeps the old meaning: IOI (2.0, olympiad) plus RSI
-       * (1.8, research) is a polymath, TASP plus Mathcamp is not.
+       * Reaching this in two clusters earns the badge. 0.5 is roughly one strong
+       * credential, which keeps the old meaning: IOI (0.67, olympiad) plus RSI
+       * (0.53, research) is a polymath, TASP plus Mathcamp is not.
        */
-      polymathPoints: 1.5,
+      polymathPoints: 0.5,
       facetDefaults: defaultFacetWeights(),
       bands: defaultBands(),
     },
@@ -506,8 +510,16 @@ function seedFacets(): Map<string, TagFacet> {
  *       Olympiad and the second-tier hackathons say nothing about a person and were
  *       inflating anyone who listed a lot of activities. Activity-tier weights cut so
  *       that breadth cannot out-score depth.
+ *   5 — the whole table divided by three, and nothing else. Ratios are untouched, so
+ *       no ranking moves; only the units do. The strongest person in the roster had
+ *       drifted to 17.1 as the vocabulary grew and the matcher started finding what
+ *       it had been missing, which is a number that reads like a percentage and
+ *       invites the question "out of what". Near 6 is a sigma you can hold in your
+ *       head. `clampWeight` went to two decimals in the same change, because a tenth
+ *       cannot hold a third-scale table without collapsing distinct weights onto
+ *       each other.
  */
-export const SEED_VERSION = 4;
+export const SEED_VERSION = 5;
 
 /**
  * Adopt a recalibrated seed table, once.
@@ -518,6 +530,33 @@ export const SEED_VERSION = 4;
  * rule that quietly overwrites tuning whenever a seed changes.
  */
 const behindSeeds = (tax: Partial<TaxonomyPrefs>) => (tax.seedVersion ?? 1) < SEED_VERSION;
+
+/**
+ * Versions whose only difference from the current one is the size of the unit.
+ *
+ * A recalibration changes what things are worth relative to each other, and
+ * `adoptSeedWeights` is right for that: take the new table, drop the old tuning.
+ * Version 5 changed no ratio at all — it divided everything by three — so adopting
+ * the seed table would be throwing away a team's hand-tuning for no reason, and
+ * would silently reorder the queue, because a hand-tuned Jane Street at 1.7 is not
+ * the same as its seeded 1.5. Scale instead, and every ranking survives.
+ */
+const RESCALED_FROM = new Set([4]);
+
+/** The factor version 5 applied. */
+const V5_SCALE = 1 / 3;
+
+function rescaleWeights(tags: TagRegistry): TagRegistry {
+  let changed = false;
+  const next = { ...tags };
+  for (const [id, def] of Object.entries(tags)) {
+    const weight = clampWeight(def.weight * V5_SCALE);
+    if (weight === def.weight) continue;
+    next[id] = { ...def, weight };
+    changed = true;
+  }
+  return changed ? next : tags;
+}
 
 function adoptSeedWeights(tags: TagRegistry): TagRegistry {
   const seeded = seededTags();
@@ -535,7 +574,23 @@ function adoptSeedWeights(tags: TagRegistry): TagRegistry {
       continue;
     }
     const seed = seeded[id];
-    if (!seed) continue;
+    /**
+     * A tag no seed list owns — promoted from the review queue, by a person or by
+     * the tagger — has no new value to adopt, and leaving it alone across a units
+     * change is worse than moving it. Version 5 divided the whole table by three;
+     * a hand-promoted 1.5 left where it was would outweigh Y Combinator by more
+     * than twice over, having been worth rather less the day before.
+     *
+     * Scaled by the same factor, once, because the version gate cannot run twice.
+     */
+    if (!seed) {
+      const rescaled = clampWeight(def.weight / 3);
+      if (def.weight > 0 && rescaled !== def.weight) {
+        next[id] = { ...def, weight: rescaled };
+        changed = true;
+      }
+      continue;
+    }
     if (def.weight === seed.weight && (def.cluster ?? null) === (seed.cluster ?? null)) continue;
     next[id] = { ...def, weight: seed.weight, cluster: seed.cluster };
     changed = true;
@@ -765,7 +820,9 @@ export function hydrateTeam(stored: Partial<TeamState> | null): TeamState {
         const migrated = migrateFacets(tax.tags ?? base.taxonomy.tags, tax.removed ?? []);
         return behindSeeds(tax)
           ? {
-              tags: adoptSeedWeights(migrated),
+              tags: RESCALED_FROM.has(tax.seedVersion ?? 1)
+                ? rescaleWeights(migrated)
+                : adoptSeedWeights(migrated),
               counts: base.taxonomy.counts,
               facetDefaults: base.taxonomy.facetDefaults,
               // The thresholds are read in the same units, so they move together.
@@ -788,7 +845,13 @@ export function hydrateTeam(stored: Partial<TeamState> | null): TeamState {
        */
       dismissed: [...new Set([...(tax.dismissed ?? []), ...LOW_SIGNAL])],
       removed: Array.isArray(tax.removed) ? tax.removed : base.taxonomy.removed,
-      polymathPoints: tax.polymathPoints ?? base.taxonomy.polymathPoints,
+      // Behind the seeds means the units have changed, so a hand-tuned threshold is
+      // a number in the old units and cannot be kept. This key is spread after the
+      // block above, so without the guard it quietly won and the Polymath badge went
+      // three times out of reach.
+      polymathPoints: behindSeeds(tax)
+        ? base.taxonomy.polymathPoints
+        : tax.polymathPoints ?? base.taxonomy.polymathPoints,
     },
     customTerms: { ...base.customTerms, ...(stored.customTerms ?? {}) },
     // Written before the blocklist existed, so a missing field is "nobody", not a

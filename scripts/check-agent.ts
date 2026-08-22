@@ -632,7 +632,9 @@ async function run() {
       check("queue to the minimum", s.queuePerDay, 1);
       check("enrichment to the maximum", s.enrichPerDay, 100);
       check("budget to the floor", s.budgetUsd, 0);
-      check("the bar to the ceiling", s.scoreBar, 20);
+      // Seven, since the whole taxonomy is a third of what it was and the top of
+      // the roster is now under six.
+      check("the bar to the ceiling", s.scoreBar, 7);
     }
   }
 
