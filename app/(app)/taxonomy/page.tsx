@@ -231,7 +231,10 @@ export default function TaxonomyPage() {
               <input
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                placeholder={`Search ${Object.keys(t.tags).length} tags`}
+                /* "all", because the eyebrow above says 406 scoring and this box
+                   says 412: the six that differ are the ones held back, and without
+                   the word the two numbers just look like one of them is wrong. */
+                placeholder={`Search all ${Object.keys(t.tags).length} tags`}
                 aria-label="Search tags"
               />
               {query && (

@@ -83,6 +83,19 @@
   /* ── Shadow ──────────────────────────────────────────────────────────── */
   --z-shadow-btn: inset 0 4px 8px #75a9ff66, inset 0 -4px 8px #75a9ff33;
   --z-shadow-btn-neutral: inset 0 4px 8px #e5e7ea80, inset 0 -4px 8px #efefef;
+  /**
+   * The same treatment at the size of a small control.
+   *
+   * A 4px inset on a 44px button shades the top tenth; on a 24px pill it shades a
+   * third and reads as a smudge rather than as depth. These are the two originals
+   * scaled to the height they sit on, so a pill and a button look like the same
+   * material rather than like one idea applied twice at the wrong strength.
+   */
+  --z-shadow-btn-sm: inset 0 2px 5px #e5e7ea80, inset 0 -2px 5px #efefef;
+  --z-shadow-btn-blue-sm: inset 0 2px 5px #75a9ff59, inset 0 -2px 5px #75a9ff2e;
+  /* On the translucent navy tint an inactive pill carries, where white would vanish
+     and grey would grey it: the fill's own colour, at a tenth of the strength. */
+  --z-shadow-pill: inset 0 2px 5px #4441610f, inset 0 -2px 5px #4441610a;
   --z-shadow-card: 0 2px 12px #00000014;
   --z-shadow-lift: 0 2px 20px #0000001a;
   --z-shadow-float: 4px 8px 20px #72727233;
@@ -505,9 +518,29 @@ a.z-pill:hover {
   color: var(--z-blue);
 }
 
+/**
+ * Depth is the mark of something you can press.
+ *
+ * The capsule shape is used for two unrelated jobs here: controls you click and
+ * labels that only report. Both were flat, so the shape said nothing, and the only
+ * way to tell a filter you can toggle from a tag you cannot was to try. The inset
+ * edge shading now separates them — every pressable capsule carries it, and every
+ * label capsule stays flat. `.z-sig`, `.z-tag`, `.z-archetype` and `.z-lead-n` are
+ * deliberately absent below for that reason.
+ *
+ * It is also the reason this is shading and not a shadow. `DESIGN_LANGUAGE.md` puts
+ * whitespace over borders over shadows, and an outer shadow would lift these off the
+ * page; an inset one stays inside the shape and reads as the material it is made of.
+ */
+button.z-pill:not(.is-active):not(.z-archetype),
+a.z-pill:not(.is-active):not(.z-archetype) {
+  box-shadow: var(--z-shadow-pill);
+}
+
 .z-pill.is-active {
   background: var(--z-blue);
   color: var(--z-bg);
+  box-shadow: var(--z-shadow-btn-blue-sm);
 }
 
 /* Archetype tag. Deliberately undecorated — an attached rule before the word
@@ -561,7 +594,9 @@ a.z-archetype:hover {
   opacity: 1;
   font-weight: 600;
   color: var(--z-ink);
-  box-shadow: var(--z-shadow-card);
+  /* The card shadow lifts the chosen segment out of the track; the inset gives it
+     the same surface as every other white capsule. It needs both. */
+  box-shadow: var(--z-shadow-card), var(--z-shadow-btn-sm);
 }
 
 /* ── Z-Score badge — sigma notation + magnitude ramp ───────────────────── */
@@ -1676,6 +1711,7 @@ tr[data-pinned] td:first-child {
   color: var(--z-ink);
   background: var(--z-bg);
   border: 1px solid var(--z-border);
+  box-shadow: var(--z-shadow-btn-sm);
   transition: background-color var(--z-t-fast), border-color var(--z-t-fast);
 }
 
@@ -1691,6 +1727,7 @@ tr[data-pinned] td:first-child {
   background: var(--z-surface-blue);
   border-color: var(--z-blue-glow);
   color: var(--z-navy);
+  box-shadow: var(--z-shadow-btn-blue-sm);
 }
 
 /* Enrichment now survives navigation, so there has to be somewhere that says a
@@ -2093,6 +2130,7 @@ tr[data-pinned] td:first-child {
   letter-spacing: var(--z-ls-body);
   color: var(--z-ink-body);
   cursor: pointer;
+  box-shadow: var(--z-shadow-btn-sm);
   transition: border-color var(--z-t-fast), color var(--z-t-fast),
     background-color var(--z-t-fast);
 }
@@ -2248,6 +2286,7 @@ tr[data-pinned] td:first-child {
   color: var(--z-ink-mid);
   cursor: pointer;
   white-space: nowrap;
+  box-shadow: var(--z-shadow-btn-sm);
   transition: color var(--z-t-fast), border-color var(--z-t-fast),
     background-color var(--z-t-fast);
 }
@@ -2261,6 +2300,9 @@ tr[data-pinned] td:first-child {
 .z-quiet:disabled {
   opacity: 0.45;
   cursor: not-allowed;
+  /* Flat, the same way .z-btn goes flat when disabled. Depth is the affordance, so
+     it has to leave with the affordance. */
+  box-shadow: none;
 }
 
 /* Accent variant, for the affirmative half of a pair. */
@@ -2268,6 +2310,8 @@ tr[data-pinned] td:first-child {
   color: var(--z-blue);
   border-color: #2067ff4d;
   background: var(--z-surface-blue);
+  /* Grey shading over a blue tint reads as dirt. Same treatment, its own family. */
+  box-shadow: var(--z-shadow-btn-blue-sm);
 }
 
 .z-quiet.is-accent:hover:not(:disabled) {
@@ -2296,6 +2340,9 @@ tr[data-pinned] td:first-child {
 .z-quiet.is-bare {
   border-color: transparent;
   background: transparent;
+  /* Nothing to shade. An inset over transparent paints a smear on whatever is
+     behind it, which on the surface tint is visible. */
+  box-shadow: none;
 }
 
 .z-quiet.is-bare:hover:not(:disabled) {
@@ -2436,6 +2483,18 @@ tr[data-pinned] td:first-child {
  * The filled track is a gradient driven by `--fill`, set inline from the value.
  * Native range inputs give no fill of their own, and the alternative — a div and
  * pointer maths — loses the keyboard, which is half of what was asked for.
+ *
+ * ── The fill is ink until you touch it ────────────────────────────────────
+ * It used to be full accent blue. On the taxonomy screen that is twenty saturated
+ * bars stacked down the page, each one restating a number printed two centimetres
+ * to its right, and the effect was that the loudest thing on the screen was also
+ * the most redundant. The lengths are what get read, and lengths read perfectly
+ * well in ink.
+ *
+ * Blue arrives on hover, focus and drag, which is the same rule `.z-linkish`
+ * follows for its underline: the affordance is not the decoration, it is what
+ * happens when the cursor gets there. It also puts the accent back where it means
+ * something, which is the row you are actually changing.
  */
 .z-range {
   -webkit-appearance: none;
@@ -2452,9 +2511,10 @@ tr[data-pinned] td:first-child {
   border-radius: 999px;
   background: linear-gradient(
     to right,
-    var(--z-blue) 0 var(--fill, 0%),
+    var(--z-range-fill, #44416159) 0 var(--fill, 0%),
     var(--z-border) var(--fill, 0%) 100%
   );
+  transition: background var(--z-t-fast);
 }
 
 .z-range::-moz-range-track {
@@ -2462,9 +2522,10 @@ tr[data-pinned] td:first-child {
   border-radius: 999px;
   background: linear-gradient(
     to right,
-    var(--z-blue) 0 var(--fill, 0%),
+    var(--z-range-fill, #44416159) 0 var(--fill, 0%),
     var(--z-border) var(--fill, 0%) 100%
   );
+  transition: background var(--z-t-fast);
 }
 
 .z-range::-webkit-slider-thumb {
@@ -2475,9 +2536,10 @@ tr[data-pinned] td:first-child {
   margin-top: -5px;
   border-radius: var(--z-r-circle);
   background: #ffffff;
-  border: 1.5px solid var(--z-blue);
+  border: 1.5px solid var(--z-range-edge, #44416173);
   box-shadow: 0 1px 3px #0000001f;
-  transition: transform var(--z-t-fast), box-shadow var(--z-t-fast);
+  transition: transform var(--z-t-fast), box-shadow var(--z-t-fast),
+    border-color var(--z-t-fast);
 }
 
 .z-range::-moz-range-thumb {
@@ -2485,8 +2547,17 @@ tr[data-pinned] td:first-child {
   height: 15px;
   border-radius: var(--z-r-circle);
   background: #ffffff;
-  border: 1.5px solid var(--z-blue);
+  border: 1.5px solid var(--z-range-edge, #44416173);
   box-shadow: 0 1px 3px #0000001f;
+}
+
+/* Touching the row is what turns it blue. One variable, so the track and the thumb
+   can never disagree about whether this row is the live one. */
+.z-range:hover,
+.z-range:focus-visible,
+.z-range:active {
+  --z-range-fill: var(--z-blue);
+  --z-range-edge: var(--z-blue);
 }
 
 .z-range:hover::-webkit-slider-thumb {
@@ -2506,7 +2577,7 @@ tr[data-pinned] td:first-child {
   box-shadow: 0 0 0 5px #2067ff33;
 }
 
-/* A weight of zero reads as off, so the accent goes with it. */
+/* A weight of zero reads as off, so the edge goes with it. */
 .z-range[data-zero]::-webkit-slider-thumb {
   border-color: var(--z-divider);
 }
@@ -3218,7 +3289,24 @@ tr[data-pinned] td:first-child {
   background: var(--z-border);
 }
 
+/**
+ * Blue is for the campaign that is still spending.
+ *
+ * A finished run keeps its pips, because the count is what says "this was a two-day
+ * thing" without a sentence, and the geometry has to hold or the columns stop
+ * lining up between rows. But on a page whose only campaign is done, two saturated
+ * dashes floating in whitespace were the loudest mark on the screen and repeated
+ * what the line under the name had already said in words.
+ */
 .z-camp-day[data-done] {
+  background: var(--z-ink-faint);
+}
+
+/* Marked on the pip itself rather than read off an ancestor. Both :has() on the row
+   and a plain descendant rule off .z-camp matched the element and still would not
+   repaint, and the component knows which state it is rendering, so it says so where
+   the colour is decided. */
+.z-camp-day[data-done][data-live] {
   background: var(--z-blue);
 }
 

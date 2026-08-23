@@ -772,7 +772,7 @@ function CampaignRow({
   const live = c.status === "running";
 
   return (
-    <div className="z-camp" data-open={open || undefined}>
+    <div className="z-camp" data-open={open || undefined} data-live={live || undefined}>
       <div className="z-camp-row">
         <span style={{ minWidth: 0 }}>
           <span className="z-camp-name">
@@ -797,7 +797,12 @@ function CampaignRow({
             a seven-day thing" without a sentence. */}
         <span className="z-camp-days" title={`Day ${c.day} of ${c.settings.days}`} aria-label={`Day ${c.day} of ${c.settings.days}`}>
           {Array.from({ length: c.settings.days }, (_, i) => (
-            <span key={i} className="z-camp-day" data-done={i < c.day || undefined} />
+            <span
+              key={i}
+              className="z-camp-day"
+              data-done={i < c.day || undefined}
+              data-live={live || undefined}
+            />
           ))}
         </span>
 

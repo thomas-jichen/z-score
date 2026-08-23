@@ -114,9 +114,24 @@ Frequency in A: `1rem` ×12, `.5rem` ×10, `100%` ×9, `.75rem` ×9, `50%` ×8, 
 |---|---|---|
 | `--z-shadow-btn` | `inset 0 4px 8px #75a9ff66, inset 0 -4px 8px #75a9ff33` | A `.new-button` |
 | `--z-shadow-btn-neutral` | `inset 0 4px 8px #e5e7ea80, inset 0 -4px 8px #efefef` | A |
+| `--z-shadow-btn-sm` | `inset 0 2px 5px #e5e7ea80, inset 0 -2px 5px #efefef` | derived |
+| `--z-shadow-btn-blue-sm` | `inset 0 2px 5px #75a9ff59, inset 0 -2px 5px #75a9ff2e` | derived |
+| `--z-shadow-pill` | `inset 0 2px 5px #4441610f, inset 0 -2px 5px #4441610a` | derived |
 | `--z-shadow-card` | `0 2px 12px #00000014` | A |
 | `--z-shadow-lift` | `0 2px 20px #0000001a` | A |
 | `--z-shadow-float` | `4px 8px 20px #72727233` | A |
+
+**Depth marks a control you can press.** The capsule shape does two unrelated jobs in
+this app: controls you click and labels that only report. Both were flat, so the shape
+said nothing. Every pressable capsule now carries inset edge shading and every label
+capsule stays flat — `.z-sig`, `.z-tag`, `.z-archetype`, `.z-lead-n` and the polymath
+badge are deliberately without it. The three `-sm` variants exist because a 4px inset
+shades the top tenth of a 44px button and a third of a 24px pill, where it reads as a
+smudge rather than as depth.
+
+It is inset rather than cast for the same reason the language puts whitespace over
+borders over shadows: an outer shadow lifts a thing off the page, an inset one stays
+inside the shape and reads as the material it is made of.
 
 ---
 
