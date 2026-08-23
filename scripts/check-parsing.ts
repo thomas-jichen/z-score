@@ -23,7 +23,7 @@ import {
   type Provenance,
   isPostgradRow,
 } from "../lib/enrichment";
-import { capRoster, hopAfter, isSuppressed, migrateLegacy, neighborsFrom, nextHopFrom, refreshDerived, withEnriched, MAX_PEOPLE, type Person } from "../lib/people";
+import { capRoster, hopAfter, isSuppressed, migrateLegacy, neighborsFrom, nextHopFrom, refreshDerived, withEnriched, MAX_PEOPLE, type Person, heldOrErased} from "../lib/people";
 import {
   MAX_DELETED,
   SEED_VERSION,
@@ -2030,6 +2030,45 @@ console.log("\nnational is not international, and a withdrawn alias has to leave
   } as Parameters<typeof hydrateTeam>[0]);
   check("a moved id carries its weight", oldLab.taxonomy.tags["argonne-national-laboratory"]?.weight, 1.9);
   check("and leaves nothing behind", oldLab.taxonomy.tags["argonne-laboratory"], undefined);
+}
+
+console.log("\nremoved stays removed, and erased stays erased");
+{
+  /**
+   * Two different promises, and only one of them was being kept everywhere.
+   *
+   * Removing somebody is a mark, so they stay in the roster and every screen filters
+   * them by status. The graph does this correctly and this pins it, because the
+   * filter is one expression on one page and nothing else would notice its loss.
+   */
+  const marks = { gone: { status: "rejected" as const, at: "x" }, keep: { status: "queued" as const, at: "x" } };
+  const visible = (slug: string) => (marks[slug as keyof typeof marks]?.status ?? "queued") === "queued";
+  check("a rejected person is not in the queue", visible("gone"), false);
+  check("an unmarked one is", visible("nobody"), true);
+
+  /**
+   * Deleting permanently is the other promise, and it is the one People also viewed
+   * was breaking. A deleted person is by definition not in the roster, so a `known`
+   * set built from roster keys alone offered them straight back on the next profile
+   * opened. Three call sites built that set, the same wrong way, three times.
+   */
+  const seed = bare("seed");
+  seed.enriched!.neighbors = [
+    { slug: "erased", name: "Erased Person", position: "Founder", url: "https://www.linkedin.com/in/erased" },
+    { slug: "fresh", name: "Fresh Person", position: "Founder", url: "https://www.linkedin.com/in/fresh" },
+  ];
+  const roster = { seed } as Record<string, Person>;
+
+  const naive = neighborsFrom(seed, new Set(Object.keys(roster)));
+  check("the roster alone offers the erased person back", naive.map((n) => n.slug), ["erased", "fresh"]);
+
+  const correct = neighborsFrom(seed, heldOrErased(roster, ["erased"]));
+  check("the blocklist keeps them erased", correct.map((n) => n.slug), ["fresh"]);
+  check("and does not take anyone else with them", correct.length, 1);
+
+  // Somebody already held is still filtered, which is the half that always worked.
+  const both = neighborsFrom(seed, heldOrErased({ ...roster, fresh: bare("fresh") }, ["erased"]));
+  check("held and erased are both excluded", both.length, 0);
 }
 
 console.log("\nclass of means the undergraduate year, and the school agrees with it");

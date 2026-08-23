@@ -202,6 +202,16 @@ function QueueInner() {
     [rows, checked]
   );
   const thinChecked = checkedRows.filter((r) => !r.enriched);
+  /**
+   * Already enriched, and offered separately.
+   *
+   * A profile is a snapshot of the day it was pulled. People graduate, join a batch,
+   * raise a round and rewrite their headline, and nothing in this app notices until
+   * somebody pays for the page again. Kept apart from the first pull because it is
+   * the same money for a different reason, and running one when you meant the other
+   * is the mistake worth making impossible.
+   */
+  const richChecked = checkedRows.filter((r) => r.enriched);
 
   // Drop checks for rows that are no longer visible, so a bulk action can never
   // hit someone the user cannot see.
@@ -280,6 +290,44 @@ function QueueInner() {
     if (slugs.length === 0) return;
     const ok = await enrich(slugs, { kind: "seed", hop: 0 });
     if (ok) setChecked(new Set());
+  }
+
+  /**
+   * Two taps, like every other action here that spends or cannot be undone.
+   *
+   * Re-enriching costs exactly what enriching costs and looks like a no-op when it
+   * works, so the confirmation is the only thing standing between a stray click on a
+   * full selection and paying for forty profiles nobody asked for.
+   */
+  const [armedRefresh, setArmedRefresh] = useState(false);
+
+  /**
+   * Disarm the moment the selection changes.
+   *
+   * Keyed on the membership rather than the count, because swapping one person for
+   * another leaves the count alone and is exactly the case that matters: the button
+   * named a set, and the second tap must pay for that set or for nothing. Pinning
+   * this to the visible list instead was not enough — it does not fire when somebody
+   * arms on one person and then ticks twenty more.
+   */
+  const selectionKey = [...checked].sort().join(",");
+  useEffect(() => {
+    setArmedRefresh(false);
+  }, [selectionKey]);
+
+  async function bulkRefresh() {
+    const slugs = richChecked.map((r) => r.slug);
+    if (slugs.length === 0) return;
+    if (!armedRefresh) {
+      setArmedRefresh(true);
+      return;
+    }
+    setArmedRefresh(false);
+    const ok = await enrich(slugs, { kind: "seed", hop: 0 });
+    if (ok) {
+      setNotice(`Pulling ${slugs.length} ${slugs.length === 1 ? "profile" : "profiles"} again.`);
+      setChecked(new Set());
+    }
   }
 
   async function bulkAnalyze() {
@@ -568,6 +616,19 @@ function QueueInner() {
               {thinChecked.length > 0 && (
                 <Button size="sm" onClick={bulkEnrich} disabled={job.phase === "running"}>
                   Enrich {thinChecked.length}, {formatCost(estimateCost(thinChecked.length))}
+                </Button>
+              )}
+              {richChecked.length > 0 && (
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onClick={bulkRefresh}
+                  disabled={job.phase === "running"}
+                  data-armed={armedRefresh || undefined}
+                >
+                  {armedRefresh
+                    ? `Pay again for ${richChecked.length}?`
+                    : `Re-enrich ${richChecked.length}, ${formatCost(estimateCost(richChecked.length))}`}
                 </Button>
               )}
               {taggerEnabled && (

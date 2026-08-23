@@ -21,7 +21,7 @@ import { COST_PER_PROFILE, neighborsOf, toSlug } from "@/lib/enrichment";
 import { applyEnrichJob } from "@/lib/enrichApply";
 import { newJobId, readJob, writeJob, type EnrichJob } from "@/lib/jobs";
 import { verifyMcpToken } from "@/lib/mcpTokens";
-import { isSuppressed, neighborsFrom } from "@/lib/people";
+import { heldOrErased, isSuppressed, neighborsFrom } from "@/lib/people";
 import type { ProfileId } from "@/lib/profiles";
 import { COST_PER_QUERY, EMPTY_SELECTION, type Selection } from "@/lib/query";
 import { reserveProfiles, reserveSearch } from "@/lib/ratelimit";
@@ -665,7 +665,7 @@ People the team deleted permanently are refused and counted, not silently droppe
               `${seed.name} has not been enriched, and the neighbour list only arrives with a profile. Enrich them first.`
             );
           }
-          const known = new Set(Object.keys(roster));
+          const known = heldOrErased(roster, (await readTeam()).deleted);
           hits = neighborsFrom(seed, known).map((n) => ({
             slug: n.slug,
             name: n.name,
@@ -726,7 +726,9 @@ People the team deleted permanently are refused and counted, not silently droppe
         title: "Pay for full profiles",
         description: `Pay to pull full LinkedIn profiles for people in the queue. $${COST_PER_PROFILE} each, charged whether or not the profile comes back, capped at the daily profile limit across the whole app.
 
-Enrich the highest-scoring search-only people first. Somebody already enriched is money spent twice for nothing, and a search-only person's score comes from two lines of snippet — enriching is how anyone gets a real score.
+Enrich the highest-scoring search-only people first. A search-only person's score comes from two lines of snippet, and enriching is how anyone gets a real score.
+
+Somebody already enriched costs the same again, so it is refused unless you pass refresh: true. Do that when the profile is likely to have changed and the change matters: they have graduated, joined a batch, started something, or the record here is months old. Say in your answer that you paid for it again.
 
 This starts a run and waits up to two minutes. If it has not landed you get status "running" and a jobId; call again with that jobId and no slugs to finish applying it. The profiles are already paid for at that point and are lost if nobody collects them.
 
@@ -734,10 +736,14 @@ Enriching also fetches each person's neighbours, which is what queue_people's ne
         inputSchema: z.object({
           slugs: z.array(z.string().max(200)).max(MAX_PROFILES_PER_RUN).optional(),
           jobId: z.string().max(80).optional().describe("Finish applying a run from an earlier call."),
+          refresh: z
+            .boolean()
+            .optional()
+            .describe("Pull people who are already enriched again, at full price, because their profile may have changed."),
         }),
         annotations: { readOnlyHint: false, idempotentHint: false, openWorldHint: true },
       },
-      async ({ slugs, jobId }, ctx) => {
+      async ({ slugs, jobId, refresh }, ctx) => {
         const owner = identity(ctx);
         await migrateIfNeeded();
 
@@ -758,10 +764,31 @@ Enriching also fetches each person's neighbours, which is what queue_people's ne
         const wanted = [...new Set((slugs ?? []).map((s) => toSlug(s)).filter((s): s is string => Boolean(s)))];
         if (wanted.length === 0) return failed("Give slugs to enrich, or a jobId to finish applying.");
 
-        const team = await readTeam();
+        const [roster, team] = await Promise.all([readRoster(), readTeam()]);
         const erased = new Set(team.deleted);
         const targets = wanted.filter((s) => !erased.has(s));
         if (targets.length === 0) return failed("Those profiles were deleted permanently.");
+
+        /**
+         * Paying twice has to be asked for.
+         *
+         * Re-enriching is a real thing to want — a profile is a snapshot of the day it
+         * was pulled, and people graduate and rewrite their headline — but it is
+         * indistinguishable from a mistake at the call site, costs the same as the
+         * first pull, and looks like a no-op when it lands. So the default refuses and
+         * names who, which turns the advice that used to live in the description into
+         * something that cannot be skimmed past.
+         */
+        if (!refresh) {
+          const already = targets.filter((s) => roster[s]?.enriched);
+          if (already.length > 0) {
+            const names = already.slice(0, 5).map((s) => roster[s]?.name ?? s);
+            const rest = already.length > names.length ? `, and ${already.length - names.length} more` : "";
+            return failed(
+              `Already enriched: ${names.join(", ")}${rest}. Pass refresh: true to pull them again at $${COST_PER_PROFILE} each, or leave them out.`
+            );
+          }
+        }
 
         const gate = isMock() ? { ok: true as const } : await reserveProfiles(owner, targets.length);
         if (!gate.ok) return failed(gate.error);

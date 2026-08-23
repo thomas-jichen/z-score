@@ -7,7 +7,7 @@ import type { Hit, ShardResult } from "@/lib/types";
 import { MAX_RECENT_SLUGS, type CustomTerms, type SavedSweep, type SweepMode } from "@/lib/state";
 import type { TagFacet } from "@/lib/tagRegistry";
 import { estimateCost, formatCost, parseSeedInput, usableNeighbors } from "@/lib/enrichment";
-import { hopAfter, isSuppressed, nextHopFrom, suppressionReason, topHonorOf } from "@/lib/people";
+import { heldOrErased, hopAfter, isSuppressed, nextHopFrom, suppressionReason, topHonorOf } from "@/lib/people";
 import { menusByFacet } from "@/lib/tags";
 import { Button, EmptyState, Pill, SegmentedControl } from "@/components/primitives";
 import { Category } from "@/components/Category";
@@ -474,7 +474,7 @@ export default function SweepPage() {
    * into the next offer. Depth is whatever the user keeps clicking, and anyone
    * already in the roster is filtered out, so it converges rather than looping.
    */
-  const known = useMemo(() => new Set(Object.keys(roster)), [roster]);
+  const known = useMemo(() => heldOrErased(roster, team.deleted), [roster, team.deleted]);
   const pavAll = useMemo(() => nextHopFrom(added, known), [added, known]);
   const pavRows = useMemo(
     () => (pavFocus ? pavAll.filter((n) => n.seedSlug === pavFocus) : pavAll),

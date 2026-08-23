@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { useApp } from "@/components/AppState";
-import { hopAfter, neighborsFrom } from "@/lib/people";
+import { heldOrErased, hopAfter, neighborsFrom } from "@/lib/people";
 import { extractTags } from "@/lib/extract";
 import { allTags, schoolStateLookup } from "@/lib/tags";
 import { ARCHETYPES, archetypeLabel, formatSigma, type Archetype } from "@/lib/zscore";
@@ -44,8 +44,8 @@ export function CandidateDetail({ slug }: { slug: string }) {
    * session where the run happened.
    */
   const alsoViewed = useMemo(
-    () => (person ? neighborsFrom(person, new Set(Object.keys(roster))) : []),
-    [person, roster]
+    () => (person ? neighborsFrom(person, heldOrErased(roster, team.deleted)) : []),
+    [person, roster, team.deleted]
   );
 
   const tags = useMemo(

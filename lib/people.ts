@@ -296,6 +296,24 @@ export function neighborsFrom(person: Person, known: Set<string>): HopCandidate[
 }
 
 /**
+ * Everyone a People also viewed offer must not surface: already in the roster, or
+ * erased on purpose.
+ *
+ * The roster half is obvious and all three call sites had it. The blocklist half is
+ * the one they were missing, and it is the half that matters more. Deleting
+ * permanently exists so that an erased person stays erased — the campaign loop
+ * already honours it through `partitionBlocked` — but a deleted person is by
+ * definition *not* in the roster, so a `known` set built from roster keys alone
+ * offered them straight back on the next profile you opened.
+ *
+ * Named here rather than assembled at each site because it was assembled at each
+ * site, three times, the same wrong way.
+ */
+export function heldOrErased(roster: Roster, deleted: readonly string[]): Set<string> {
+  return new Set([...Object.keys(roster), ...deleted]);
+}
+
+/**
  * Which hop a neighbour of this person sits at.
  *
  * Read off the surfacing person's own provenance rather than counted on a page,
