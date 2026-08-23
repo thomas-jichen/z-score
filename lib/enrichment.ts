@@ -377,6 +377,45 @@ export function topHonor(profile: EnrichedProfile): string | undefined {
 }
 
 /**
+ * Whether a degree row is postgraduate.
+ *
+ * "Class of" means one thing in this app: the year somebody finishes their
+ * bachelor's. It is what the cohort filter filters on and what the queue row prints,
+ * and for a population of high schoolers and undergraduates a doctorate is not the
+ * same fact at all.
+ *
+ * Gabrielle Kaili-May Liu lists Yale (PhD, 2029), MIT (S.B. in Mathematics with
+ * Computer Science, 2023), Ravenwood High School (2019) and one more. `inferGradYear`
+ * took the latest degree end date and filed her as the class of 2029, six years after
+ * she actually graduated.
+ *
+ * A row counts as postgraduate only when it says so and says nothing undergraduate.
+ * That asymmetry is deliberate three times over:
+ *
+ *   A bare "Stanford University" row with no degree string at all is the commonest
+ *   shape in this roster, and it is almost always an undergraduate. Absence of
+ *   evidence must not exclude it.
+ *
+ *   A combined "BS/MS" names both. Its end date is the master's year, so reading it
+ *   as undergraduate is a year late; reading it as postgraduate discards the only
+ *   row they have. A year late is the smaller error.
+ *
+ *   Universities do not agree on notation. MIT writes S.B., Harvard A.B., Brown
+ *   Sc.B., and all three mean a bachelor's.
+ */
+const UNDERGRAD =
+  /\bbachelor|\bundergrad|\bassociate\b|\bb\.?\s?[sa]\.?\b|\bs\.?\s?b\.?\b|\ba\.?\s?b\.?\b|\bsc\.?\s?b\.?\b|\bbsc\b|\bbeng\b|\bbfa\b|\bbba\b/i;
+
+const POSTGRAD =
+  /\bmaster|\bdoctor|\bph\.?\s?d\.?\b|\bdphil\b|\bpostdoc|\bm\.?\s?[sae]\.?\b|\bmsc\b|\bmeng\b|\bmba\b|\bj\.?\s?d\.?\b|\bm\.?\s?d\.?\b|\bll\.?m\.?\b|\bmfa\b|\bmph\b|\bed\.?\s?d\.?\b|\bsc\.?\s?d\.?\b|\bgraduate certificate/i;
+
+export function isPostgradRow(e: Education): boolean {
+  const degree = `${e.degree ?? ""} ${e.field ?? ""}`;
+  if (UNDERGRAD.test(degree)) return false;
+  return POSTGRAD.test(degree);
+}
+
+/**
  * Shortest credible gap between leaving school and finishing a degree.
  *
  * Two, not four, because an associate degree is two years and a few of this
@@ -402,7 +441,9 @@ const MIN_SCHOOL_TO_DEGREE = 2;
  * auditable.
  */
 export function inferGradYear(educations: Education[]): number | undefined {
-  const college = educations.filter(isDegreeRow);
+  // Undergraduate only. A doctorate is a degree row and its end date is not a class
+  // year, which is how a 2023 MIT graduate read as the class of 2029.
+  const college = educations.filter((e) => isDegreeRow(e) && !isPostgradRow(e));
   const school = educations.filter(isHighSchool);
 
   const years = (rows: Education[], key: "startYear" | "endYear") =>
@@ -463,11 +504,45 @@ export function inferGradYear(educations: Education[]): number | undefined {
  * Dates break ties within a level only. An absent end date still means enrolled and
  * still sorts first, but it can no longer promote a row past a real degree.
  */
-export function currentSchool(profile: EnrichedProfile): string | undefined {
-  const level = (e: Education) => (isDegreeRow(e) ? 2 : isHighSchool(e) ? 1 : 0);
+export function currentSchool(
+  profile: EnrichedProfile,
+  /**
+   * Names that are not a school, however they are filed.
+   *
+   * The three levels below rank rows that *are* schools. They cannot rank out a row
+   * that is not one, because knowing "Z Fellows" is an accelerator takes the
+   * taxonomy and this function has never had it. Anish Shinde's education section is
+   * "Z Fellows" and "The Residency" — a batch and a community, neither a degree nor a
+   * high school, so both sit at level zero, the tie falls through to input order, and
+   * his queue row read "Z Fellow" where a school belongs.
+   *
+   * The caller supplies the judgement. `scoreOne` has the taxonomy and passes one;
+   * the write path in lib/people.ts does not and omits it, which is why the stored
+   * value can still be wrong and the displayed one cannot.
+   */
+  notASchool?: (name: string) => boolean
+): string | undefined {
+  /**
+   * Four levels now, and the new one is at the top rather than the bottom.
+   *
+   * An undergraduate degree outranks a postgraduate one, which looks backwards until
+   * you put the label next to the class year it sits beside. "Class of" means the
+   * bachelor's year, so Gabrielle Kaili-May Liu is the class of 2023 — and printing
+   * "Yale, class of 2023" beside it names an institution she had not started at. The
+   * two fields have to describe the same event. Her label is MIT.
+   *
+   * Level zero is now excluded outright rather than merely ranked last. It is the
+   * bucket for a row that is neither a degree nor a high school, which this file
+   * already calls "a line on a CV, not a graduation" — an accelerator batch, a
+   * community, a summer programme. Anish Shinde's whole education section is two of
+   * them, so the honest label is none, and ranking alone would always have handed
+   * the row to whichever came first.
+   */
+  const level = (e: Education) =>
+    isDegreeRow(e) ? (isPostgradRow(e) ? 2 : 3) : isHighSchool(e) ? 1 : 0;
   const rank = (e: Education) => e.endYear ?? Infinity;
   const sorted = [...profile.educations]
-    .filter((e) => e.school)
+    .filter((e) => e.school && level(e) > 0 && !(notASchool?.(e.school) ?? false))
     .sort(
       (a, b) =>
         level(b) - level(a) ||

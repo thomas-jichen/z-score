@@ -28,9 +28,11 @@ import { useApp } from "@/components/AppState";
  * Four of the five links go to a view of data you already have. The fifth runs a
  * week-long search on its own, and as a plain label in fifth position it was the
  * last of five identical things rather than the only one of its kind. It gets an
- * outline on the desktop row, a stronger ink on the phone row, and a dot in both.
- * The dot is a class, not a state: see .z-nav-link.is-agent in globals.css for why
- * it does not pulse.
+ * outline on the desktop row and a stronger ink on the phone row.
+ *
+ * It used to carry a small blue dot as well. Two marks for one distinction is one
+ * too many, and the dot was the weaker of them: an outline says "a different kind of
+ * thing" on its own, where a dot invites the question of what it is reporting.
  */
 
 const LINKS = [
@@ -82,7 +84,6 @@ export function Nav() {
                 className={agent ? "z-nav-link is-agent" : "z-nav-link"}
                 aria-current={active ? "page" : undefined}
               >
-                {agent && <span className="z-nav-live" aria-hidden="true" />}
                 {l.label}
                 {l.href === "/queue" && queue.length > 0 && (
                   <span className="z-nav-count">{queue.length}</span>
@@ -134,7 +135,6 @@ export function Nav() {
           className={l.href === "/agent" ? "z-tab is-agent" : "z-tab"}
           aria-current={isActive(l.href) ? "page" : undefined}
         >
-          {l.href === "/agent" && <span className="z-nav-live" aria-hidden="true" />}
           <span className="z-tab-label">{l.label}</span>
           {l.href === "/queue" && queue.length > 0 && (
             <span className="z-tab-count">{queue.length}</span>

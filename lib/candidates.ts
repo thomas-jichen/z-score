@@ -6,11 +6,12 @@ import {
   clusterFromText,
   round,
 } from "./clusters";
+import { currentSchool } from "./enrichment";
 import { COUNT_KINDS, extractTags, type CountKind } from "./extract";
 import type { Person } from "./people";
 import { textOf } from "./people";
 import type { TaxonomyPrefs } from "./state";
-import { indexRegistry, resolveAny } from "./tagRegistry";
+import { indexRegistry, resolveAny, resolveTag } from "./tagRegistry";
 import { matchedTerms, type MatchedTerm } from "./tags";
 import type { Candidate, DiscoveryHop, Signal } from "./zscore";
 
@@ -163,9 +164,44 @@ export function scoreOne(p: Person, tax: TaxonomyPrefs): Candidate {
    * one school. Resolving the label means the queue row, the graph panel and the
    * tag all say the same word, instead of the screen naming the same place twice.
    */
-  const school = p.school
-    ? (resolveAny(indexRegistry(tax.tags), p.school)?.label ?? p.school)
-    : undefined;
+  const index = indexRegistry(tax.tags);
+
+  /**
+   * A row the taxonomy knows to be something other than a school is not the school.
+   *
+   * Only when it resolves to a definite non-school facet. Most real schools are not
+   * in the vocabulary at all, and an unknown name has to stay eligible or the label
+   * empties out for everyone at a school nobody has seeded.
+   */
+  const notASchool = (name: string) => {
+    const def = resolveAny(index, name);
+    return def !== null && def.facet !== "college" && def.facet !== "highschool";
+  };
+
+  /**
+   * Recomputed here rather than trusted from `p.school`, because the write path has
+   * no taxonomy and stored "Z Fellows" for Anish Shinde. Falls back to the stored
+   * value for a search-only record, where there are no rows to choose between.
+   */
+  const chosen = p.enriched ? currentSchool(p.enriched, notASchool) : p.school;
+  /**
+   * Canonicalised through containment, not just the exact key.
+   *
+   * `resolveAny` matches a normalised name outright, which handles "Stanford
+   * University" and misses "UC Berkeley Management, Entrepreneurship, & Technology
+   * (M.E.T.) program" — a real row that printed in full across the queue. Containment
+   * is what `resolveTag` adds and what the education path already uses, so this asks
+   * the same question the tag did and gets the same word back.
+   */
+  const canonical = (name: string): string => {
+    for (const facet of ["college", "highschool"] as const) {
+      const r = resolveTag(index, { label: name, facet });
+      if (r.kind === "exact") return r.def.label;
+    }
+    return name;
+  };
+
+  const school = chosen && !notASchool(chosen) ? canonical(chosen) : undefined;
 
   return {
     slug: p.slug,

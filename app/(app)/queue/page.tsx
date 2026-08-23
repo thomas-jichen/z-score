@@ -769,8 +769,14 @@ function Row({
           /* Three, and then a count. Four fitted until the cluster column widened to
              hold its badge, and a row that wraps to four lines stops being scannable
              — which is the only thing this list has to be. The rest is one click
-             away on the profile, in full. */
-          <span className="z-row" style={{ gap: 4, marginTop: 6 }}>
+             away on the profile, in full.
+
+             It wraps, though. Three chips that cannot wrap are what set the Person
+             column's minimum width, and at "Palantir Meritocracy Fellow 1.5" that
+             minimum pushed the table seventeen pixels past the page and gave the
+             whole queue a horizontal scrollbar. Wrapping costs a second line on the
+             widest rows and nothing on the rest. */
+          <span className="z-row z-row-wrap" style={{ gap: 4, marginTop: 6 }}>
             {signals.slice(0, 3).map((sg) => (
               <span className="z-sig" key={sg.id} title={`${sg.label} contributes ${sg.points}`}>
                 {/* The label is what gets truncated, never the number. Bounding the

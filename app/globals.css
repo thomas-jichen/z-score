@@ -1583,15 +1583,14 @@ tr[data-pinned] td:first-child {
  * only bounded object in a line of text is enough; being 2px taller as well would
  * be the row noticing.
  *
- * The dot does not pulse. A pulse is this app's word for something happening right
- * now (.z-runpill-dot, .z-camp-dot) and the nav has no way to know whether a
- * campaign is mid-tick. Still, it claims only that this is the part of the app
- * that runs on its own, which is true whenever you read it.
+ * It carried a small blue dot too, and does not now. Two marks for one distinction
+ * is one too many, and the outline is the stronger of them: it says "a different
+ * kind of thing" outright, where a dot invites the question of what it is reporting
+ * and the nav has no way to know whether a campaign is mid-tick.
  */
 .z-nav-link.is-agent {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
   margin-left: var(--z-space-3);
   padding-top: calc(var(--z-space-2) - 1px);
   padding-bottom: calc(var(--z-space-2) - 1px);
@@ -1613,14 +1612,6 @@ tr[data-pinned] td:first-child {
   background: var(--z-surface-blue);
   border-color: var(--z-blue-glow);
   color: var(--z-navy);
-}
-
-.z-nav-live {
-  flex: none;
-  width: 5px;
-  height: 5px;
-  border-radius: var(--z-r-circle);
-  background: var(--z-blue);
 }
 
 /* Enrichment now survives navigation, so there has to be somewhere that says a

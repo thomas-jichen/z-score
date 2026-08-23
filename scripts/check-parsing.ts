@@ -21,6 +21,7 @@ import {
   toSlug,
   type EnrichedProfile,
   type Provenance,
+  isPostgradRow,
 } from "../lib/enrichment";
 import { capRoster, hopAfter, isSuppressed, migrateLegacy, neighborsFrom, nextHopFrom, refreshDerived, withEnriched, MAX_PEOPLE, type Person } from "../lib/people";
 import {
@@ -2029,6 +2030,80 @@ console.log("\nnational is not international, and a withdrawn alias has to leave
   } as Parameters<typeof hydrateTeam>[0]);
   check("a moved id carries its weight", oldLab.taxonomy.tags["argonne-national-laboratory"]?.weight, 1.9);
   check("and leaves nothing behind", oldLab.taxonomy.tags["argonne-laboratory"], undefined);
+}
+
+console.log("\nclass of means the undergraduate year, and the school agrees with it");
+{
+  /**
+   * Gabrielle Kaili-May Liu's education section, verbatim. She was filed as the
+   * class of 2029 off the Yale doctorate, six years after she actually graduated,
+   * and labelled Yale beside it — an institution she had not started at in 2023.
+   */
+  const kaili = [
+    { school: "Yale University", degree: "Doctor of Philosophy - PhD", field: "Computer Science", endYear: 2029 },
+    {
+      school: "Massachusetts Institute of Technology",
+      degree: "S.B. in Mathematics with Computer Science & S.B. in Brain and Cognitive Sciences",
+      endYear: 2023,
+    },
+    { school: "Ravenwood High School", degree: "Valedictorian", endYear: 2019 },
+    { school: "Overbrook School", endYear: 2015 },
+  ];
+  check("the bachelor's year wins, not the doctorate", inferGradYear(kaili), 2023);
+  check(
+    "and the label is the school that year belongs to",
+    currentSchool({ educations: kaili } as never),
+    "Massachusetts Institute of Technology"
+  );
+
+  // The notation universities actually use. MIT writes S.B., Harvard A.B., Brown Sc.B.
+  const under = (degree: string) => !isPostgradRow({ school: "X", degree } as never);
+  for (const d of ["S.B. in Mathematics", "A.B. Economics", "Sc.B. Computer Science", "BS", "B.A.", "Bachelor of Science", "BSc", "Associate of Arts"]) {
+    check(`${JSON.stringify(d)} is undergraduate`, under(d), true);
+  }
+  for (const d of ["Doctor of Philosophy - PhD", "PhD", "Master of Science", "M.S.", "MBA", "J.D.", "M.D.", "DPhil", "LL.M."]) {
+    check(`${JSON.stringify(d)} is not`, under(d), false);
+  }
+
+  /**
+   * A bare row with no degree string at all is the commonest shape in this roster
+   * and is almost always an undergraduate. Absence of evidence must not exclude it.
+   */
+  check("a bare university row stays eligible", under(""), true);
+  check(
+    "so it still answers the class year",
+    inferGradYear([{ school: "Stanford University", endYear: 2029 }] as never),
+    2029
+  );
+
+  /**
+   * Both named. The end date is the master's year, so reading it as undergraduate is
+   * a year late and reading it as postgraduate discards the only row they have.
+   */
+  check("a combined BS/MS counts as undergraduate", under("BS/MS Computer Science"), true);
+
+  /**
+   * Anish Shinde's whole education section is an accelerator batch and a community.
+   * Neither is a degree or a high school, so the honest label is none — his queue row
+   * read "Z Fellow" where a school belongs.
+   */
+  const anish = [{ school: "Z Fellows" }, { school: "The Residency" }];
+  check("a batch is not a school", currentSchool({ educations: anish } as never), undefined);
+  check("and neither is the row after it", inferGradYear(anish as never), undefined);
+
+  // With a real degree beside them the real one wins, which it always did.
+  check(
+    "a real school still beats them",
+    currentSchool({ educations: [...anish, { school: "Stanford University", degree: "BS" }] } as never),
+    "Stanford University"
+  );
+
+  // Somebody with only a doctorate has no undergraduate year to state.
+  check(
+    "a doctorate alone gives no class year",
+    inferGradYear([{ school: "Yale University", degree: "PhD", endYear: 2029 }] as never),
+    undefined
+  );
 }
 
 console.log("\nthe digest email");
