@@ -521,7 +521,6 @@ export default function AgentPage() {
           </details>
         )}
 
-        <EmailPrefs />
 
         <details className="z-disclosure">
           <summary>What to say to Claude</summary>
@@ -914,123 +913,6 @@ function CampaignRow({
         </div>
       )}
     </div>
-  );
-}
-
-/* ── Digest email ───────────────────────────────────────────────────────── */
-
-/**
- * Where to email this person, and how often.
- *
- * Per profile rather than one shared setting, because a cadence is a personal
- * answer and because nothing should be sent to an address its owner did not type.
- * The three fields are the whole of it: an address, how often, and whether a
- * campaign finishing counts as an occasion.
- *
- * The address saves on blur rather than on every keystroke. Half an address written
- * to Redis on the way to a whole one is a write that means nothing, and the app
- * would briefly believe it.
- */
-function EmailPrefs() {
-  const { state, patch } = useApp();
-  const [draft, setDraft] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [said, setSaid] = useState<string | null>(null);
-
-  const value = draft ?? state.email ?? "";
-  const on = Boolean(state.email);
-
-  function saveAddress() {
-    const next = value.trim();
-    setDraft(null);
-    if (next === (state.email ?? "")) return;
-    patch({ email: next || null });
-    setSaid(next ? null : "Address cleared, so nothing will be sent.");
-  }
-
-  async function test() {
-    setBusy(true);
-    setSaid(null);
-    try {
-      const r = await fetch("/api/email", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ op: "test" }),
-      }).then((x) => x.json());
-      setSaid(r.ok ? `Sent. Subject: ${r.subject}` : r.error);
-    } catch {
-      setSaid("Could not reach the server.");
-    }
-    setBusy(false);
-  }
-
-  return (
-    <details className="z-disclosure">
-      <summary>
-        Digest email
-        <span className="z-count">
-          {!on ? "off" : state.digest === "off" ? "campaigns only" : state.digest}
-        </span>
-      </summary>
-      <div className="z-disclosure-body z-stack" style={{ gap: "var(--z-space-4)" }}>
-        <p className="z-small" style={{ margin: 0, color: "var(--z-ink-body)" }}>
-          Yours alone. Nothing is sent to an address you have not entered here, and nobody else
-          sees it.
-        </p>
-
-        <label className="z-set" style={{ maxWidth: 360 }}>
-          <span className="z-set-label">Your address</span>
-          <input
-            className="z-set-input"
-            type="email"
-            inputMode="email"
-            placeholder="you@example.com"
-            value={value}
-            onChange={(e) => setDraft(e.target.value)}
-            onBlur={saveAddress}
-          />
-          <span className="z-set-hint">Saved when you click away.</span>
-        </label>
-
-        <div className="z-row z-row-wrap" style={{ gap: "var(--z-space-2)" }}>
-          {(["off", "daily", "weekly"] as const).map((c) => (
-            <Pill
-              key={c}
-              as="button"
-              active={state.digest === c}
-              onClick={() => patch({ digest: c })}
-              title={
-                c === "off"
-                  ? "No scheduled digest. A campaign finishing can still reach you."
-                  : `The top of your queue, ${c}.`
-              }
-            >
-              {c === "off" ? "No digest" : c === "daily" ? "Every day" : "Every week"}
-            </Pill>
-          ))}
-          <Pill
-            as="button"
-            active={state.campaignEmails}
-            onClick={() => patch({ campaignEmails: !state.campaignEmails })}
-            title="A report when one of your campaigns finishes."
-          >
-            When a campaign finishes
-          </Pill>
-        </div>
-
-        <div className="z-row z-row-wrap" style={{ gap: "var(--z-space-3)" }}>
-          <button className="z-quiet is-accent" onClick={test} disabled={!on || busy}>
-            {busy ? "Sending" : "Send me one now"}
-          </button>
-          {said && (
-            <span className="z-micro" style={{ color: "var(--z-ink-body)" }}>
-              {said}
-            </span>
-          )}
-          {!on && !said && <span className="z-micro">Add an address to try it.</span>}
-        </div>
-      </div>
-    </details>
   );
 }
 

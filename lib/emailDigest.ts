@@ -160,7 +160,7 @@ function digestText(candidates: Candidate[], eyebrow: string, origin: string, kn
     "",
     `See the whole queue: ${origin}/queue`,
     known.trim(),
-    `Change how often you get these: ${origin}/agent`,
+    `Change how often you get these: ${origin}/digest`,
   ]
     .filter(Boolean)
     .join("\n");

@@ -165,8 +165,12 @@ export function button(href: string, label: string): string {
  * The foot of every email: one action, then who this went to and how to stop it.
  *
  * No list-unsubscribe header and no tracking pixel. This is internal mail to three
- * colleagues who each typed their own address into the Agent screen, and the cadence
+ * colleagues who each typed their own address into the digest screen, and the cadence
  * control there is the off switch, so the honest thing is to link to it.
+ *
+ * It points at /digest rather than /agent because that is where the control lives,
+ * and because the digest screen is this email: somebody who followed the link to
+ * turn it off lands on the thing they were about to stop receiving.
  */
 export function footer(input: { origin: string; cta?: { href: string; label: string }; why: string }): string {
   const cta = input.cta
@@ -174,7 +178,7 @@ export function footer(input: { origin: string; cta?: { href: string; label: str
     : "";
   return `${cta}<tr><td style="padding-top:24px;border-top:1px solid ${INK.borderSoft};">
   <p style="margin:0;font-family:${FONT};font-size:13px;line-height:1.5;color:${INK.faint};">
-    ${esc(input.why)} <a href="${esc(input.origin)}/agent" style="color:${INK.faint};">Change how often you get these.</a>
+    ${esc(input.why)} <a href="${esc(input.origin)}/digest" style="color:${INK.faint};">Change how often you get these.</a>
   </p>
 </td></tr>`;
 }

@@ -1411,6 +1411,85 @@ a.z-archetype:hover {
   font-weight: 500;
 }
 
+/**
+ * Delivery, at the foot of the digest.
+ *
+ * Separated by space rather than a rule. The page above it is a stack of filled
+ * cards on a tinted background, so an unfilled block with air around it already
+ * reads as a different kind of thing, and a hairline here would be the third
+ * horizontal line in a screen that has earned none.
+ *
+ * The sentence and the controls sit on one optical line and part company at the
+ * point the sentence would otherwise have to wrap, not at a device width.
+ */
+.z-delivery {
+  margin-top: var(--z-space-12);
+  padding-top: var(--z-space-8);
+}
+
+/**
+ * The eyebrow spans the section and the two columns align to each other.
+ *
+ * With the label inside the left column the cadence pills lined up against the word
+ * "Delivery" rather than against the sentence they change, which put the control a
+ * line above the thing it controls.
+ */
+.z-delivery-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--z-space-5) var(--z-space-8);
+  margin-top: 4px;
+}
+
+.z-delivery-say {
+  min-width: 0;
+  /* Enough to hold "When a campaign finishes, to name@example.com." on one line,
+     and the trigger for the wrap when it cannot. */
+  flex: 1 1 22rem;
+}
+
+/**
+ * The sentence is the interface, so it is sized like a statement and not like a
+ * form label: the same weight as a card title, one step down in size, because it
+ * is answering a question rather than starting a section.
+ */
+.z-delivery-line {
+  margin: 0;
+  font-size: var(--z-fs-body);
+  font-weight: 500;
+  letter-spacing: var(--z-ls-body);
+  color: var(--z-ink);
+}
+
+.z-delivery-input {
+  max-width: 17rem;
+}
+
+/**
+ * Cadence above, and the campaign toggle on its own line beneath it.
+ *
+ * Four pills in one row read as four choices, and three of them are exclusive
+ * while the fourth is not. The break is what says so, and it costs a line.
+ */
+.z-delivery-set {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--z-space-2);
+  /**
+   * Grows to fill its line, so flex-end always means the edge of the page.
+   *
+   * Sized to its content it kept its own narrow box, and once the two columns
+   * wrapped that box sat at the left while the campaign pill hugged its right side.
+   * The result was a pill floating in the middle of nothing, at every width between
+   * the wrap and the mobile breakpoint. Filling the line makes both layouts align
+   * against something real.
+   */
+  flex: 1 1 auto;
+}
+
 /* A hollow score says the record is search-only. The number itself is computed
    the same way with no discount; this reports how much was read to get it. */
 .z-score[data-thin] .z-score-sigma {
@@ -2826,6 +2905,17 @@ tr[data-pinned] td:first-child {
 
   .z-digest-card td:not(:first-child) {
     margin-top: var(--z-space-3);
+  }
+
+  /* Right-aligning a wrapped pill column against a left-aligned sentence
+     produces a ragged middle. On a phone everything hangs off the same edge. */
+  .z-delivery {
+    padding-top: var(--z-space-6);
+    margin-top: var(--z-space-10);
+  }
+
+  .z-delivery-set {
+    align-items: flex-start;
   }
 
   /**

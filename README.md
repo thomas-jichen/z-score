@@ -322,8 +322,10 @@ in the UI plainly means revive; a nightly job doing it would quietly undo every 
 
 The digest was always meant to be one, which is why its rows are `<table>` and why `--z-r-email`
 exists. A campaign finishing mails its report to whoever started it, and the queue digest goes
-daily or weekly. Each person sets their own address and cadence on the Agent screen, and there is
-a button there to send yourself one now.
+daily or weekly. Each person sets their own address and cadence at the foot of the digest screen,
+next to the thing being delivered, and there is a button there to send yourself one now. No cadence
+is offered until an address exists, because asking how often before asking where is how you end up
+with a settings panel full of controls that do nothing.
 
 Two variables switch it on, and with neither set nothing is sent and the screen says so:
 

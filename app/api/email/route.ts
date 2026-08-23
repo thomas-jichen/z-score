@@ -46,7 +46,14 @@ export async function POST(req: Request) {
     return NextResponse.json(
       {
         ok: false,
-        error: "RESEND_API_KEY is not set, so nothing can be sent yet.",
+        /**
+         * Plain words first, the variable name second. This sentence used to sit on
+         * the Agent screen, where a bare RESEND_API_KEY was talking to whoever set
+         * the app up. It now sits on the digest, which is the screen the team opens,
+         * so it has to make sense to somebody who will never touch an env file and
+         * still tell the person who will exactly what is missing.
+         */
+        error: "Email is not switched on yet. Set RESEND_API_KEY to turn it on.",
       },
       { status: 503 }
     );

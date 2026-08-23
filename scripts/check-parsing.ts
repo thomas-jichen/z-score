@@ -2173,6 +2173,18 @@ console.log("\nthe digest email");
   check("a plain part is sent too", digest.text.includes("Ada Lovelace"), true);
 
   /**
+   * The off switch has to point at the room the switch is in.
+   *
+   * The cadence control moved from the Agent screen to the foot of the digest, and a
+   * footer link is exactly the kind of thing that keeps pointing at the old place for
+   * a year because nobody clicks their own unsubscribe. Both parts are checked, since
+   * the plain text builds its links separately from the HTML.
+   */
+  check("the cadence link goes where the control is", digest.html.includes(`href="${ORIGIN}/digest"`), true);
+  check("and the plain part agrees", digest.text.includes(`${ORIGIN}/digest`), true);
+  check("neither still points at the agent screen", digest.html.includes(`${ORIGIN}/agent`), false);
+
+  /**
    * The empty queue has to say so rather than render a headline over nothing.
    */
   const none = renderQueueDigest({

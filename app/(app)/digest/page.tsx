@@ -1,10 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useApp } from "@/components/AppState";
 import { archetypeLabel, dominantSignals, formatSigma } from "@/lib/zscore";
-import { EmptyState, MarkControl, PolymathBadge, type MarkChange } from "@/components/primitives";
+import { EmptyState, MarkControl, Pill, PolymathBadge, type MarkChange } from "@/components/primitives";
 
 /**
  * The digest. Primary surface, and the one that may ship as email.
@@ -179,6 +179,163 @@ export default function DigestPage() {
           </Link>
         )}
       </div>
+
+      <Delivery />
     </div>
+  );
+}
+
+/* ── Delivery ───────────────────────────────────────────────────────────── */
+
+/**
+ * The same page, in an inbox.
+ *
+ * It lived on the Agent screen as one disclosure among six, which was the wrong
+ * room: the Agent screen is where you configure a machine that spends money, and
+ * this is a preference about a page you are already looking at. Here the setting is
+ * next to the thing it delivers, so "every day" has an obvious referent.
+ *
+ * ── Why it is not a disclosure ────────────────────────────────────────────
+ * A lone <details> at the foot of a page with no other disclosures reads as a widget
+ * somebody bolted on. The state is one sentence, so the sentence is the interface:
+ * it says what will happen in plain words, and the controls sit beside it. Nothing
+ * to open, nothing to discover.
+ *
+ * ── The address comes first ───────────────────────────────────────────────
+ * No cadence until there is somewhere to send it. Asking how often before asking
+ * where is the shape that produces settings screens full of controls that do
+ * nothing, and a disabled row of pills is a worse answer than no row at all.
+ */
+function Delivery() {
+  const { state, patch } = useApp();
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [said, setSaid] = useState<string | null>(null);
+
+  const address = state.email;
+  const open = editing || !address;
+
+  /**
+   * Saved on the way out rather than on every keystroke. Half an address written to
+   * Redis on the way to a whole one is a write that means nothing, and the app would
+   * briefly believe it.
+   */
+  function save() {
+    const next = draft.trim();
+    setEditing(false);
+    if (next === (address ?? "")) return;
+    patch({ email: next || null });
+    setSaid(next ? null : "Address cleared, so nothing will be sent.");
+  }
+
+  async function test() {
+    setBusy(true);
+    setSaid(null);
+    try {
+      const r = await fetch("/api/email", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ op: "test" }),
+      }).then((x) => x.json());
+      setSaid(r.ok ? `Sent. Subject: ${r.subject}` : r.error);
+    } catch {
+      setSaid("Could not reach the server.");
+    }
+    setBusy(false);
+  }
+
+  /**
+   * One sentence for every combination, because a person should be able to read the
+   * setting rather than assemble it from three controls. "Nothing is being sent" is
+   * a real state and worth saying out loud: an address with no cadence and no
+   * campaign report is the quiet way to end up wondering why no mail arrives.
+   */
+  const every = state.digest === "daily" ? "Every day" : state.digest === "weekly" ? "Every week" : null;
+  const sentence = !address
+    ? "This page can come to you."
+    : every
+      ? `${every} to ${address}.`
+      : state.campaignEmails
+        ? `When a campaign finishes, to ${address}.`
+        : `Nothing is being sent to ${address}.`;
+
+  return (
+    <section className="z-delivery">
+      <p className="z-label">Delivery</p>
+      <div className="z-delivery-row">
+        <div className="z-delivery-say">
+          <p className="z-delivery-line">{sentence}</p>
+
+          {open ? (
+            <div className="z-row z-row-wrap" style={{ gap: "var(--z-space-3)", marginTop: 8 }}>
+              <input
+                className="z-set-input z-delivery-input"
+                type="email"
+                inputMode="email"
+                autoFocus={editing}
+                placeholder="you@example.com"
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                onBlur={save}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") e.currentTarget.blur();
+                  if (e.key === "Escape") setEditing(false);
+                }}
+                aria-label="Your address"
+              />
+              <span className="z-micro">Yours alone, and nobody else sees it.</span>
+            </div>
+          ) : (
+            <div className="z-row z-row-wrap" style={{ gap: "var(--z-space-4)", marginTop: 8 }}>
+              <button
+                className="z-linkish"
+                onClick={() => {
+                  setDraft(address ?? "");
+                  setSaid(null);
+                  setEditing(true);
+                }}
+              >
+                Change address
+              </button>
+              <button className="z-quiet is-accent" onClick={test} disabled={busy}>
+                {busy ? "Sending" : "Send me one now"}
+              </button>
+              {said && <span className="z-micro">{said}</span>}
+            </div>
+          )}
+        </div>
+
+        {address && !editing && (
+          <div className="z-delivery-set">
+            <div className="z-row z-row-wrap" style={{ gap: "var(--z-space-2)" }}>
+              {(["off", "daily", "weekly"] as const).map((c) => (
+                <Pill
+                  key={c}
+                  as="button"
+                  active={state.digest === c}
+                  onClick={() => patch({ digest: c })}
+                  title={
+                    c === "off"
+                      ? "No scheduled digest. A campaign finishing can still reach you."
+                      : `The top of your queue, ${c}.`
+                  }
+                >
+                  {c === "off" ? "No digest" : c === "daily" ? "Every day" : "Every week"}
+                </Pill>
+              ))}
+            </div>
+            <Pill
+              as="button"
+              active={state.campaignEmails}
+              onClick={() => patch({ campaignEmails: !state.campaignEmails })}
+              title="A report when one of your campaigns finishes."
+            >
+              When a campaign finishes
+            </Pill>
+          </div>
+        )}
+      </div>
+    </section>
   );
 }
