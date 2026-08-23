@@ -8,7 +8,8 @@
     "build:check": "NEXT_DIST_DIR=.next-check next build",
     "start": "next start -p 3737",
     "check": "tsx scripts/check-parsing.ts",
-    "check:agent": "tsx scripts/check-agent.ts"
+    "check:agent": "tsx scripts/check-agent.ts",
+    "preview:email": "tsx scripts/preview-email.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/server": "^2.0.0",

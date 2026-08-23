@@ -21,6 +21,7 @@ import { DAILY_PROFILE_CAP, HOURLY_SEARCH_CAP, HOURLY_TAG_CAP } from "@/lib/rate
 import { migrateIfNeeded } from "@/lib/serverState";
 import { storeIsEphemeral } from "@/lib/store";
 import { bounded, isBad, readJson, str } from "@/lib/validate";
+import { sendPendingCampaignEmails } from "@/lib/emailSend";
 import { log } from "@/lib/log";
 
 /**
@@ -119,6 +120,15 @@ export async function POST(req: Request) {
         // Anyone may advance a campaign: the roster it fills is shared, and a
         // stalled loop helping nobody is worse than a teammate nudging it along.
         const res = await tickCampaign(id);
+        /**
+         * If that advance finished it, mail the report now rather than at nine
+         * tomorrow. The drain is the same one the cron runs and is idempotent, so
+         * calling it here only ever makes the mail earlier, never twice.
+         */
+        await sendPendingCampaignEmails().catch((e) => {
+          log.warn("campaigns.email.failed", { error: e instanceof Error ? e.message : "unknown" });
+          return 0;
+        });
         return NextResponse.json({
           ok: true,
           campaign: summarise(res.campaign),

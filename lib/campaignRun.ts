@@ -104,7 +104,11 @@ export async function listCampaigns(): Promise<Campaign[]> {
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
 
-async function writeCampaign(c: Campaign): Promise<void> {
+/**
+ * Exported so `lib/emailSend.ts` can stamp `notifiedAt` without a second writer.
+ * There is one way to persist a campaign and this is it.
+ */
+export async function writeCampaign(c: Campaign): Promise<void> {
   await hset(CAMPAIGNS_KEY, { [c.id]: c });
 }
 

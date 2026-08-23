@@ -31,9 +31,14 @@ import {
   mergeTeam,
   type TaxonomyPrefs,
   type TeamState,
+  digestDue,
 } from "../lib/state";
 import { PURGED_ALIASES, isBannedTag } from "../lib/searchTaxonomy";
 import { readTier, scanText } from "../lib/tagMatch";
+import type { Candidate } from "../lib/zscore";
+import { renderQueueDigest } from "../lib/emailDigest";
+import { FONT, INK, plural } from "../lib/emailHtml";
+import { isEmailAddress } from "../lib/email";
 import { scoreOne, toCandidates } from "../lib/candidates";
 import {
   budgetLeft,
@@ -2024,6 +2029,160 @@ console.log("\nnational is not international, and a withdrawn alias has to leave
   } as Parameters<typeof hydrateTeam>[0]);
   check("a moved id carries its weight", oldLab.taxonomy.tags["argonne-national-laboratory"]?.weight, 1.9);
   check("and leaves nothing behind", oldLab.taxonomy.tags["argonne-laboratory"], undefined);
+}
+
+console.log("\nthe digest email");
+{
+  /**
+   * An email is the one surface nobody looks at before it reaches somebody else, so
+   * whatever can be asserted here should be. These are pure renderers with no I/O
+   * and no clock, which is the reason they were written that way.
+   */
+  const tax = emptyTeam().taxonomy;
+  const ORIGIN = "https://z.example";
+  const person = (over: Partial<Person> & { slug: string; name: string }): Candidate =>
+    scoreOne({ ...bare(over.slug), ...over } as Person, tax);
+
+  const one = person({ slug: "a", name: "Ada Lovelace" });
+  const digest = renderQueueDigest({
+    candidates: [one],
+    queueTotal: 1,
+    knownCount: 0,
+    newSince: null,
+    origin: ORIGIN,
+    cadence: "weekly",
+  });
+
+  check("a subject is a sentence about what happened", digest.subject, "Ada Lovelace leads the queue at +0.0σ");
+  check("the name is in the body", digest.html.includes("Ada Lovelace"), true);
+  check("and the link is absolute", digest.html.includes(`${ORIGIN}/candidate/a`), true);
+  check("a plain part is sent too", digest.text.includes("Ada Lovelace"), true);
+
+  /**
+   * The empty queue has to say so rather than render a headline over nothing.
+   */
+  const none = renderQueueDigest({
+    candidates: [],
+    queueTotal: 0,
+    knownCount: 0,
+    newSince: null,
+    origin: ORIGIN,
+    cadence: "daily",
+  });
+  check("an empty queue says so in the subject", none.subject, "Nothing in the queue yet");
+  check("and in the body", none.html.includes("Nobody in the queue."), true);
+
+  /**
+   * The "new" marker is measured against the last email. A null means this is the
+   * first one, and marking every person new on a first send is the shape of mistake
+   * that makes a feature look broken on the day it ships.
+   */
+  const older = person({ slug: "old", name: "Older", addedAt: "2026-01-01T00:00:00.000Z" });
+  const newer = person({ slug: "new", name: "Newer", addedAt: "2026-08-20T00:00:00.000Z" });
+  const first = renderQueueDigest({
+    candidates: [older, newer], queueTotal: 2, knownCount: 0, newSince: null, origin: ORIGIN, cadence: "daily",
+  });
+  check("a first send marks nobody new", !first.html.includes(">new<"), true);
+  const since = renderQueueDigest({
+    candidates: [older, newer], queueTotal: 2, knownCount: 0,
+    newSince: "2026-06-01T00:00:00.000Z", origin: ORIGIN, cadence: "daily",
+  });
+  check("a later one counts only what arrived since", since.subject, "1 new person in the queue");
+
+  /**
+   * Names come off public profiles, which is to say this app did not write them.
+   */
+  const hostile = person({ slug: "x", name: '<script>alert(1)</script> & "co"' });
+  const escaped = renderQueueDigest({
+    candidates: [hostile], queueTotal: 1, knownCount: 0, newSince: null, origin: ORIGIN, cadence: "daily",
+  });
+  check("a name cannot open a tag", !escaped.html.includes("<script>"), true);
+  check("but is still readable", escaped.html.includes("&lt;script&gt;"), true);
+  check("and an ampersand survives", escaped.html.includes("&amp;"), true);
+
+  /**
+   * Every inline style is inside a double-quoted attribute, so a double quote in the
+   * font stack closes it and silently discards the rest of the declaration. The
+   * preview rendered in Times when this was wrong, which is what that looks like.
+   */
+  check("no style attribute is broken by a quote", !FONT.includes('"'), true);
+  check("the palette matches the app", INK.blue === "#2067ff" && INK.surface === "#f6f6fa", true);
+
+  /**
+   * The bans apply to a rendered email exactly as they do to a screen, and this is
+   * the surface where nobody would notice for weeks. There is no lint for it.
+   */
+  const rendered = [digest.subject, digest.text, none.subject, none.text, since.subject];
+  check("no middle dot anywhere", rendered.filter((t) => t.includes("\u00b7")), []);
+  check("no em dash anywhere", rendered.filter((t) => t.includes("\u2014")), []);
+
+  // "1 people" is the tell this helper exists to prevent.
+  check("one is singular", plural(1, "person", "people"), "1 person");
+  check("two is plural", plural(2, "person", "people"), "2 people");
+}
+
+console.log("\nan address is checked before it is stored");
+{
+  /**
+   * The first version of this asked only for something either side of an `@` with a
+   * dot in it, and accepted `<script>@x.com`. Nothing renders a recipient today, so
+   * that was unreachable rather than safe, and the day something shows who a digest
+   * went to it becomes stored XSS.
+   */
+  for (const bad of [
+    "<script>@x.com",
+    '"quoted"@x.com',
+    "a b@x.com",
+    "a@x",
+    "a@@x.com",
+    "a@x..com",
+    "a@-x.com",
+    "no-at-sign",
+    "",
+    "a@.com",
+  ]) {
+    check(`${JSON.stringify(bad)} is refused`, isEmailAddress(bad), false);
+  }
+
+  // And the shapes real people actually use.
+  for (const good of [
+    "thomas+zscore@gmail.com",
+    "first.last@sub.domain.co.uk",
+    "a@b.io",
+    "TJWang@Stanford.EDU",
+    "cory@zfellows.com",
+  ]) {
+    check(`${JSON.stringify(good)} is accepted`, isEmailAddress(good), true);
+  }
+}
+
+console.log("\nwhen a digest is due");
+{
+  /**
+   * Elapsed days rather than a weekday, so a cron that does not fire sends late
+   * instead of skipping the week. Vercel Hobby fires once a day, anywhere inside the
+   * hour, which is exactly the schedule that eventually misses one.
+   */
+  const at = (iso: string) => new Date(iso);
+  check("off is never due", digestDue("off", null, at("2026-08-23T09:00:00Z")), false);
+  check("off stays off however long it has been", digestDue("off", "2020-01-01T00:00:00Z", at("2026-08-23T09:00:00Z")), false);
+  check("a first daily is due", digestDue("daily", null, at("2026-08-23T09:00:00Z")), true);
+  check(
+    "twice in one UTC day sends once",
+    digestDue("daily", "2026-08-23T09:00:00Z", at("2026-08-23T21:00:00Z")),
+    false
+  );
+  check(
+    "and again the next day",
+    digestDue("daily", "2026-08-23T09:00:00Z", at("2026-08-24T09:00:00Z")),
+    true
+  );
+  // Six days is not a week, and a cron that runs at 09:00:01 must not miss the seventh.
+  check("weekly at six days waits", digestDue("weekly", "2026-08-17T09:00:00Z", at("2026-08-23T09:00:00Z")), false);
+  check("weekly at seven days sends", digestDue("weekly", "2026-08-16T09:00:00Z", at("2026-08-23T09:00:00Z")), true);
+  check("a missed week catches up rather than skipping", digestDue("weekly", "2026-07-01T09:00:00Z", at("2026-08-23T09:00:00Z")), true);
+  // A stored value that is not a date must not wedge the schedule forever.
+  check("nonsense is treated as never sent", digestDue("daily", "not a date", at("2026-08-23T09:00:00Z")), true);
 }
 
 console.log("\nDECA never counts, however it is spelled");

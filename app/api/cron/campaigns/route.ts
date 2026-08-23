@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { summarise } from "@/lib/campaign";
 import { listCampaigns, tickCampaign } from "@/lib/campaignRun";
 import { migrateIfNeeded } from "@/lib/serverState";
+import { sendDueDigests, sendPendingCampaignEmails } from "@/lib/emailSend";
 import { log } from "@/lib/log";
 
 /**
@@ -77,8 +78,41 @@ export async function GET(req: Request) {
       advanced.push({ campaign: summarise(res.campaign), tick: res.tick, note: res.note });
     }
 
-    log.info("cron.campaigns", { running: running.length, advanced: advanced.length });
-    return NextResponse.json({ ok: true, running: running.length, advanced });
+    /**
+     * Then the mail, and only after every campaign has had its turn.
+     *
+     * Best effort on purpose: a bad key or a rate limit must not turn a cron that
+     * successfully advanced three campaigns into a 500, because a 500 here is a day
+     * of the schedule lost and the mail is the least important thing this route does.
+     *
+     * Both are idempotent by their own means — the campaign drain asks which
+     * campaigns are finished and unnotified, the digest pass asks whose cadence is
+     * due — so a retried cron does not double-send either one.
+     */
+    const emailed = await Promise.all([
+      sendPendingCampaignEmails().catch((e) => {
+        log.warn("cron.email.failed", { part: "campaigns", error: e instanceof Error ? e.message : "unknown" });
+        return 0;
+      }),
+      sendDueDigests().catch((e) => {
+        log.warn("cron.email.failed", { part: "digests", error: e instanceof Error ? e.message : "unknown" });
+        return 0;
+      }),
+    ]);
+
+    log.info("cron.campaigns", {
+      running: running.length,
+      advanced: advanced.length,
+      reports: emailed[0],
+      digests: emailed[1],
+    });
+    return NextResponse.json({
+      ok: true,
+      running: running.length,
+      advanced,
+      reports: emailed[0],
+      digests: emailed[1],
+    });
   } catch (e) {
     log.error("cron.campaigns.failed", { error: e instanceof Error ? e.message : "unknown" });
     return NextResponse.json(

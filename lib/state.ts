@@ -168,6 +168,30 @@ export type TeamState = {
  */
 export const MAX_DELETED = 2000;
 
+export const DIGEST_CADENCES = ["off", "daily", "weekly"] as const;
+export type DigestCadence = (typeof DIGEST_CADENCES)[number];
+
+export function isDigestCadence(v: unknown): v is DigestCadence {
+  return typeof v === "string" && (DIGEST_CADENCES as readonly string[]).includes(v);
+}
+
+/**
+ * Whether a digest is due, given when the last one went.
+ *
+ * Elapsed days rather than a weekday check, so a cron that does not fire sends late
+ * instead of skipping the week. Vercel's Hobby plan allows one invocation a day and
+ * fires it anywhere inside the hour, which is exactly the kind of schedule that
+ * eventually misses one.
+ */
+export function digestDue(cadence: DigestCadence, lastAt: string | null, now = new Date()): boolean {
+  if (cadence === "off") return false;
+  if (!lastAt) return true;
+  const then = Date.parse(lastAt);
+  if (!Number.isFinite(then)) return true;
+  if (cadence === "daily") return lastAt.slice(0, 10) !== now.toISOString().slice(0, 10);
+  return now.getTime() - then >= 7 * 24 * 60 * 60 * 1000;
+}
+
 export type QueueFilters = {
   cluster: Archetype | "all";
   band: string;
@@ -197,6 +221,26 @@ export type ProfileState = {
   queueFilters: QueueFilters | null;
   /** When the digest was last opened, so it can mark what is new. */
   digestSeenAt: string | null;
+  /**
+   * Where to email this person, and how often.
+   *
+   * Per profile rather than a shared env var because a cadence is a personal answer:
+   * whoever is triaging daily wants it daily and whoever is not does not, and the
+   * one who has not typed an address gets nothing. There is no address anywhere else
+   * in this app — the roster deliberately runs HarvestAPI's no-email mode — so this
+   * is the only contact detail it holds, and it holds three, all of them adults who
+   * entered their own.
+   *
+   * `null` and `"off"` are both real answers and mean different things: no address
+   * at all, versus an address kept for the campaign mail with the digest switched
+   * off.
+   */
+  email: string | null;
+  digest: DigestCadence;
+  /** A campaign finishing is an event rather than a schedule, so it has its own switch. */
+  campaignEmails: boolean;
+  /** When the last digest went out, which is what makes the cadence idempotent. */
+  lastDigestAt: string | null;
   seeds: string[];
   /** An enrichment run in flight, so a reload reattaches instead of orphaning it. */
   activeJobId: string | null;
@@ -408,6 +452,12 @@ export function emptyState(): ProfileState {
     lastSelection: null,
     queueFilters: null,
     digestSeenAt: null,
+    email: null,
+    // Off until somebody asks for it. An app that starts mailing you because you
+    // logged in has made a decision that was not its to make.
+    digest: "off",
+    campaignEmails: true,
+    lastDigestAt: null,
     seeds: [],
     activeJobId: null,
     recentSlugs: [],

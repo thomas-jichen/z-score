@@ -269,8 +269,8 @@ works.
 ## Commands
 
 ```bash
-npm run check        # 563 assertions over the pure functions. No network, no API key
-npm run check:agent  # 139 assertions over the campaign engine and the LLM steps, end to end with the paid calls stubbed
+npm run check        # 589 assertions over the pure functions. No network, no API key
+npm run check:agent  # 173 assertions over the campaign engine and the LLM steps, end to end with the paid calls stubbed
 npm run build:check  # type-check build into .next-check, so it cannot clobber a running dev server
 ```
 
@@ -318,8 +318,36 @@ Two refusals worth knowing, because they are what keeps a week-long run from doi
 campaign never re-adds a permanently deleted person, and never un-rejects one. Clicking add again
 in the UI plainly means revive; a nightly job doing it would quietly undo every triage decision.
 
+## Email
+
+The digest was always meant to be one, which is why its rows are `<table>` and why `--z-r-email`
+exists. A campaign finishing mails its report to whoever started it, and the queue digest goes
+daily or weekly. Each person sets their own address and cadence on the Agent screen, and there is
+a button there to send yourself one now.
+
+Two variables switch it on, and with neither set nothing is sent and the screen says so:
+
+```
+RESEND_API_KEY=re_...
+ZSCORE_EMAIL_FROM="Z-Score <digest@zscore.zfellows.com>"
+```
+
+**A verified domain is not optional.** Resend sends only from `onboarding@resend.dev`, and only to
+the address the account was registered with, until you add one. Use a subdomain rather than the
+apex so this app's sending reputation stays separate from anyone's real mail, and add the MX, SPF
+and DKIM records Resend hands you.
+
+Sending rides the existing daily cron, so a campaign that finishes overnight is mailed at 09:00
+UTC. Advancing by hand or through Claude mails immediately, because the same drain runs at the end
+of that request. Both are idempotent: the campaign report asks which campaigns are finished and
+unnotified, the digest asks whose cadence is due, so a repeated cron cannot double-send either.
+
+```bash
+npm run preview:email   # writes both templates to .data/ so you can open them
+```
+
 ## Not built
 
-LLM screening beyond term extraction, and the email send itself. The digest is the top ten by
-score; screening is a separate decision.
+LLM screening beyond term extraction. The digest is the top ten by score; screening is a separate
+decision.
 # z-score

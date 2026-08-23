@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { resolveProfile } from "@/lib/auth";
+import { isEmailAddress } from "@/lib/email";
 import { get, set, storeKind, storeIsEphemeral } from "@/lib/store";
 import {
   MAX_RECENT_SLUGS,
@@ -11,6 +12,7 @@ import {
   type ProfileState,
   type QueueFilters,
   type SavedSweep,
+  isDigestCadence,
 } from "@/lib/state";
 import { migrateIfNeeded, readRoster, readTeam } from "@/lib/serverState";
 import { isArchetype } from "@/lib/clusters";
@@ -104,6 +106,31 @@ function cleanPatch(raw: Partial<ProfileState>): Partial<ProfileState> {
   if (typeof raw.digestSeenAt === "string" || raw.digestSeenAt === null) {
     out.digestSeenAt = raw.digestSeenAt ? str(raw.digestSeenAt, 40) : null;
   }
+  /**
+   * The address is the only contact detail this app stores, so it is checked here
+   * rather than trusted. `null` clears it; anything without an `@` is not an address
+   * and is dropped rather than saved and silently never delivered to.
+   */
+  /**
+   * The only contact detail this app stores, so it is checked rather than trusted.
+   *
+   * The first version asked only for something either side of an `@` with a dot, and
+   * accepted `<script>@x.com`. Nothing renders a recipient address today, so that was
+   * unreachable rather than safe, and unreachable is not a property worth relying on:
+   * the moment anything shows who a digest went to it becomes stored XSS. A
+   * conservative character set costs nothing and closes it, plus-addressing included.
+   */
+  if (typeof raw.email === "string" || raw.email === null) {
+    const e = raw.email ? str(raw.email, 200).trim() : "";
+    out.email = e && isEmailAddress(e) ? e : null;
+  }
+  if (isDigestCadence(raw.digest)) out.digest = raw.digest;
+  if (typeof raw.campaignEmails === "boolean") out.campaignEmails = raw.campaignEmails;
+  /**
+   * Not client-writable. It is the record of what was actually sent, and a client
+   * that could set it could either re-send the same digest all day or switch its own
+   * off by dating it into the future.
+   */
   if (raw.seeds !== undefined) out.seeds = strList(raw.seeds, 250, 300);
   if (typeof raw.activeJobId === "string" || raw.activeJobId === null) {
     out.activeJobId = raw.activeJobId ? str(raw.activeJobId, 80) : null;

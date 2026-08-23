@@ -38,6 +38,7 @@ import {
   writeDefaults,
 } from "../lib/campaignRun";
 import { tagFresh } from "../lib/campaignTag";
+import { sendDueDigests, sendPendingCampaignEmails } from "../lib/emailSend";
 import { adjudicateFresh } from "../lib/tagAdjudicate";
 import { MAX_UNVOUCHED, heldTags, unvouchedTags } from "../lib/tags";
 import type { Person } from "../lib/people";
@@ -141,6 +142,31 @@ function groqCalls() {
   return calls.filter((c) => c.host === "api.groq.com").length;
 }
 
+/**
+ * The mail stub. `resendFailures` drives the retry-and-stamp cases, and `mails`
+ * records what would have gone out so a test can assert the recipient without the
+ * sender ever logging one.
+ */
+let mails: { to: string; subject: string; html: string; text: string }[] = [];
+let resendFailures = 0;
+
+function resendReply(body: string | undefined): Response {
+  if (resendFailures > 0) {
+    resendFailures--;
+    return new Response(JSON.stringify({ message: "domain not verified" }), { status: 403 });
+  }
+  try {
+    const m = JSON.parse(body ?? "{}");
+    mails.push({ to: (m.to ?? [])[0] ?? "", subject: m.subject ?? "", html: m.html ?? "", text: m.text ?? "" });
+  } catch {
+    mails.push({ to: "", subject: "", html: "", text: "" });
+  }
+  return new Response(JSON.stringify({ id: `msg_${mails.length}` }), {
+    status: 200,
+    headers: { "content-type": "application/json" },
+  });
+}
+
 /** Serper hits, keyed by nothing: every query returns the same page of people. */
 let serperPeople: { name: string; slug: string; snippet: string }[] = [];
 /** Set to make the next N Serper calls fail, for the mid-tick failure cases. */
@@ -172,6 +198,7 @@ function install() {
     }
 
     if (host === "api.groq.com") return groqReply(init?.body as string | undefined);
+    if (host === "api.resend.com") return resendReply(init?.body as string | undefined);
     // Anything else is a call this harness did not expect to be made, and the
     // point of failing loudly here is that a paid call sneaking in is exactly
     // the bug class worth catching.
@@ -220,6 +247,8 @@ async function freshStore() {
   await set(TEAM_KEY, { ...team, deleted: [] });
   calls = [];
   serperFailures = 0;
+  mails = [];
+  resendFailures = 0;
 }
 
 /** A search-only person with whatever prose a case needs. */
@@ -269,6 +298,44 @@ function heldEvidence(p: Person, team: Awaited<ReturnType<typeof readTeam>>, lab
   return heldTags(p, team.taxonomy).find((t) => t.def.label === label)?.evidence?.text;
 }
 
+/** Set one profile's mail preferences, the way the app's own PATCH would. */
+async function setPrefs(
+  owner: ProfileId,
+  prefs: { email: string | null; digest: "off" | "daily" | "weekly"; campaignEmails: boolean }
+) {
+  const key = stateKey(owner);
+  const current = hydrate(await get<Partial<ProfileState>>(key));
+  await set(key, { ...current, ...prefs, lastDigestAt: null });
+}
+
+/**
+ * A campaign that has finished, without spending four minutes finishing one.
+ *
+ * The drain asks a question of stored state — finished, and not yet notified — so a
+ * written row is exactly as real to it as one the engine produced.
+ */
+async function finishedCampaign(name: string): Promise<string> {
+  serperPeople = people(3, "fin");
+  const made = await createCampaign(OWNER, {
+    name,
+    selection: selection(),
+    settings: { days: 1, searchesPerDay: 1, queuePerDay: 3, enrichPerDay: 0 },
+  });
+  if (!made.ok) throw new Error(`setup: ${made.error}`);
+  await tickCampaign(made.campaign.id, 20_000);
+  const c = await readCampaign(made.campaign.id);
+  if (!c) throw new Error("gone");
+  await writeCampaignDirect({
+    ...c,
+    status: "done",
+    finishedReason: "ran its full 1 day",
+    finishedAt: new Date().toISOString(),
+    foundCount: 3,
+    notifiedAt: undefined,
+  });
+  return made.campaign.id;
+}
+
 async function marksFor(owner: ProfileId) {
   return hydrate(await get<Partial<ProfileState>>(stateKey(owner))).marks;
 }
@@ -295,6 +362,9 @@ async function main() {
    * is about the limits, which uses the daily caps because those refuse immediately
    * instead of waiting.
    */
+  process.env.RESEND_API_KEY = "re_test";
+  process.env.ZSCORE_EMAIL_FROM = "Z-Score <digest@test.invalid>";
+  process.env.ZSCORE_PUBLIC_ORIGIN = "https://z.example";
   process.env.ZSCORE_GROQ_RPM = "100000";
   process.env.ZSCORE_GROQ_TPM = "100000000";
   process.env.ZSCORE_GROQ_RPD = "100000";
@@ -1198,6 +1268,198 @@ async function run() {
   }
 
   /* ── utcDay ──────────────────────────────────────────────────────────── */
+  /* ── Email ───────────────────────────────────────────────────────────── */
+  console.log("\nnothing is emailed without a key");
+  {
+    await freshStore();
+    delete process.env.RESEND_API_KEY;
+    await setPrefs(OWNER, { email: "cory@example.com", digest: "daily", campaignEmails: true });
+    const done = await finishedCampaign("no key");
+
+    check("the campaign drain does nothing", await sendPendingCampaignEmails(), 0);
+    check("the digest pass does nothing", await sendDueDigests(), 0);
+    check("and no mail was attempted", mails.length, 0);
+    /**
+     * And crucially it does not stamp. An install with no key that marked every
+     * campaign as notified would mean nothing was ever sent once a key arrived.
+     */
+    check("nor is anything marked as sent", (await readCampaign(done))?.notifiedAt, undefined);
+    process.env.RESEND_API_KEY = "re_test";
+  }
+
+  console.log("\na finished campaign is mailed once, whoever finished it");
+  {
+    await freshStore();
+    await setPrefs(OWNER, { email: "cory@example.com", digest: "off", campaignEmails: true });
+    const id = await finishedCampaign("Olympiad sweep");
+
+    check("the first drain sends", await sendPendingCampaignEmails(), 1);
+    check("to the owner", mails[0]?.to, "cory@example.com");
+    check("with a sentence for a subject", mails[0]?.subject, "Olympiad sweep found 3 people");
+    checkThat("and it is stamped", Boolean((await readCampaign(id))?.notifiedAt), "not stamped");
+
+    /**
+     * The whole point of a drain. The cron runs daily and the Advance button calls
+     * the same function, so this must be safe to run any number of times.
+     */
+    mails = [];
+    check("a second drain sends nothing", await sendPendingCampaignEmails(), 0);
+    check("really nothing", mails.length, 0);
+  }
+
+  console.log("\na send that fails is retried rather than lost");
+  {
+    await freshStore();
+    await setPrefs(OWNER, { email: "cory@example.com", digest: "off", campaignEmails: true });
+    const id = await finishedCampaign("Retry me");
+
+    resendFailures = 1;
+    check("the failing pass reports nothing sent", await sendPendingCampaignEmails(), 0);
+    /**
+     * Unstamped on failure, which is the right way round: a duplicate report is
+     * noise, a report nobody ever gets is a campaign that ran for nothing.
+     */
+    check("and leaves it unstamped", (await readCampaign(id))?.notifiedAt, undefined);
+
+    check("so the next pass sends it", await sendPendingCampaignEmails(), 1);
+    checkThat("and stamps it then", Boolean((await readCampaign(id))?.notifiedAt), "not stamped");
+  }
+
+  console.log("\nnobody to tell is settled rather than reconsidered forever");
+  {
+    await freshStore();
+    await setPrefs(OWNER, { email: null, digest: "off", campaignEmails: true });
+    const id = await finishedCampaign("No address");
+    check("no address means no send", await sendPendingCampaignEmails(), 0);
+    check("and no attempt", mails.length, 0);
+    /**
+     * Stamped even so. Otherwise every cron for the life of the campaign reconsiders
+     * a decision nobody can act on, and the log fills with it.
+     */
+    checkThat("but it is settled", Boolean((await readCampaign(id))?.notifiedAt), "left pending");
+
+    await freshStore();
+    await setPrefs(OWNER, { email: "cory@example.com", digest: "off", campaignEmails: false });
+    const off = await finishedCampaign("Switched off");
+    check("switching campaign mail off means no send", await sendPendingCampaignEmails(), 0);
+    checkThat("and that is settled too", Boolean((await readCampaign(off))?.notifiedAt), "left pending");
+  }
+
+  console.log("\na running campaign is never mailed");
+  {
+    await freshStore();
+    await setPrefs(OWNER, { email: "cory@example.com", digest: "off", campaignEmails: true });
+    serperPeople = people(2, "run");
+    const made = await createCampaign(OWNER, {
+      name: "still going",
+      selection: selection(),
+      settings: { days: 5, searchesPerDay: 1, enrichPerDay: 0 },
+    });
+    if (!made.ok) throw new Error("setup");
+    check("a running campaign is not a finished one", await sendPendingCampaignEmails(), 0);
+    check("no mail", mails.length, 0);
+  }
+
+  console.log("\ndigests go on their cadence, once each");
+  {
+    await freshStore();
+    serperPeople = people(4, "dig");
+    // A roster to report on, put there the way the app puts people there.
+    const made = await createCampaign(OWNER, {
+      name: "fill the queue",
+      selection: selection(),
+      settings: { days: 1, searchesPerDay: 1, queuePerDay: 4, enrichPerDay: 0 },
+    });
+    if (made.ok) await tickCampaign(made.campaign.id, 20_000);
+
+    await setPrefs(OWNER, { email: "cory@example.com", digest: "daily", campaignEmails: false });
+    await setPrefs(OTHER, { email: "grace@example.com", digest: "off", campaignEmails: false });
+
+    mails = [];
+    check("the daily one goes", await sendDueDigests(), 1);
+    check("to the person who asked", mails[0]?.to, "cory@example.com");
+    check("and only to them", mails.length, 1);
+    checkThat("the body names somebody", /Person dig/.test(mails[0]?.html ?? ""), (mails[0]?.html ?? "").slice(0, 80));
+
+    // Same UTC day again.
+    mails = [];
+    check("twice in one day sends once", await sendDueDigests(), 0);
+    check("no second mail", mails.length, 0);
+
+    // Tomorrow.
+    mails = [];
+    check("and again the next day", await sendDueDigests(new Date(Date.now() + 25 * 3600_000)), 1);
+  }
+
+  console.log("\na digest that fails to send is not recorded as sent");
+  {
+    await freshStore();
+    serperPeople = people(3, "fail");
+    const made = await createCampaign(OWNER, {
+      name: "queue",
+      selection: selection(),
+      settings: { days: 1, searchesPerDay: 1, queuePerDay: 3, enrichPerDay: 0 },
+    });
+    if (made.ok) await tickCampaign(made.campaign.id, 20_000);
+    await setPrefs(OWNER, { email: "cory@example.com", digest: "daily", campaignEmails: false });
+
+    resendFailures = 1;
+    check("the failing pass sends nothing", await sendDueDigests(), 0);
+    check("so it is still due", await sendDueDigests(), 1);
+  }
+
+  console.log("\nthe address never reaches the log");
+  {
+    await freshStore();
+    serperPeople = people(2, "priv");
+    const made = await createCampaign(OWNER, {
+      name: "privacy",
+      selection: selection(),
+      settings: { days: 1, searchesPerDay: 1, queuePerDay: 2, enrichPerDay: 0 },
+    });
+    if (made.ok) await tickCampaign(made.campaign.id, 20_000);
+    await setPrefs(OWNER, { email: "verysecret@example.com", digest: "daily", campaignEmails: true });
+
+    const said: string[] = [];
+    const realLog = console.log;
+    console.log = (...a: unknown[]) => said.push(a.map(String).join(" "));
+    await sendDueDigests();
+    await sendPendingCampaignEmails();
+    console.log = realLog;
+
+    /**
+     * lib/log.ts bans candidate PII because the population is minors. A teammate's
+     * address is a lesser matter and the same rule costs nothing to keep, so the
+     * sender logs the ProfileId instead.
+     */
+    check("no address in any log line", said.filter((l) => l.includes("verysecret")), []);
+    checkThat("but the send was logged", said.some((l) => l.includes("email.sent")), said.join("\n").slice(0, 200));
+  }
+
+  console.log("\nstamping a digest does not eat the rest of the profile");
+  {
+    await freshStore();
+    serperPeople = people(2, "keep");
+    const made = await createCampaign(OWNER, {
+      name: "keep marks",
+      selection: selection(),
+      settings: { days: 1, searchesPerDay: 1, queuePerDay: 2, enrichPerDay: 0 },
+    });
+    if (made.ok) await tickCampaign(made.campaign.id, 20_000);
+    await setPrefs(OWNER, { email: "cory@example.com", digest: "daily", campaignEmails: false });
+
+    const before = await marksFor(OWNER);
+    const count = Object.keys(before).length;
+    checkThat("there are marks to lose", count > 0, String(count));
+    await sendDueDigests();
+    const after = await marksFor(OWNER);
+    /**
+     * The cron writes `lastDigestAt` while somebody may be triaging in another tab,
+     * so the write goes through `mergeState` rather than replacing the document.
+     */
+    check("the marks survive the stamp", Object.keys(after).length, count);
+  }
+
   console.log("\nthe day is a UTC date, not a local one");
   {
     checkThat("utcDay is a plain date", /^\d{4}-\d{2}-\d{2}$/.test(utcDay()), utcDay());

@@ -164,6 +164,16 @@ export type Campaign = {
   createdAt: string;
   lastTickAt?: string;
   finishedAt?: string;
+  /**
+   * When its report was emailed, which is the whole of the idempotency.
+   *
+   * A campaign can be finished by the nightly cron, by the Advance button or by
+   * Claude, and the drain that mails it runs after all three. Recording the send on
+   * the campaign rather than tracking it anywhere else means the drain is a query —
+   * finished, not yet notified — so it cannot send twice however often it runs, and
+   * a send that failed simply has not stamped and is retried on the next pass.
+   */
+  notifiedAt?: string;
 };
 
 export const CAMPAIGNS_KEY = "zscore:team:campaigns";
@@ -266,6 +276,7 @@ export function hydrateCampaign(stored: Partial<Campaign> | null): Campaign | nu
     createdAt: stored.createdAt ?? new Date().toISOString(),
     lastTickAt: stored.lastTickAt,
     finishedAt: stored.finishedAt,
+    notifiedAt: stored.notifiedAt,
   };
 }
 
