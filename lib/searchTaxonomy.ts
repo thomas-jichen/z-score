@@ -191,6 +191,24 @@ export const PROGRAMS: Seed[] = [
   { label: "SSP", aliases: ["Summer Science Program"] },
   { label: "MIT PRIMES", aliases: ["PRIMES"] },
   { label: "PROMYS", aliases: ["Program in Mathematics for Young Scientists"] },
+  /**
+   * A grant, not a batch, and it needs its own row to stay one.
+   *
+   * "YCombinator Summer Fellow Grant" was reaching the Y Combinator tag and paying
+   * 2.0 — the ceiling, which the accelerator ladder reserves for somebody having
+   * written a cheque. `BORROWED_NAME` already refuses the phrase in prose and names
+   * this exact programme as the reason it exists, so the scanner was right and the
+   * credential was simply going unrecorded. With a row of its own the longest key at
+   * that start position is this one, so the scanner resolves the honour here instead
+   * of at YC, and the fellowship is credited at a fellowship's weight.
+   *
+   * A `program` rather than an `accelerator` deliberately: the accelerator facet is
+   * the one `BORROWED_NAME` gates, so filing it there would have it block itself.
+   */
+  {
+    label: "YC Summer Fellow",
+    aliases: ["YCombinator Summer Fellow", "Y Combinator Summer Fellowship", "YC Summer Fellowship"],
+  },
   { label: "Simons Fellow", aliases: ["Simons Summer Research Program", "Simons Summer Research"] },
   { label: "Garcia Program", aliases: ["Garcia Summer Scholar", "Garcia Center"] },
   /**

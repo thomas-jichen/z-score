@@ -557,7 +557,7 @@ function seedFacets(): Map<string, TagFacet> {
  *       inflating anyone who listed a lot of activities. Activity-tier weights cut so
  *       that breadth cannot out-score depth.
  */
-export const SEED_VERSION = 4;
+export const SEED_VERSION = 5;
 
 /**
  * Adopt a recalibrated seed table, once.

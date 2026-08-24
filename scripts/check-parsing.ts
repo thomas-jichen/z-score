@@ -67,6 +67,7 @@ import {
 import { classifyOrg, extractTags, inferHomeState } from "../lib/extract";
 import { extractTerms, groundedIn } from "../lib/groq";
 import { aliasesToLearn, cleanDeleted, cleanTaxonomy, withPromoted } from "../lib/team";
+import { groundedTerms } from "../lib/tags";
 import { START_WEIGHT, assignCluster, round } from "../lib/clusters";
 import {
   aliasIsUsable,
@@ -1657,6 +1658,101 @@ console.log("\npromoting a covered term cannot mint a duplicate");
     ]),
     TAX.tags
   );
+}
+
+console.log("\nthe tagger obeys the rules the scanner obeys");
+{
+  /**
+   * Four paths award a tag and only one was ever hardened. `proseTags` checks the
+   * facet, `TagDef.match`, a qualifier for `qualified` names and `BORROWED_NAME`;
+   * path 3 — what the model read — did a bare `resolveAny` on the label and asked
+   * nothing else. So the tagger walked through the door the scanner is bolted shut.
+   *
+   * James Liu's honours read "YCombinator Summer Fellow Grant (2026)". The model
+   * returned two terms from it: the fellowship, and the bare accelerator name. The
+   * second resolved exactly and paid 2.0 — the ceiling the ladder reserves for
+   * somebody having written a cheque.
+   */
+  const honour = "Fellowship | YCombinator Summer Fellow Grant (2026)";
+  const g = groundedTerms(
+    [
+      { label: "YCombinator Summer Fellow", evidence: honour },
+      { label: "Y Combinator", evidence: honour },
+    ],
+    TAX
+  );
+  check("the fellowship is kept", g.kept.includes("YCombinator Summer Fellow"), true);
+  check("the bare accelerator name is not", g.kept.includes("Y Combinator"), false);
+  check("and the reason is recorded", g.dropped[0]?.why, "borrowed name");
+
+  /**
+   * The gate is about the quote, not the label. A real batch says so, and has to
+   * keep passing — refusing every "Y Combinator" would trade one wrong answer for a
+   * worse one.
+   */
+  check(
+    "a funded founder still counts",
+    groundedTerms([{ label: "Y Combinator", evidence: "Co-founder, YC W25, raised a seed round" }], TAX)
+      .kept.length,
+    1
+  );
+
+  // Never read from words at all, so not from the model's words either.
+  check(
+    "a structured-only tag is refused",
+    groundedTerms([{ label: "Benchmark", evidence: "we beat the benchmark on every task" }], TAX).dropped[0]
+      ?.why,
+    "structured-only"
+  );
+
+  // A name that is also an ordinary word needs its sentence to vouch for it.
+  check(
+    "an unqualified ordinary word is refused",
+    groundedTerms([{ label: "Rise", evidence: "the rise of transformer models" }], TAX).dropped[0]?.why,
+    "unqualified"
+  );
+  check(
+    "the same word qualified is kept",
+    groundedTerms([{ label: "Rise", evidence: "Rise Global Fellow, 2025 cohort" }], TAX).kept.length,
+    1
+  );
+
+  /**
+   * A term the registry has never heard of is not the gate's business — no policy
+   * governs an unknown name, and the review queue exists to decide.
+   */
+  check(
+    "an unknown term passes through untouched",
+    groundedTerms([{ label: "Brylo", evidence: "Co-founder at Brylo" }], TAX).kept,
+    ["Brylo"]
+  );
+}
+
+console.log("\na fellowship is not a cheque");
+{
+  /**
+   * The fix the gate alone could not make. Refusing the bare name stops the
+   * inflation but records nothing, and the fellowship is real — so it gets a row of
+   * its own, on the grant rung with Emergent Ventures rather than the cheque rung.
+   */
+  const ix = indexRegistry(TAX.tags);
+  const fellow = TAX.tags["yc-summer"];
+  check("the tag exists", Boolean(fellow), true);
+  check("as a programme, not an accelerator", fellow.facet, "program");
+  check("well under the accelerator ceiling", fellow.weight < TAX.tags["y-combinator"].weight, true);
+  check("on the grant rung", fellow.weight, TAX.tags["emergent-ventures"].weight);
+
+  for (const spelling of ["YCombinator Summer Fellow", "YC Summer Fellowship", "Y Combinator Summer Fellowship"]) {
+    check(`"${spelling}" resolves to it`, resolveAny(ix, spelling)?.id, "yc-summer");
+  }
+
+  /**
+   * And the scanner now gets the honour right on its own: at that start position the
+   * longest key wins, and this one is longer than `ycombinator`.
+   */
+  const found = scanText("YCombinator Summer Fellow Grant (2026)", ix);
+  check("the scanner reads the fellowship", found.map((h) => h.def.id), ["yc-summer"]);
+  check("and no longer reaches YC there", found.some((h) => h.def.id === "y-combinator"), false);
 }
 
 console.log("\naddAlias vets what it is handed");

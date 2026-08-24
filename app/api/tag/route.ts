@@ -3,12 +3,12 @@ import { resolveProfile } from "@/lib/auth";
 import { extractMany, hasGroq, groqModel, suggestClassification } from "@/lib/groq";
 import type { Person } from "@/lib/people";
 import { migrateIfNeeded, readRoster, readTeam, writePeople } from "@/lib/serverState";
-import { unmatchedTerms, vocabulary } from "@/lib/tags";
+import { groundedTerms, unmatchedTerms, vocabulary } from "@/lib/tags";
 import { aliasesToLearn, withPromoted, worthPromoting } from "@/lib/team";
 import { TEAM_KEY, type TeamState } from "@/lib/state";
 import { set } from "@/lib/store";
 import type { Archetype } from "@/lib/clusters";
-import { addAlias, type TagFacet } from "@/lib/tagRegistry";
+import { addAlias, normalizeKey, type TagFacet } from "@/lib/tagRegistry";
 import { reserveTagging } from "@/lib/ratelimit";
 import { cleanSlugs, isBad, readJson, str } from "@/lib/validate";
 import { adjudicateFresh } from "@/lib/tagAdjudicate";
@@ -97,19 +97,50 @@ export async function POST(req: Request) {
 
     const at = new Date().toISOString();
     const byslug = new Map(results.map((x) => [x.slug, x]));
+    const refused: string[] = [];
     const updated: Person[] = targets.map((p) => {
       const found = byslug.get(p.slug);
-      const terms = found?.terms.map((t) => t.label) ?? [];
+
+      /**
+       * The model's terms get the gates the scanner applies.
+       *
+       * Otherwise the tagger is a way around every rule in `proseTags`. Reading
+       * "YCombinator Summer Fellow Grant", it returned two terms: the fellowship,
+       * which is now a tag of its own, and the bare "Y Combinator", which resolved
+       * exactly and paid 2.0 for a grant that is not a cheque. The scanner refuses
+       * that phrase and always has; this path never asked.
+       */
+      const { kept, dropped } = groundedTerms(found?.terms ?? [], team.taxonomy);
+      for (const d of dropped) refused.push(`${d.label} (${d.why})`);
+
       return {
         ...p,
-        // Merge rather than replace: a term the model found last time and missed
-        // this time is not evidence it was wrong.
-        extractedTerms: [...new Set([...(p.extractedTerms ?? []), ...terms])],
+        /**
+         * Merged, then minus whatever the gate refused.
+         *
+         * Merging alone meant a bad term could never leave: a union only grows, so a
+         * stray "Y Combinator" would outlive every future re-tag. Replacing outright
+         * was the first attempt and it was worse — the model is not deterministic, and
+         * one forced run on James Liu silently dropped Paradigm Fellowship and
+         * GreylockX, both of which are genuinely in his honours. Merging is right for
+         * exactly the reason the old comment gave.
+         *
+         * So the union is kept and the refusals are subtracted from it. A term the
+         * model re-offered and the rules rejected goes, whether it arrived this run or
+         * six runs ago, and nothing that was only *missed* is touched.
+         */
+        extractedTerms: mergeTerms(p.extractedTerms, kept, dropped),
         // Stamped even on a miss, or an unproductive profile is retried forever.
         taggedAt: at,
         updatedAt: at,
       };
     });
+
+    // Said out loud, because a credential dropped in silence is indistinguishable
+    // from one the model never found.
+    if (refused.length > 0) {
+      log.info("tag.refused", { count: refused.length, terms: refused.join(", ") });
+    }
 
     await writePeople(updated);
 
@@ -216,6 +247,21 @@ const MAX_AUTO_PROMOTE = 8;
  * the id or already present, so running twice is running once.
  */
 const MAX_AUTO_ALIAS = 24;
+
+/**
+ * The stored terms, plus what this run found, minus what it refused.
+ *
+ * Compared through `normalizeKey` so a refusal lands on the spelling that is stored
+ * rather than only on the one the model happened to return this time.
+ */
+function mergeTerms(
+  stored: string[] | undefined,
+  kept: string[],
+  dropped: { label: string }[]
+): string[] {
+  const refused = new Set(dropped.map((d) => normalizeKey(d.label)));
+  return [...new Set([...(stored ?? []), ...kept])].filter((l) => !refused.has(normalizeKey(l)));
+}
 
 async function autoAlias(people: Person[]): Promise<number> {
   const fresh = await readTeam();

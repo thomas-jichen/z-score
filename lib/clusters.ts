@@ -194,6 +194,7 @@ export const TERM_CLUSTER: Record<string, Archetype | null> = {
   Techstars: "founder",
   Antler: "founder",
   "Emergent Ventures": "founder",
+  "YC Summer Fellow": "founder",
   "Funded founder": "founder",
   // Operator
   "Coca-Cola Scholar": "operator",
@@ -262,6 +263,10 @@ export const START_WEIGHT: Record<string, number> = {
   Bessemer: 1.4,
   "645 Ventures": 1.2,
   "Emergent Ventures": 1.2,
+  // Sits with Emergent Ventures because it is the same kind of thing: a grant to a
+  // student, not an investment in a company. The ladder above reserves 2.0 for a
+  // cheque, and this is not one.
+  "YC Summer Fellow": 1.2,
   Contrary: 1.2,
   "Entrepreneur First": 1.2,
   // A student-run fund is real but junior to the firms above it.

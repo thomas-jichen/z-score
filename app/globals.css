@@ -879,6 +879,27 @@ a.z-archetype:hover {
   height: 72px;
 }
 
+/**
+ * The candidate hero: face beside the score, not above it.
+ *
+ * The header comment on this block says the score is the headline and the name is
+ * second, and that order is preserved — the face sits alongside the whole stack
+ * rather than displacing it. It wraps below on a narrow screen, where 72px plus a
+ * sigma plus a long name will not share a line.
+ */
+.z-hero {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--z-space-5);
+  flex-wrap: wrap;
+}
+
+.z-hero-face {
+  flex: none;
+  /* Optically level with the sigma rather than the top of its line box. */
+  margin-top: 2px;
+}
+
 .z-person {
   display: flex;
   align-items: center;

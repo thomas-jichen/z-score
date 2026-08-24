@@ -9,15 +9,16 @@ import { allTags, schoolStateLookup } from "@/lib/tags";
 import { ARCHETYPES, archetypeLabel, formatSigma, type Archetype } from "@/lib/zscore";
 import {
   ArchetypeTag,
+  Avatar,
   Button,
   Card,
   EmptyState,
   MarkControl,
   PolymathBadge,
+  SignalWhy,
   TagChip,
   ZScoreBadge,
   ZScoreBreakdown,
-  SignalWhy,
 } from "@/components/primitives";
 
 /**
@@ -122,7 +123,21 @@ export function CandidateDetail({ slug }: { slug: string }) {
       </Link>
 
       {/* Hero. The score is the headline, the name is second. */}
-      <div style={{ margin: "var(--z-space-8) 0 var(--z-space-12)" }}>
+      <div className="z-hero" style={{ margin: "var(--z-space-8) 0 var(--z-space-12)" }}>
+        {/*
+          The face, and only when there is one.
+          
+          This page had no avatar at all, so every profile looked photoless whether
+          it was or not. At 72px an initials box is the largest thing in the hero and
+          says nothing, so the two people LinkedIn does not publish a headshot for get
+          a page that reads as deliberate rather than as broken.
+        */}
+        {c.has_photo && (
+          <div className="z-hero-face">
+            <Avatar name={c.name} slug={c.slug} photo size="lg" />
+          </div>
+        )}
+        <div style={{ minWidth: 0 }}>
         <ZScoreBadge candidate={c} display />
         <h1 className="z-h1" style={{ marginTop: "var(--z-space-4)" }}>
           {c.name}
@@ -167,6 +182,7 @@ export function CandidateDetail({ slug }: { slug: string }) {
             </Button>
           </div>
         )}
+        </div>
       </div>
 
       <div

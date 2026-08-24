@@ -876,6 +876,88 @@ export type Unmatched = {
   covered?: { id: string; label: string; exact: boolean };
 };
 
+/**
+ * The model's terms, filtered by the rules that govern words.
+ *
+ * ── The hole this closes ──────────────────────────────────────────────────
+ * There are four ways a tag gets awarded, and only one of them was ever hardened.
+ * `proseTags` earns its matches: the facet has to be text-readable, `TagDef.match`
+ * has to permit it, a `qualified` name needs the sentence around it to be talking
+ * about holding something, and `BORROWED_NAME` throws out the phrases that carry an
+ * accelerator's name and none of its meaning. Path 3 — what the tagger read — did a
+ * bare `resolveAny` on the label and asked nothing else.
+ *
+ * So the model walked through the door the scanner is bolted shut. James Liu's
+ * honours say "YCombinator Summer Fellow Grant (2026)", and the tagger returned two
+ * terms from it: "YCombinator Summer Fellow", which is accurate, and "Y Combinator",
+ * which is not — the Summer Fellowship is a grant, not a batch. `BORROWED_NAME`
+ * already matches that string on both `\bsummer fellow\b` and `\bfellowship grant\b`,
+ * and its comment already names this exact programme as the reason it exists. The
+ * scanner would have refused it. The bare label resolved exactly and paid out 2.0,
+ * the heaviest weight in the taxonomy.
+ *
+ * ── Why the evidence is what gets tested ──────────────────────────────────
+ * The gates are about context, and a label has none. The tagger is already required
+ * to quote the text it read — that quote is what `groundedIn` checks — so the quote is
+ * the sentence to judge, exactly as `proseTags` judges the field it scanned. Testing
+ * the label alone would be asking whether "Y Combinator" is a real tag, which it is.
+ *
+ * A term that resolves to nothing is kept. No policy governs a name the registry has
+ * never heard of, and it is the review queue's job to decide.
+ */
+export function groundedTerms(
+  terms: readonly { label: string; evidence: string }[],
+  tax: TaxonomyPrefs
+): { kept: string[]; dropped: { label: string; why: string }[] } {
+  const index = indexRegistry(tax.tags);
+  const kept: string[] = [];
+  const dropped: { label: string; why: string }[] = [];
+
+  for (const t of terms) {
+    const def = resolveAny(index, t.label);
+    if (!def) {
+      kept.push(t.label);
+      continue;
+    }
+
+    const why = refuse(def, t.evidence ?? "");
+    if (why) dropped.push({ label: t.label, why });
+    else kept.push(t.label);
+  }
+  return { kept, dropped };
+}
+
+function refuse(def: TagDef, evidence: string): string | null {
+  const policy = def.match ?? "text";
+
+  // Never read from words at all, and the tagger reads nothing else.
+  if (policy === "structured") return "structured-only";
+
+  if (def.facet === "accelerator" && BORROWED_NAME.test(evidence)) return "borrowed name";
+
+  if (policy === "qualified" && !hasQualifier(evidence, spanOf(def, evidence), def.facet)) {
+    return "unqualified";
+  }
+  return null;
+}
+
+/**
+ * Where the tag's name sits inside the quote, so `hasQualifier` can look either side
+ * of it the way it does for a scanned field.
+ *
+ * The label is matched case-insensitively against the evidence; the tagger normalises
+ * names, so it is often absent verbatim. A zero-width span at the start is the honest
+ * fallback — it makes the whole quote the "after" context, which is the same question
+ * asked less precisely rather than a different one.
+ */
+function spanOf(def: TagDef, evidence: string): Span {
+  const needle = def.label.toLowerCase();
+  const at = evidence.toLowerCase().indexOf(needle);
+  return at < 0
+    ? { text: "", start: 0, end: 0 }
+    : { text: evidence.slice(at, at + needle.length), start: at, end: at + needle.length };
+}
+
 export function unmatchedTerms(people: Person[], tax: TaxonomyPrefs): Unmatched[] {
   // Resolved through the registry, not compared by lowercase. A term the tagger
   // wrote as "Massachusetts Institute of Technology" is already known as the MIT
