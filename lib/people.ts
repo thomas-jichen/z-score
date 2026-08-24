@@ -78,6 +78,13 @@ export type Person = {
    * re-ask and re-pay for every rejection on every tagging pass.
    */
   adjudicated?: Record<string, boolean>;
+  /**
+   * A picture was supplied by hand, so there is one to show even though the vendor
+   * returned none. Lives on the person rather than on `enriched` because somebody
+   * known only from search results can have one too, and because an enrichment
+   * rebuilds `enriched` wholesale and would drop it.
+   */
+  photoManual?: boolean;
   /** When the tagger last ran, so it is not paid for twice. */
   taggedAt?: string;
   location?: string;

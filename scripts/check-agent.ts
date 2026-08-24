@@ -50,6 +50,7 @@ import { hasGroq } from "../lib/groq";
 import { readRoster, readTeam, writePeople } from "../lib/serverState";
 import { TEAM_KEY } from "../lib/state";
 import { del, get, set } from "../lib/store";
+import { MANUAL_PATH, photoFor, photoKey } from "../lib/photo";
 import { stateKey, hydrate, type ProfileState } from "../lib/state";
 
 /* ── Harness ────────────────────────────────────────────────────────────── */
@@ -388,6 +389,63 @@ async function main() {
 }
 
 async function run() {
+  /* ── A photo chosen by hand outlasts the vendor ──────────────────────── */
+  console.log("\na hand-supplied photo is not overwritten");
+  {
+    await freshStore();
+
+    /**
+     * The guard this asserts cannot be tested where the network is real, because a
+     * failed download falls back to the cached copy and the wrong code looks right.
+     * Here `fetch` succeeds, so removing the guard genuinely replaces the picture.
+     */
+    /**
+     * Cleared explicitly rather than trusting `freshStore`, which does not know about
+     * photo keys. A leftover from an earlier run made "a vendor photo is still
+     * fetched" pass zero calls and look like a broken fetch stub.
+     */
+    await del(photoKey("byhand"));
+    await del(photoKey("fromvendor"));
+
+    let fetched = 0;
+    const prior = globalThis.fetch;
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      if (String(input).includes("licdn.com")) {
+        fetched++;
+        return new Response(new Uint8Array([1, 2, 3, 4]), {
+          status: 200,
+          headers: { "content-type": "image/png" },
+        });
+      }
+      return prior(input as RequestInfo);
+    }) as typeof fetch;
+
+    try {
+      await set(photoKey("byhand"), {
+        data: Buffer.from("chosen").toString("base64"),
+        contentType: "image/jpeg",
+        path: MANUAL_PATH,
+        at: "2026-08-24T00:00:00.000Z",
+      });
+
+      const back = await photoFor("byhand", "https://media.licdn.com/dms/image/v2/AAA/photo?e=123");
+      check("the hand-supplied bytes are kept", back?.data, Buffer.from("chosen").toString("base64"));
+      check("its path is untouched", back?.path, MANUAL_PATH);
+      check("and the vendor was never called", fetched, 0);
+
+      /**
+       * The other half: where nothing was chosen by hand, a vendor URL is fetched and
+       * stored. Without this the test above would also pass on a function that never
+       * fetches anything at all.
+       */
+      const pulled = await photoFor("fromvendor", "https://media.licdn.com/dms/image/v2/BBB/photo?e=456");
+      check("a vendor photo is still fetched", fetched, 1);
+      check("and stored under its own path", pulled?.path, "/dms/image/v2/BBB/photo");
+    } finally {
+      globalThis.fetch = prior;
+    }
+  }
+
   /* ── The stubs are the stubs ─────────────────────────────────────────── */
   console.log("\nthe harness pays for nothing");
   {

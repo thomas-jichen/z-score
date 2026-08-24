@@ -36,7 +36,7 @@ import {
 } from "../lib/state";
 import { PURGED_ALIASES, isBannedTag } from "../lib/searchTaxonomy";
 import { coverageOf, readTier, scanText } from "../lib/tagMatch";
-import { photoToken, photoTokenValid } from "../lib/photo";
+import { MANUAL_PATH, photoToken, photoTokenValid } from "../lib/photo";
 import type { Candidate } from "../lib/zscore";
 import { renderQueueDigest } from "../lib/emailDigest";
 import { FONT, INK, plural } from "../lib/emailHtml";
@@ -1485,6 +1485,34 @@ console.log("\ntermCounts and unmatchedTerms");
     unmatchedTerms([{ ...bare("m"), manualTerms: ["Clark Scholar"] }], TAX)[0].term,
     "Clark Scholar"
   );
+}
+
+console.log("\na photo supplied by hand");
+{
+  /**
+   * LinkedIn lets somebody restrict who sees their photo, and to a scraper they are
+   * nobody: two of thirty-four profiles come back with a banner, company logos,
+   * school logos and even the headshots of people they follow, and no headshot of
+   * their own. So a hand-supplied picture has to win, and keep winning — an
+   * enrichment that finds a vendor URL must not quietly replace it.
+   */
+  check("the sentinel is not a path anything else produces", MANUAL_PATH, "manual");
+
+  const held: Person = { ...bare("hand"), photoManual: true };
+  check("a hand-supplied photo counts as one", scoreOne(held, TAX).has_photo, true);
+  check("and its absence still means none", scoreOne(bare("nobody"), TAX).has_photo, false);
+
+  /**
+   * On the person rather than on `enriched`, because an enrichment rebuilds that
+   * object wholesale and would drop the flag — and because somebody known only from
+   * a search result can have a picture too.
+   */
+  const enrichedNoPhoto: Person = {
+    ...bare("both"),
+    photoManual: true,
+    enriched: { ...(PERSON.enriched as NonNullable<Person["enriched"]>), photoUrl: undefined },
+  };
+  check("it survives a profile with no vendor photo", scoreOne(enrichedNoPhoto, TAX).has_photo, true);
 }
 
 console.log("\ncoverageOf — the term that is already counted");

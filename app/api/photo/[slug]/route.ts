@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { resolveProfile } from "@/lib/auth";
-import { readRoster, migrateIfNeeded } from "@/lib/serverState";
-import { photoFor, photoTokenValid } from "@/lib/photo";
+import { readRoster, migrateIfNeeded, writePeople } from "@/lib/serverState";
+import { photoFor, photoTokenValid, storePhoto } from "@/lib/photo";
 import { toSlug } from "@/lib/enrichment";
 
 /**
@@ -57,4 +57,47 @@ export async function GET(req: Request, ctx: { params: Promise<{ slug: string }>
       "Content-Disposition": "inline",
     },
   });
+}
+
+/**
+ * Supply a picture by hand.
+ *
+ * Cookie-only, deliberately: the read side accepts a signed token so a mail client
+ * can fetch an image, and a capability that lets anybody *write* one is a different
+ * thing entirely. Nothing about a photo token grants this.
+ *
+ * The body is the image itself rather than JSON — no base64 round trip, and the
+ * content type is the header the browser already sets. The client downscales to a
+ * 200px square first, matching what the vendor gives us, so the cap below is a
+ * backstop rather than something a real drop will meet.
+ */
+export async function PUT(req: Request, ctx: { params: Promise<{ slug: string }> }) {
+  const r = await resolveProfile();
+  if ("error" in r) return NextResponse.json({ ok: false, error: r.error }, { status: r.status });
+
+  const slug = toSlug((await ctx.params).slug);
+  if (!slug) return NextResponse.json({ ok: false, error: "No profile." }, { status: 400 });
+
+  await migrateIfNeeded();
+  const roster = await readRoster();
+  const person = roster[slug];
+  if (!person) return NextResponse.json({ ok: false, error: "Nobody by that slug." }, { status: 404 });
+
+  const contentType = (req.headers.get("content-type") ?? "").split(";")[0].trim();
+  const bytes = new Uint8Array(await req.arrayBuffer());
+  const stored = await storePhoto(slug, bytes, contentType);
+  if (!stored) {
+    return NextResponse.json(
+      { ok: false, error: "That is not an image, or it is too large." },
+      { status: 400 }
+    );
+  }
+
+  /**
+   * Recorded on the person as well as in the cache, because `has_photo` is computed
+   * by `scoreOne`, which is synchronous and has no way to ask the store. Without this
+   * the bytes would sit there and no surface would ask for them.
+   */
+  await writePeople([{ ...person, photoManual: true, updatedAt: new Date().toISOString() }]);
+  return NextResponse.json({ ok: true });
 }

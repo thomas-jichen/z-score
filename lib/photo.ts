@@ -37,6 +37,21 @@ const TIMEOUT_MS = 8_000;
 const ALLOWED_HOST = /(^|\.)licdn\.com$/;
 
 /**
+ * Stored in place of a source path when a person supplied the picture themselves.
+ *
+ * LinkedIn lets somebody limit who sees their photo, and a scraper is nobody: James
+ * Liu's headshot is visible to a signed-in second-degree connection and absent from
+ * every field of the vendor payload, three scrapes apart. No vendor gets past that
+ * without running a session inside his network, so the only reliable answer is a
+ * human handing us the image.
+ *
+ * It is a sentinel rather than a flag because `photoFor` already branches on the
+ * path, and this makes a hand-supplied picture win permanently: a later enrichment
+ * cannot overwrite it, which is the whole point of having set it.
+ */
+export const MANUAL_PATH = "manual";
+
+/**
  * A per-image capability, so a mail client can fetch one photo and nothing else.
  *
  * An email carries no session cookie, so the route cannot ask who is looking. The
@@ -96,6 +111,9 @@ export async function photoFor(slug: string, sourceUrl: string | undefined): Pro
   const cached = await get<StoredPhoto>(key);
   const path = sourceUrl ? pathOf(sourceUrl) : null;
 
+  // Chosen by hand, so nothing the vendor says replaces it.
+  if (cached?.path === MANUAL_PATH) return cached;
+
   // Same picture as the one already stored, or no fresh link to try.
   if (cached && (!path || cached.path === path)) return cached;
   if (!sourceUrl || !path) return cached;
@@ -133,4 +151,29 @@ async function download(url: string): Promise<{ data: string; contentType: strin
       return null;
     }
   });
+}
+
+/**
+ * Store a picture somebody supplied, under the same key the vendor's would use.
+ *
+ * One cache, so every surface that already reads a photo — the queue, the digest
+ * screen, both emails — picks this up with no further wiring.
+ */
+export async function storePhoto(
+  slug: string,
+  bytes: Uint8Array,
+  contentType: string
+): Promise<StoredPhoto | null> {
+  if (!contentType.startsWith("image/")) return null;
+  if (bytes.length === 0 || bytes.length > MAX_BYTES) return null;
+
+  const stored: StoredPhoto = {
+    data: Buffer.from(bytes).toString("base64"),
+    contentType,
+    path: MANUAL_PATH,
+    at: new Date().toISOString(),
+  };
+  await set(photoKey(slug), stored);
+  log.info("photo.manual", { slug, bytes: bytes.length });
+  return stored;
 }

@@ -1,12 +1,18 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useApp } from "@/components/AppState";
 import { heldOrErased, hopAfter, neighborsFrom } from "@/lib/people";
 import { extractTags } from "@/lib/extract";
 import { allTags, schoolStateLookup } from "@/lib/tags";
-import { ARCHETYPES, archetypeLabel, formatSigma, type Archetype } from "@/lib/zscore";
+import {
+  ARCHETYPES,
+  archetypeLabel,
+  formatSigma,
+  type Archetype,
+  type Candidate,
+} from "@/lib/zscore";
 import {
   ArchetypeTag,
   Avatar,
@@ -125,18 +131,16 @@ export function CandidateDetail({ slug }: { slug: string }) {
       {/* Hero. The score is the headline, the name is second. */}
       <div className="z-hero" style={{ margin: "var(--z-space-8) 0 var(--z-space-12)" }}>
         {/*
-          The face, and only when there is one.
+          The face, or the initials, the same way the queue does it.
           
-          This page had no avatar at all, so every profile looked photoless whether
-          it was or not. At 72px an initials box is the largest thing in the hero and
-          says nothing, so the two people LinkedIn does not publish a headshot for get
-          a page that reads as deliberate rather than as broken.
+          This page had no avatar at all, so every profile looked photoless whether it
+          was or not. Showing nothing when there is no photo was the first attempt and
+          it was worse: the queue shows "JL" and the profile showed a blank, so the one
+          screen where you go to look at somebody was the one that appeared broken.
+          Initials at 72px say "no picture" out loud, which is the truthful answer for
+          the two people whose headshot LinkedIn will not serve to a scraper.
         */}
-        {c.has_photo && (
-          <div className="z-hero-face">
-            <Avatar name={c.name} slug={c.slug} photo size="lg" />
-          </div>
-        )}
+        <HeroFace candidate={c} />
         <div style={{ minWidth: 0 }}>
         <ZScoreBadge candidate={c} display />
         <h1 className="z-h1" style={{ marginTop: "var(--z-space-4)" }}>
@@ -536,5 +540,115 @@ function Section({ title, items }: { title: string; items: (string | undefined)[
       ))}
       {rows.length > 12 && <p className="z-micro">and {rows.length - 12} more</p>}
     </div>
+  );
+}
+
+/* ── The face ───────────────────────────────────────────────────────────── */
+
+/**
+ * The picture, and a way to supply one when the vendor will not.
+ *
+ * LinkedIn lets somebody restrict who sees their photo, and to LinkedIn a scraper is
+ * nobody. Two of thirty-four profiles come back with a banner, company logos, school
+ * logos, even the headshots of people they follow — and no headshot of their own.
+ * Retrying does not fix it and no vendor gets past it without running a session
+ * inside that person's network, so the answer is to let a human hand the image over.
+ *
+ * Three ways in, because which one feels natural depends on where the picture is:
+ * paste it if it is on the clipboard, drop it if it is a file, click if neither. All
+ * three land in the same place.
+ */
+function HeroFace({ candidate }: { candidate: Candidate }) {
+  const [busy, setBusy] = useState(false);
+  const [said, setSaid] = useState<string | null>(null);
+  const [bust, setBust] = useState(0);
+  const [over, setOver] = useState(false);
+  const pick = useRef<HTMLInputElement>(null);
+  const shown = candidate.has_photo || bust > 0;
+
+  async function take(file: File | null | undefined) {
+    if (!file || !file.type.startsWith("image/")) return;
+    setBusy(true);
+    setSaid(null);
+    try {
+      const blob = await square(file);
+      const res = await fetch(`/api/photo/${encodeURIComponent(candidate.slug)}`, {
+        method: "PUT",
+        headers: { "Content-Type": blob.type },
+        body: blob,
+      });
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) setSaid(data.error ?? "That did not save.");
+      /**
+       * Cache-busted rather than reloaded. The image is served with a long
+       * `Cache-Control`, which is right for bytes that never change and wrong for the
+       * one moment they do, so the new copy has to be asked for by a different URL.
+       */
+      else setBust(Date.now());
+    } catch {
+      setSaid("Could not read that image.");
+    }
+    setBusy(false);
+  }
+
+  return (
+    <div
+      className="z-hero-face"
+      data-over={over || undefined}
+      onDragOver={(e) => {
+        e.preventDefault();
+        setOver(true);
+      }}
+      onDragLeave={() => setOver(false)}
+      onDrop={(e) => {
+        e.preventDefault();
+        setOver(false);
+        void take(e.dataTransfer.files?.[0]);
+      }}
+      onPaste={(e) => {
+        const item = [...e.clipboardData.items].find((i) => i.type.startsWith("image/"));
+        if (item) void take(item.getAsFile());
+      }}
+      // Focusable so a paste has somewhere to land, and the whole block is the target.
+      tabIndex={0}
+      aria-label="Profile photo. Paste or drop an image to set one."
+    >
+      <Avatar name={candidate.name} slug={candidate.slug} photo={shown} size="lg" bust={bust} />
+      <input
+        ref={pick}
+        type="file"
+        accept="image/*"
+        hidden
+        onChange={(e) => void take(e.target.files?.[0])}
+      />
+      <button className="z-linkish" onClick={() => pick.current?.click()} disabled={busy}>
+        {busy ? "Saving" : shown ? "Replace" : "Add a photo"}
+      </button>
+      {said && <span className="z-micro">{said}</span>}
+    </div>
+  );
+}
+
+/**
+ * A 200px square, made in the browser.
+ *
+ * The same size the vendor supplies, so one cache holds one kind of thing. Doing it
+ * here rather than server-side is what makes "drop any image" work at all: a photo off
+ * a phone is several megabytes and would bounce straight off the size cap, and being
+ * told to resize a file first is not an answer.
+ */
+async function square(file: File): Promise<Blob> {
+  const bitmap = await createImageBitmap(file);
+  const side = Math.min(bitmap.width, bitmap.height);
+  const canvas = document.createElement("canvas");
+  canvas.width = 200;
+  canvas.height = 200;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("no canvas");
+  // Centre crop, matching the `object-fit: cover` the avatar already uses, so what
+  // lands is what the picker showed.
+  ctx.drawImage(bitmap, (bitmap.width - side) / 2, (bitmap.height - side) / 2, side, side, 0, 0, 200, 200);
+  return new Promise((resolve, reject) =>
+    canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("no blob"))), "image/jpeg", 0.9)
   );
 }

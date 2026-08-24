@@ -378,11 +378,18 @@ export function Avatar({
   slug,
   photo,
   size,
+  bust,
 }: {
   name: string;
   slug?: string;
   photo?: boolean;
   size?: "lg";
+  /**
+   * Changes the URL after a photo is replaced. The bytes are served with a long
+   * `Cache-Control`, which is right for something that never changes and wrong for
+   * the one moment it does.
+   */
+  bust?: number;
 }) {
   const initials = name
     .split(" ")
@@ -395,10 +402,20 @@ export function Avatar({
     return (
       <img
         className={cls}
-        src={`/api/photo/${encodeURIComponent(slug)}`}
+        src={`/api/photo/${encodeURIComponent(slug)}${bust ? `?v=${bust}` : ""}`}
         alt=""
         aria-hidden="true"
-        loading="lazy"
+        /**
+         * Lazy in a list of thirty-odd, eager for the one in a hero.
+         *
+         * Not just a nicety: an image that mounts *after* a state change — the moment
+         * a photo is replaced and `bust` changes — never started loading at all under
+         * lazy, even sitting 171px down a fresh page. It stayed `complete: false` with
+         * no `currentSrc` while an `Image()` built by hand with the identical URL
+         * loaded fine. The hero is one 72px square above the fold; there was never
+         * anything to defer.
+         */
+        loading={size === "lg" ? "eager" : "lazy"}
         decoding="async"
         width={size === "lg" ? 72 : 34}
         height={size === "lg" ? 72 : 34}

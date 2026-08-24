@@ -221,7 +221,7 @@ export function scoreOne(p: Person, tax: TaxonomyPrefs): Candidate {
     signals,
     discovery: discoveryOf(p),
     enriched: Boolean(p.enriched),
-    has_photo: Boolean(p.enriched?.photoUrl),
+    has_photo: Boolean(p.enriched?.photoUrl || p.photoManual),
     surfaced_at: p.addedAt,
   };
 }
