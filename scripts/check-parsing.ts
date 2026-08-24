@@ -36,6 +36,7 @@ import {
 } from "../lib/state";
 import { PURGED_ALIASES, isBannedTag } from "../lib/searchTaxonomy";
 import { coverageOf, readTier, scanText } from "../lib/tagMatch";
+import { photoToken, photoTokenValid } from "../lib/photo";
 import type { Candidate } from "../lib/zscore";
 import { renderQueueDigest } from "../lib/emailDigest";
 import { FONT, INK, plural } from "../lib/emailHtml";
@@ -2508,6 +2509,41 @@ console.log("\nthe digest email");
    * a year because nobody clicks their own unsubscribe. Both parts are checked, since
    * the plain text builds its links separately from the HTML.
    */
+  /**
+   * The face, and the token that lets a mail client fetch it.
+   *
+   * An email carries no session cookie, so the src has to be absolute and it has to
+   * carry its own authority. The token is an HMAC of the slug and deliberately does
+   * not expire — an expiring one would break the digest a month later, which is the
+   * failure this whole feature exists to avoid.
+   */
+  const withFace = renderQueueDigest({
+    candidates: [{ ...one, has_photo: true }],
+    queueTotal: 1,
+    knownCount: 0,
+    newSince: null,
+    origin: ORIGIN,
+    cadence: "weekly",
+  });
+  check(
+    "the photo is absolute and signed",
+    withFace.html.includes(`${ORIGIN}/api/photo/a?t=${photoToken("a")}`),
+    true
+  );
+  check("the token is not the slug", photoToken("a") !== "a", true);
+  check("and it only opens its own image", photoTokenValid("b", photoToken("a")), false);
+  check("while its own passes", photoTokenValid("a", photoToken("a")), true);
+  check("a missing token is refused", photoTokenValid("a", null), false);
+
+  /**
+   * Outlook sizes an image from the attributes and ignores the CSS, so without them a
+   * 200px source lands at 200px and shoves the name off the row.
+   */
+  check("sized by attribute as well as style", withFace.html.includes('width="40" height="40"'), true);
+
+  // Nothing to fetch means no cell at all, rather than a request that 404s.
+  check("no photo means no image", digest.html.includes("/api/photo/"), false);
+
   check("the cadence link goes where the control is", digest.html.includes(`href="${ORIGIN}/digest"`), true);
   check("and the plain part agrees", digest.text.includes(`${ORIGIN}/digest`), true);
   check("neither still points at the agent screen", digest.html.includes(`${ORIGIN}/agent`), false);

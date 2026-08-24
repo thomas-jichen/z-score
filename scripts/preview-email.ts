@@ -94,6 +94,7 @@ function fakeCampaign(): { campaign: Campaign; people: ReportPerson[] } {
       day: 1,
       at: "2026-08-20T00:00:00.000Z",
       evicted: false,
+      hasPhoto: true,
       signals: [
         { label: "Z Fellow", points: 2 },
         { label: "NASA", points: 1.4 },
@@ -112,6 +113,8 @@ function fakeCampaign(): { campaign: Campaign; people: ReportPerson[] } {
       day: 2,
       at: "2026-08-21T00:00:00.000Z",
       evicted: true,
+      // An evicted row is a snapshot with no profile behind it, so no face.
+      hasPhoto: false,
       signals: [],
     },
   ];

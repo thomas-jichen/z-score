@@ -1,6 +1,7 @@
 import type { Campaign } from "./campaign";
 import type { ReportPerson } from "./campaignRun";
-import { FONT, INK, RADIUS, card, esc, footer, heading, plural, shell } from "./emailHtml";
+import { FONT, INK, RADIUS, card, esc, face, footer, heading, plural, shell } from "./emailHtml";
+import { photoToken } from "./photo";
 import { archetypeLabel, dominantSignals, formatSigma, type Candidate } from "./zscore";
 
 /**
@@ -126,8 +127,23 @@ function personRow(c: Candidate, origin: string, fresh: boolean): string {
     ? `<div style="padding-top:6px;"><span style="display:inline-block;font-family:${FONT};font-size:13px;font-weight:500;line-height:1.15;color:${INK.blue};border:1px solid ${INK.blue};border-radius:${RADIUS}px;padding:5px 10px;">Polymath</span></div>`
     : "";
 
+  /**
+   * The face gets a cell of its own rather than a float, because a float is the one
+   * layout instruction Outlook reliably ignores. `z-stack` is not on it: when the
+   * cells stack on a phone the name should still lead, so this cell keeps its 40px
+   * and the text cell wraps beside it.
+   */
+  const photo = c.has_photo
+    ? `<td valign="top" width="40" style="vertical-align:top;width:40px;padding-right:14px;">${face(
+        origin,
+        c.slug,
+        photoToken(c.slug)
+      )}</td>`
+    : "";
+
   return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;border-collapse:collapse;">
 <tr>
+${photo}
 <td class="z-stack" valign="top" style="vertical-align:top;">
   <a href="${esc(origin)}/candidate/${esc(c.slug)}" style="font-family:${FONT};font-size:20px;font-weight:600;line-height:1.3;color:${INK.ink};text-decoration:none;">${esc(c.name)}</a>${newMark}
   <div style="padding-top:6px;font-family:${FONT};font-size:16px;">
@@ -240,8 +256,17 @@ function reportRow(p: ReportPerson, origin: string): string {
         p.evicted ? "No longer in the roster, so this is the row as it was found." : "Nothing in the taxonomy matched."
       }</div>`;
 
+  const photo = p.hasPhoto
+    ? `<td valign="top" width="40" style="vertical-align:top;width:40px;padding-right:14px;">${face(
+        origin,
+        p.slug,
+        photoToken(p.slug)
+      )}</td>`
+    : "";
+
   return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;border-collapse:collapse;">
 <tr>
+${photo}
 <td class="z-stack" valign="top" style="vertical-align:top;">
   <a href="${esc(origin)}/candidate/${esc(p.slug)}" style="font-family:${FONT};font-size:20px;font-weight:600;line-height:1.3;color:${INK.ink};text-decoration:none;">${esc(p.name)}</a>
   <div style="padding-top:6px;font-family:${FONT};font-size:16px;">

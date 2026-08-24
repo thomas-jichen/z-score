@@ -1,3 +1,5 @@
+import { createHmac, timingSafeEqual } from "node:crypto";
+import { photoSecret } from "./auth";
 import { get, set } from "./store";
 import { log, timed } from "./log";
 
@@ -33,6 +35,31 @@ const TIMEOUT_MS = 8_000;
 
 /** The only host we will fetch from. The URL comes from the vendor, not a user. */
 const ALLOWED_HOST = /(^|\.)licdn\.com$/;
+
+/**
+ * A per-image capability, so a mail client can fetch one photo and nothing else.
+ *
+ * An email carries no session cookie, so the route cannot ask who is looking. The
+ * alternatives were worse: attaching the bytes bloats every message and CID support
+ * is patchy across webmail, and a data URI is stripped outright by Gmail.
+ *
+ * Deliberately without an expiry, which is a real trade and the right way round. An
+ * expiring token would mean the digest breaking a month later — which is the exact
+ * failure this whole feature was built to avoid — in exchange for shortening the life
+ * of a leak in mail that only ever goes to three colleagues. So the token is
+ * unguessable and permanent, it grants one slug's photo and no other route, and it
+ * says nothing about the person it belongs to.
+ */
+export function photoToken(slug: string): string {
+  return createHmac("sha256", photoSecret()).update(`photo:${slug}`).digest("hex").slice(0, 32);
+}
+
+export function photoTokenValid(slug: string, token: string | null): boolean {
+  if (!token) return false;
+  const a = Buffer.from(token);
+  const b = Buffer.from(photoToken(slug));
+  return a.length === b.length && timingSafeEqual(a, b);
+}
 
 export type StoredPhoto = {
   /** base64, because the store is JSON over HTTP. */

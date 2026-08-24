@@ -20,6 +20,14 @@ export function middleware(req: NextRequest) {
    * answered with a 307 to an HTML login page, which an agent cannot read. The
    * well-known path is fetched unauthenticated by MCP clients after a 401 to
    * discover how to authenticate, so it has to be open by definition.
+   *
+   * `/api/photo` joins them for the same reason: a face in the digest email is
+   * fetched by a mail client, which sends no cookies, so it carries a signed
+   * per-image token instead. Opening the path is not opening the door — the route
+   * still demands either that token or a session, and a token is an HMAC over one
+   * slug, so it grants exactly one photo and nothing else. Without this the image
+   * would be answered with a redirect to a login page and every digest would arrive
+   * full of broken pictures.
    */
   if (
     pathname.startsWith("/unlock") ||
@@ -28,6 +36,7 @@ export function middleware(req: NextRequest) {
     // Exact, not a prefix: `startsWith("/api/mcp")` would also open
     // /api/mcp-tokens, which is the one door that must stay cookie-only.
     pathname === "/api/mcp" ||
+    pathname.startsWith("/api/photo/") ||
     pathname.startsWith("/api/cron") ||
     pathname.startsWith("/.well-known/")
   ) {

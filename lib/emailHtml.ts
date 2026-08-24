@@ -172,6 +172,24 @@ export function button(href: string, label: string): string {
  * and because the digest screen is this email: somebody who followed the link to
  * turn it off lands on the thing they were about to stop receiving.
  */
+/**
+ * A face, in an email.
+ *
+ * Absolute and signed, because a mail client sends no cookies — `photoToken` is why
+ * that is safe and why it has no expiry. The dimensions are attributes as well as
+ * style: Outlook sizes from the attributes and ignores the CSS, and without them a
+ * 200px source lands at 200px and shoves the name off the row.
+ *
+ * Square with no radius, which is the house treatment anyway and also the only thing
+ * Outlook will render — it discards `border-radius` on images. `alt` is empty and the
+ * cell keeps its width, so a client with images off shows a 40px gap rather than a
+ * broken-image icon and a collapsed layout.
+ */
+export function face(origin: string, slug: string, token: string, size = 40): string {
+  const src = `${esc(origin)}/api/photo/${encodeURIComponent(slug)}?t=${esc(token)}`;
+  return `<img src="${src}" width="${size}" height="${size}" alt="" style="display:block;width:${size}px;height:${size}px;border:0;outline:none;text-decoration:none;object-fit:cover;background:${INK.borderSoft};" />`;
+}
+
 export function footer(input: { origin: string; cta?: { href: string; label: string }; why: string }): string {
   const cta = input.cta
     ? `<tr><td style="padding-top:16px;padding-bottom:24px;">${button(input.cta.href, input.cta.label)}</td></tr>`

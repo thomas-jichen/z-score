@@ -857,11 +857,18 @@ a.z-archetype:hover {
   background: var(--z-surface-blue);
 }
 
+/**
+ * Square, and in colour.
+ *
+ * The square is zfellows' own image treatment and it stays. The grayscale went with
+ * it originally, back when this box only ever held two grey initials and the filter
+ * cost nothing. With real photographs in it the filter was throwing away the thing
+ * that makes a face recognisable at 34px, which is the entire reason to show one.
+ */
 .z-avatar {
   width: 34px;
   height: 34px;
-  border-radius: 0; /* square + grayscale, per zfellows image treatment */
-  filter: grayscale(1);
+  border-radius: 0;
   object-fit: cover;
   background: var(--z-border-soft);
   flex: none;
@@ -2992,6 +2999,12 @@ tr[data-pinned] td:first-child {
 
   .z-digest-card td:not(:first-child) {
     margin-top: var(--z-space-3);
+  }
+
+  /* The cells stack on a phone, so a 34px square gets a line of its own and reads
+     as a gap above the name. The name is the row; the face is a nicety. */
+  .z-digest-face {
+    display: none !important;
   }
 
   /* Right-aligning a wrapped pill column against a left-aligned sentence

@@ -704,6 +704,11 @@ export type ReportPerson = ReportRow & {
   evicted: boolean;
   /** The terms that actually produced the score, biggest first. Empty for a snapshot. */
   signals: { label: string; points: number }[];
+  /**
+   * Whether there is a photo to show. False for an evicted row by definition — the
+   * snapshot has no profile behind it any more, so there is nothing to serve.
+   */
+  hasPhoto: boolean;
 };
 
 /**
@@ -718,7 +723,7 @@ export async function buildReport(c: Campaign, limit = 10): Promise<ReportPerson
   const [roster, team] = await Promise.all([readRoster(), readTeam()]);
   const out: ReportPerson[] = c.top.map((row) => {
     const person = roster[row.slug];
-    if (!person) return { ...row, evicted: true, signals: [] };
+    if (!person) return { ...row, evicted: true, signals: [], hasPhoto: false };
     const scored = scoreOne(person, team.taxonomy);
     return {
       ...row,
@@ -728,6 +733,7 @@ export async function buildReport(c: Campaign, limit = 10): Promise<ReportPerson
       archetype: scored.archetype,
       enriched: Boolean(person.enriched),
       evicted: false,
+      hasPhoto: Boolean(person.enriched?.photoUrl),
       signals: scored.signals
         .filter((sg) => sg.points > 0)
         .slice(0, 3)

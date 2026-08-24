@@ -4,7 +4,14 @@ import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useApp } from "@/components/AppState";
 import { archetypeLabel, dominantSignals, formatSigma } from "@/lib/zscore";
-import { EmptyState, MarkControl, Pill, PolymathBadge, type MarkChange } from "@/components/primitives";
+import {
+  Avatar,
+  EmptyState,
+  MarkControl,
+  Pill,
+  PolymathBadge,
+  type MarkChange,
+} from "@/components/primitives";
 
 /**
  * The digest. Primary surface, and the one that may ship as email.
@@ -105,7 +112,14 @@ export default function DigestPage() {
                     >
                       <tbody>
                         <tr>
-                          <td style={{ verticalAlign: "top" }}>
+                          {/* The face, in its own cell so the name still wraps against
+                              the column and not around a floated image. Hidden on a
+                              phone by `.z-digest-card`, where the cells stack and a
+                              34px square on its own line is just a gap. */}
+                          <td className="z-digest-face" style={{ verticalAlign: "top", width: 34 }}>
+                            <Avatar name={c.name} slug={c.slug} photo={c.has_photo} />
+                          </td>
+                          <td style={{ verticalAlign: "top", paddingLeft: 14 }}>
                             <Link href={`/candidate/${c.slug}`} className="z-h4 z-person-name">
                               {c.name}
                             </Link>

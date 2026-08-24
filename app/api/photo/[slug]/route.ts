@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { resolveProfile } from "@/lib/auth";
 import { readRoster, migrateIfNeeded } from "@/lib/serverState";
-import { photoFor } from "@/lib/photo";
+import { photoFor, photoTokenValid } from "@/lib/photo";
 import { toSlug } from "@/lib/enrichment";
 
 /**
@@ -15,12 +15,24 @@ import { toSlug } from "@/lib/enrichment";
  * miss looks like a design and not like a failure.
  */
 
-export async function GET(_req: Request, ctx: { params: Promise<{ slug: string }> }) {
-  const r = await resolveProfile();
-  if ("error" in r) return NextResponse.json({ ok: false, error: r.error }, { status: r.status });
-
+export async function GET(req: Request, ctx: { params: Promise<{ slug: string }> }) {
   const slug = toSlug((await ctx.params).slug);
   if (!slug) return new NextResponse(null, { status: 404 });
+
+  /**
+   * Either a session or a token for this one image.
+   *
+   * A mail client sends no cookies, so the digest cannot rely on the passphrase the
+   * rest of the app runs behind. The token is an HMAC of the slug — see `lib/photo.ts`
+   * for why it does not expire — and it is checked *before* the session so a valid
+   * token costs no cookie parsing. It grants exactly this photo: another slug needs
+   * another signature, and nothing else in the app accepts it.
+   */
+  const token = new URL(req.url).searchParams.get("t");
+  if (!photoTokenValid(slug, token)) {
+    const r = await resolveProfile();
+    if ("error" in r) return NextResponse.json({ ok: false, error: r.error }, { status: r.status });
+  }
 
   await migrateIfNeeded();
   const roster = await readRoster();

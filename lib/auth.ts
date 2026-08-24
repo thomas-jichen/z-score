@@ -25,6 +25,17 @@ function secret(): string {
 }
 
 /**
+ * The same secret, for signing things that are not sessions.
+ *
+ * Exported rather than copied so the fail-closed rule above has one home: a second
+ * `process.env.ZSCORE_SESSION_SECRET || "dev-fallback"` somewhere else in the tree is
+ * how a deploy ends up signing with a value published in the repo.
+ */
+export function photoSecret(): string {
+  return secret();
+}
+
+/**
  * Signed cookie value rather than a raw flag, so it can't be forged by simply
  * setting the cookie in devtools. Content is just an issue timestamp.
  */
