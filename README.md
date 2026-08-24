@@ -298,9 +298,24 @@ The logo lives at `assets/logo.png`; `app/icon.png` and `app/apple-icon.png` are
 ## The agent loop
 
 A campaign is the whole pipeline on a timer. You give it a selection, a number of days and a daily
-query budget; each day it runs its queries, ranks the hits on how many of your own search terms
-the person's own text confirms, queues the best it does not already have, pays to enrich a capped
-few, and keeps a running top thirty. At the end you read the report.
+query budget; each day it ranks what it finds on how many of your own search terms the person's own
+text confirms, queues the best it does not already have, pays to enrich a capped few, and keeps a
+running top thirty. At the end you read the report.
+
+*How* it finds people is the strategy, and there are two ways. **Keyword search** runs its queries,
+which is what every campaign did. **Search then explore** casts a wide net for the first days and
+then stops searching: from the switch day it opens the People Also Viewed list of the best people it
+has enriched, queues the neighbours worth having, and enriches those so the next day has somewhere
+to go. That is how somebody actually works — find one good person, look at who else was viewed
+alongside them, follow it — and the hop is free, because the co-view list arrived with a profile
+that was already paid for.
+
+What it costs instead is precision, which is why `maxHop` bounds how far from a searched person a
+find may be and defaults to 2, and why seeds are only ever taken from the top of the running
+thirty: a co-view list is worth opening only if the taxonomy already liked the person it belongs to.
+An exploring day with nothing left to open searches instead rather than idling. And an exhausted
+query plan only ends a campaign that searches — burning the plan on day one is the point of the
+other shape.
 
 Three things move it: the daily Vercel cron, the Advance button on `/agent`, or Claude. There is no
 setting the loop obeys that is not on that screen and settable from either side — days, searches a
@@ -308,7 +323,7 @@ day, queued a day, enrichments a day, the dollar ceiling, the score bar, and the
 new campaign starts from. The caps we do not own are printed there too, with their values.
 
 Claude reaches it over MCP at `/api/mcp`, authenticated by a `zsk_` token minted on `/agent` and
-stored only as a SHA-256 hash. Thirteen tools: read the taxonomy, the queue and any campaign;
+stored only as a SHA-256 hash. Fourteen tools: read the taxonomy, the queue and any campaign;
 sanity-check a query for a tenth of a cent; create, advance, update and stop a campaign; search,
 queue and enrich directly. **What it deliberately cannot do**: delete a person, reset the roster,
 change a taxonomy weight, or mark anyone known or rejected. Deciding who is worth talking to stays

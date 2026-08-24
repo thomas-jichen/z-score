@@ -7,15 +7,19 @@ import {
   MAX_CAMPAIGNS,
   budgetLeft,
   cleanSettings,
+  daySearches,
   defaultSettings,
   estimateUsd,
   hydrateCampaign,
+  isStrategy,
   mergeTop,
   newCampaignId,
+  searchDayCount,
   terminalReason,
   utcDay,
   type Campaign,
   type CampaignSettings,
+  type CampaignStrategy,
   type ReportRow,
   type Tick,
 } from "./campaign";
@@ -27,7 +31,7 @@ import { scoreOne } from "./candidates";
 import { COST_PER_PROFILE, type Provenance } from "./enrichment";
 import { applyEnrichJob } from "./enrichApply";
 import { newJobId, readJob, writeJob, type EnrichJob } from "./jobs";
-import { isSuppressed, personFromHit } from "./people";
+import { heldOrErased, hopAfter, isSuppressed, nextHopFrom, personFromHit, personFromSlug } from "./people";
 import type { ProfileId } from "./profiles";
 import { COST_PER_QUERY, EMPTY_SELECTION, type Selection } from "./query";
 import { reserveProfiles, reserveSearch } from "./ratelimit";
@@ -142,6 +146,8 @@ export type CreateInput = {
   selection?: Partial<Selection>;
   queries?: string[];
   settings?: Partial<Record<keyof CampaignSettings, unknown>>;
+  /** Unknown rather than the union, because it arrives from a request body. */
+  strategy?: unknown;
 };
 
 export type CreateResult =
@@ -181,8 +187,15 @@ export async function createCampaign(owner: ProfileId, input: CreateInput): Prom
     .filter(Boolean)
     .slice(0, 50);
 
+  const strategy: CampaignStrategy = isStrategy(input.strategy) ? input.strategy : "search";
+
   const plan = planQueries(selection, queries);
-  if (plan.length === 0) {
+  /**
+   * A plan is only compulsory if the campaign intends to search. An `explore` run
+   * takes its candidates from the co-view lists of people already held, so demanding
+   * a selection from it would be demanding something it will never read.
+   */
+  if (plan.length === 0 && strategy !== "explore") {
     return {
       ok: false,
       error:
@@ -209,10 +222,20 @@ export async function createCampaign(owner: ProfileId, input: CreateInput): Prom
 
   const settings = cleanSettings(input.settings, await readDefaults());
   const warnings: string[] = [];
-  const wanted = settings.days * settings.searchesPerDay;
-  if (plan.length < wanted) {
+  /**
+   * Measured against the days that will actually search. On a campaign that switches
+   * on day two the schedule asks for one day of queries, not seven, so the old sum
+   * would have warned that every such campaign was about to finish early.
+   */
+  const wanted = searchDayCount(strategy, settings) * settings.searchesPerDay;
+  if (wanted > 0 && plan.length < wanted) {
     warnings.push(
       `The selection yields ${plan.length} distinct ${plan.length === 1 ? "query" : "queries"}, and the schedule asks for ${wanted}. It will finish early unless you widen the selection or add queries of your own.`
+    );
+  }
+  if (strategy !== "search") {
+    warnings.push(
+      `From day ${strategy === "explore" ? 1 : settings.switchDay} it follows who else people viewed, up to ${settings.maxHop} ${settings.maxHop === 1 ? "hop" : "hops"} out. A co-view is not a similarity model, so read the report rather than trusting the depth.`
     );
   }
   if (settings.enrichPerDay > MAX_PROFILES_PER_RUN) {
@@ -230,12 +253,15 @@ export async function createCampaign(owner: ProfileId, input: CreateInput): Prom
     selection,
     queries,
     settings,
+    strategy,
     day: 0,
     lastTickDay: null,
     queryCursor: 0,
     searchedToday: 0,
     queuedToday: 0,
     enrichedToday: 0,
+    explored: [],
+    exploredToday: 0,
     pendingJobId: null,
     spentUsd: 0,
     top: [],
@@ -249,7 +275,7 @@ export async function createCampaign(owner: ProfileId, input: CreateInput): Prom
   await evictOldCampaigns(all);
   log.info("campaign.created", { id: campaign.id, owner, plan: plan.length });
 
-  return { ok: true, campaign, plannedQueries: plan.length, estimateUsd: estimateUsd(settings), warnings };
+  return { ok: true, campaign, plannedQueries: plan.length, estimateUsd: estimateUsd(settings, strategy), warnings };
 }
 
 /** Oldest finished ones go first, so the hash cannot grow without bound. */
@@ -428,9 +454,18 @@ async function runTick(start: Campaign, deadline: number): Promise<TickResult> {
     c.searchedToday = 0;
     c.queuedToday = 0;
     c.enrichedToday = 0;
+    c.exploredToday = 0;
   }
 
   const plan = planQueries(c.selection, c.queries);
+  /**
+   * Whether today runs queries or follows the graph.
+   *
+   * Mutable, because an exploring day that finds every good person's co-view list
+   * already opened falls back to searching rather than idling — a campaign with days
+   * and queries left should spend them.
+   */
+  let searchToday = daySearches(c.strategy, c.day, c.settings.switchDay);
 
   /**
    * Nothing left to do today.
@@ -440,7 +475,15 @@ async function runTick(start: Campaign, deadline: number): Promise<TickResult> {
    * day is already spent rather than left wondering whether it worked.
    */
   const dayDone =
-    c.searchedToday >= c.settings.searchesPerDay &&
+    (searchToday
+      ? c.searchedToday >= c.settings.searchesPerDay
+      : /**
+         * An exploring day is spent when it has opened its quota of co-view lists.
+         * Measuring it by `searchedToday` — which never moves on a day that runs no
+         * queries — would have made every such day permanently unfinished, so an
+         * advance would redo it on every call.
+         */
+        c.exploredToday >= c.settings.exploreFrom) &&
     c.queuedToday >= c.settings.queuePerDay &&
     !c.pendingJobId;
 
@@ -459,21 +502,111 @@ async function runTick(start: Campaign, deadline: number): Promise<TickResult> {
     return {
       campaign: c,
       tick: null,
-      note: `Day ${c.day} is already done: ${c.searchedToday} searches run and ${c.queuedToday} people queued. The next day begins after midnight UTC.`,
+      note: `Day ${c.day} is already done: ${
+        searchToday
+          ? `${c.searchedToday} searches run`
+          : `every co-view list already read`
+      } and ${c.queuedToday} people queued. The next day begins after midnight UTC.`,
     };
   }
 
   const team = await readTeam();
   const marks = hydrate(await get<Partial<ProfileState>>(stateKey(c.owner))).marks;
 
-  /* 4. Search. */
-  const wantQueries = Math.min(
-    c.settings.searchesPerDay - c.searchedToday,
-    plan.length - c.queryCursor
-  );
   const collected: Hit[] = [];
+  /** Who surfaced a neighbour, for the ones that came from a co-view list. */
+  const via = new Map<string, { seedSlug: string; seedName: string; hop: number }>();
   const seenSlug = new Set<string>();
   const held = await rosterSlugs();
+
+  /**
+   * 4. Follow who else people viewed.
+   *
+   * The workflow this exists for is the one a person does by hand: find somebody
+   * interesting, look at who else browsers looked at, follow that. Every enrichment
+   * has already stored up to ten of those neighbours (`parseProfile` keeps
+   * `usableNeighbors(sidebar)`), so the frontier is sitting in the roster, paid for,
+   * and until now no campaign had ever read it.
+   *
+   * Seeds come from the top of `c.top` and nowhere else. That is what keeps a crawl
+   * near the archetype: a co-view list is only worth opening if the taxonomy already
+   * liked the person it belongs to.
+   */
+  let exploredNames: string[] = [];
+  if (!searchToday && !c.pendingJobId) {
+    const roster = await readRoster();
+    const known = heldOrErased(roster, team.deleted);
+    const opened = new Set(c.explored);
+
+    const seeds = c.top
+      .map((r) => roster[r.slug])
+      .filter((p): p is NonNullable<typeof p> => Boolean(p?.enriched))
+      // One hop past this person must still be within the cap. `hopAfter` reads
+      // their own provenance, so a neighbour found on day three counts as deeper
+      // than one found by a query on day one.
+      .filter((p) => !opened.has(p.slug) && hopAfter(p) <= c.settings.maxHop)
+      .slice(0, Math.max(0, c.settings.exploreFrom - c.exploredToday));
+
+    if (seeds.length > 0) {
+      const frontier = nextHopFrom(seeds, known);
+      exploredNames = seeds.map((p) => p.name);
+      c.explored = [...new Set([...c.explored, ...seeds.map((p) => p.slug)])].slice(-KEEP_FOUND);
+      c.exploredToday += seeds.length;
+
+      // One past the seed, read off the seed's own provenance, so a neighbour of a
+      // neighbour records as hop 2 rather than hop 1.
+      const hopFor = new Map(seeds.map((p) => [p.slug, hopAfter(p)]));
+      for (const n of frontier) {
+        if (seenSlug.has(n.slug)) continue;
+        seenSlug.add(n.slug);
+        hitsNow += 1;
+        if (isSuppressed(marks[n.slug])) continue;
+        // A co-view list is not a judgement, so the same two refusals apply.
+        if (team.deleted.includes(n.slug)) continue;
+        collected.push({
+          slug: n.slug,
+          name: n.name,
+          headline: n.position,
+          url: n.url,
+          snippet: "",
+          matchedShards: [],
+        });
+        // Kept so the queue step can write real provenance rather than pretending
+        // a neighbour came from a Google query.
+        via.set(n.slug, {
+          seedSlug: n.seedSlug,
+          seedName: n.seedName,
+          hop: hopFor.get(n.seedSlug) ?? 1,
+        });
+      }
+      notes.push(
+        `Opened ${seeds.length} co-view ${seeds.length === 1 ? "list" : "lists"} and found ${frontier.length}.`
+      );
+    } else {
+      /**
+       * Ran dry, so the day searches instead of idling. Every good person has had
+       * their sidebar read, and a campaign with days and queries left should spend
+       * them rather than sit still.
+       */
+      searchToday = true;
+      /**
+       * The day's exploring is finished, because there is nothing left to explore.
+       *
+       * Without this `exploredToday` sits below its quota forever — the quota is a
+       * ceiling, not a promise, and a campaign with three enriched people can only
+       * ever open three lists — so `dayDone` would never be true and every poke would
+       * redo the day. Recorded as spent rather than as done-ten-of-ten: the note below
+       * says what actually happened, and the day's own note says it searched instead.
+       */
+      c.exploredToday = c.settings.exploreFrom;
+      notes.push("No unexplored co-view lists left, so this day searched instead.");
+    }
+  }
+
+  /* 5. Search, with whatever the day has left for it. */
+  const wantQueries = searchToday
+    ? Math.min(c.settings.searchesPerDay - c.searchedToday, plan.length - c.queryCursor)
+    : 0;
 
   if (wantQueries > 0) {
     const batch = queriesFrom(plan, c.queryCursor, wantQueries);
@@ -536,7 +669,7 @@ async function runTick(start: Campaign, deadline: number): Promise<TickResult> {
       const res = await queueHits(
         c.owner,
         take.map((r) => r.hit),
-        { query: `campaign:${c.name}`, selection: c.selection, marks }
+        { query: `campaign:${c.name}`, selection: c.selection, marks, via }
         // No `reviveRejected`. A campaign must never undo human triage.
       );
       if (res.slugs.length > 0) {
@@ -568,7 +701,7 @@ async function runTick(start: Campaign, deadline: number): Promise<TickResult> {
   );
 
   if (enrichRoom > 0 && !c.pendingJobId && Date.now() < deadline) {
-    const targets = await pickForEnrichment(c, enrichRoom);
+    const { slugs: targets, provenance: enrichVia } = await pickForEnrichment(c, enrichRoom);
     if (targets.length > 0) {
       const gate = isMock() ? { ok: true as const } : await reserveProfiles(c.owner, targets.length);
       if (!gate.ok) {
@@ -587,8 +720,18 @@ async function runTick(start: Campaign, deadline: number): Promise<TickResult> {
             runId: started.run.runId,
             datasetId: started.run.datasetId,
             slugs: targets,
+            /**
+             * Taken from what the roster already knows, so a person found on a
+             * co-view list is not recorded as a Google find on the way to being
+             * enriched. It only matters for a target the roster has somehow lost —
+             * `withEnriched` preserves an existing `discoveredVia` — but a map that
+             * says "serp" for a neighbour is a lie waiting for a reader.
+             */
             provenance: Object.fromEntries(
-              targets.map((s) => [s, { kind: "serp", query: `campaign:${c.name}` } as Provenance])
+              targets.map((slug) => [
+                slug,
+                enrichVia.get(slug) ?? ({ kind: "serp", query: `campaign:${c.name}` } as Provenance),
+              ])
             ),
             hop: 0,
             status: "running",
@@ -663,6 +806,7 @@ async function runTick(start: Campaign, deadline: number): Promise<TickResult> {
     at: new Date().toISOString(),
     day: c.day,
     queries: queriesNow,
+    explored: exploredNames.length > 0 ? exploredNames.length : undefined,
     hits: hitsNow,
     queued: queuedNow,
     enriched: enrichedNow.length,
@@ -812,11 +956,20 @@ const FOUNDER_WORD = /\b(founder|co-?founder|founding|ceo|cto|building)\b/i;
  * nothing, and enriching someone another campaign found is not this campaign's
  * job.
  */
-async function pickForEnrichment(c: Campaign, room: number): Promise<string[]> {
+async function pickForEnrichment(
+  c: Campaign,
+  room: number
+): Promise<{ slugs: string[]; provenance: Map<string, Provenance> }> {
   const roster = await readRoster();
   const mine = c.top.filter((r) => !roster[r.slug]?.enriched);
   const ordered = [...mine].sort((a, b) => b.confirmed.length - a.confirmed.length || b.score - a.score);
-  return ordered.slice(0, room).map((r) => r.slug);
+  const slugs = ordered.slice(0, room).map((r) => r.slug);
+  const provenance = new Map<string, Provenance>();
+  for (const slug of slugs) {
+    const via = roster[slug]?.discoveredVia;
+    if (via) provenance.set(slug, via);
+  }
+  return { slugs, provenance };
 }
 
 /** Poll an enrichment run until it lands or the clock runs out. */

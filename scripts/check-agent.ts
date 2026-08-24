@@ -512,6 +512,144 @@ async function run() {
     }
   }
 
+  /* ── Following who else people viewed ────────────────────────────────── */
+  console.log("\nsearch first, then follow the graph");
+  {
+    await freshStore();
+    serperPeople = people(4, "hop");
+
+    const made = await createCampaign(OWNER, {
+      name: "explore",
+      strategy: "search-then-explore",
+      selection: selection(),
+      queries: [],
+      // exploreFrom 2 so the day's quota is small enough to actually reach, which is
+      // what makes "a second poke does nothing" testable rather than accidental.
+      settings: {
+        days: 3,
+        searchesPerDay: 2,
+        queuePerDay: 5,
+        enrichPerDay: 2,
+        switchDay: 2,
+        exploreFrom: 2,
+      },
+    });
+    checkThat("it is created", made.ok, JSON.stringify(made));
+    if (!made.ok) throw new Error("setup");
+    const id = made.campaign.id;
+    check("with the strategy recorded", made.campaign.strategy, "search-then-explore");
+    checkThat(
+      "and a warning about what a co-view is",
+      made.warnings.some((w) => /co-view is not a similarity model/.test(w)),
+      JSON.stringify(made.warnings)
+    );
+
+    /* Day 1 searches, exactly as a search campaign would. */
+    const one = await tickCampaign(id, 30_000);
+    check("day 1 runs queries", one.tick?.queries, 2);
+    check("and explores nothing", one.tick?.explored, undefined);
+    checkThat("and enriches, so day 2 has somewhere to go", one.campaign.enrichedToday > 0);
+
+    /* Day 2 runs no queries and opens co-view lists instead. */
+    const cursorAfterDay1 = one.campaign.queryCursor;
+    await writeCampaignDirect({ ...(await readCampaign(id))!, lastTickDay: "2000-01-01" });
+    const two = await tickCampaign(id, 30_000);
+
+    check("day 2 is day 2", two.campaign.day, 2);
+    check("it runs no queries at all", two.tick?.queries, 0);
+    check("and the cursor does not move", two.campaign.queryCursor, cursorAfterDay1);
+    checkThat(
+      "it opened co-view lists instead",
+      (two.tick?.explored ?? 0) > 0,
+      JSON.stringify(two.tick)
+    );
+    checkThat(
+      "and remembers whose, so it never re-reads one",
+      two.campaign.explored.length > 0,
+      JSON.stringify(two.campaign.explored)
+    );
+
+    /**
+     * The provenance, which is the whole point. `hopAfter` reads `discoveredVia`, and
+     * the graph draws its discovery edges from `pav` — so a neighbour recorded as a
+     * search is a neighbour that has stopped being one.
+     */
+    const roster = await readRoster();
+    const found = Object.values(roster).filter((p) => p.discoveredVia.kind === "pav");
+    checkThat("a neighbour is recorded as a neighbour", found.length > 0, String(found.length));
+    if (found.length > 0) {
+      const via = found[0].discoveredVia;
+      checkThat("with who surfaced them", via.kind === "pav" && Boolean(via.seedSlug), JSON.stringify(via));
+      check("at one hop out", via.kind === "pav" ? via.hop : -1, 1);
+    }
+
+    /**
+     * A second poke on the same day must not explore again. `exploredToday` is what
+     * carries that: `dayDone` was written in terms of `searchedToday`, which never
+     * moves on a day that runs no queries.
+     */
+    const openedOnDay2 = two.campaign.explored.length;
+    const again = await tickCampaign(id, 30_000);
+    check("poking it again does not move the day", again.campaign.day, 2);
+    check("nor open another co-view list once the quota is spent", again.campaign.explored.length, openedOnDay2);
+    check("and the quota is never exceeded", again.campaign.exploredToday <= 2, true);
+    check("nor run a query", again.tick?.queries ?? 0, 0);
+  }
+
+  console.log("\nan exhausted plan is not the end of an exploring campaign");
+  {
+    await freshStore();
+    serperPeople = people(3, "burn");
+    const made = await createCampaign(OWNER, {
+      name: "burner",
+      strategy: "search-then-explore",
+      // One query in the plan, so day 1 consumes all of it.
+      selection: {},
+      queries: ["one and only"],
+      settings: { days: 3, searchesPerDay: 5, queuePerDay: 5, enrichPerDay: 1, switchDay: 2 },
+    });
+    if (!made.ok) throw new Error(`setup: ${made.error}`);
+    const id = made.campaign.id;
+
+    const one = await tickCampaign(id, 30_000);
+    check("day 1 burns the whole plan", one.campaign.queryCursor, 1);
+    check("and the campaign is still running", one.campaign.status, "running");
+
+    await writeCampaignDirect({ ...(await readCampaign(id))!, lastTickDay: "2000-01-01" });
+    const two = await tickCampaign(id, 30_000);
+    check("day 2 too", two.campaign.status, "running");
+    checkThat(
+      "rather than finishing on the plan",
+      !/ran out of queries/.test(two.campaign.finishedReason ?? ""),
+      two.campaign.finishedReason ?? "(still running)"
+    );
+  }
+
+  console.log("\nan explore-only campaign needs no queries at all");
+  {
+    await freshStore();
+    const made = await createCampaign(OWNER, {
+      name: "graph only",
+      strategy: "explore",
+      selection: {},
+      queries: [],
+      settings: { days: 2, enrichPerDay: 0 },
+    });
+    checkThat("it is allowed", made.ok, JSON.stringify(made));
+
+    const searching = await createCampaign(OWNER, {
+      name: "no plan",
+      selection: {},
+      queries: [],
+      settings: { days: 2 },
+    });
+    checkThat(
+      "while a searching one is still refused",
+      !searching.ok && /Nothing to search/.test(searching.error),
+      JSON.stringify(searching)
+    );
+  }
+
   /* ── The day counter ─────────────────────────────────────────────────── */
   console.log("\nthe day moves once a day, however often it is poked");
   {

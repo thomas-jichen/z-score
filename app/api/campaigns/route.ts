@@ -36,7 +36,14 @@ import { log } from "@/lib/log";
 export const maxDuration = 300;
 
 type Body =
-  | { op: "create"; name?: unknown; selection?: unknown; queries?: unknown; settings?: unknown }
+  | {
+      op: "create";
+      name?: unknown;
+      strategy?: unknown;
+      selection?: unknown;
+      queries?: unknown;
+      settings?: unknown;
+    }
   | { op: "tick"; id?: unknown }
   | { op: "stop"; id?: unknown; reason?: unknown }
   | { op: "delete"; id?: unknown }
@@ -99,6 +106,9 @@ export async function POST(req: Request) {
       case "create": {
         const result = await createCampaign(r.profile, {
           name: str(body.name, 80),
+          // Passed through unvalidated on purpose: `createCampaign` is the one place
+          // that decides what a strategy may be, and it defaults an unknown one.
+          strategy: body.strategy,
           selection: (body.selection ?? {}) as never,
           queries: Array.isArray(body.queries) ? (body.queries as string[]) : [],
           settings: (body.settings ?? {}) as never,
@@ -159,7 +169,7 @@ export async function POST(req: Request) {
           campaign: summarise(res.campaign),
           settings: res.campaign.settings,
           plannedQueries: plan.length,
-          estimateUsd: estimateUsd(res.campaign.settings),
+          estimateUsd: estimateUsd(res.campaign.settings, res.campaign.strategy),
         });
       }
 

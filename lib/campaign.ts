@@ -41,7 +41,58 @@ export type CampaignSettings = {
    * only when the queue is filling with people you would not have clicked.
    */
   scoreBar: number;
+  /**
+   * First day that explores instead of searching. Ignored unless the strategy
+   * switches, so 2 means "search on day one, follow the graph after".
+   */
+  switchDay: number;
+  /** How many of the best people's co-view lists to open on an exploring day. */
+  exploreFrom: number;
+  /**
+   * How far from a searched person a find may be.
+   *
+   * The reason there is a cap at all: a co-view is not a similarity model. It
+   * reports who browsers looked at in the same session, so each hop is a chance to
+   * drift, and two hops out from a well-known adult is a different population
+   * entirely. Two is close enough to the archetype to be worth reading.
+   */
+  maxHop: number;
 };
+
+/**
+ * How a campaign spends its days.
+ *
+ * `search` is the original and the default, so nothing already running changes.
+ * `search-then-explore` is the shape a person actually uses: cast a wide keyword net
+ * to find the archetype, then follow who else people viewed. `explore` skips the net
+ * and mines the graph of people already held.
+ *
+ * A field on the record rather than a setting, because `cleanSettings` coerces every
+ * key with `Number()` and `LIMITS` is declared `satisfies Record<keyof
+ * CampaignSettings, …>` — settings is numeric by construction, and a string there
+ * would break that in five places.
+ */
+export type CampaignStrategy = "search" | "search-then-explore" | "explore";
+
+export const STRATEGIES: CampaignStrategy[] = ["search", "search-then-explore", "explore"];
+
+export function isStrategy(v: unknown): v is CampaignStrategy {
+  return typeof v === "string" && (STRATEGIES as string[]).includes(v);
+}
+
+/** Whether a given day of a campaign searches or explores. */
+export function daySearches(strategy: CampaignStrategy, day: number, switchDay: number): boolean {
+  if (strategy === "search") return true;
+  if (strategy === "explore") return false;
+  return day < switchDay;
+}
+
+/** How many of a campaign's days run queries. Drives the estimate. */
+export function searchDayCount(strategy: CampaignStrategy, s: CampaignSettings): number {
+  if (strategy === "search") return s.days;
+  if (strategy === "explore") return 0;
+  return Math.max(0, Math.min(s.days, s.switchDay - 1));
+}
 
 /**
  * The bounds, as data.
@@ -57,6 +108,9 @@ export const LIMITS = {
   enrichPerDay: { min: 0, max: 100, fallback: 25 },
   budgetUsd: { min: 0, max: 100, fallback: 5 },
   scoreBar: { min: 0, max: 20, fallback: 0 },
+  switchDay: { min: 2, max: 30, fallback: 2 },
+  exploreFrom: { min: 1, max: 50, fallback: 10 },
+  maxHop: { min: 1, max: 5, fallback: 2 },
 } as const satisfies Record<keyof CampaignSettings, { min: number; max: number; fallback: number }>;
 
 export const SETTING_KEYS = Object.keys(LIMITS) as (keyof CampaignSettings)[];
@@ -69,6 +123,9 @@ export function defaultSettings(): CampaignSettings {
     enrichPerDay: LIMITS.enrichPerDay.fallback,
     budgetUsd: LIMITS.budgetUsd.fallback,
     scoreBar: LIMITS.scoreBar.fallback,
+    switchDay: LIMITS.switchDay.fallback,
+    exploreFrom: LIMITS.exploreFrom.fallback,
+    maxHop: LIMITS.maxHop.fallback,
   };
 }
 
@@ -118,6 +175,8 @@ export type Tick = {
   at: string;
   day: number;
   queries: number;
+  /** Co-view lists opened. A day that explored reported zero of everything before. */
+  explored?: number;
   hits: number;
   queued: number;
   enriched: number;
@@ -141,6 +200,8 @@ export type Campaign = {
   /** Hand-written queries, which the menus cannot express. */
   queries: string[];
   settings: CampaignSettings;
+  /** How it spends its days. Defaults to `search`, which is what it always did. */
+  strategy: CampaignStrategy;
 
   /** 0 means created and never advanced. */
   day: number;
@@ -150,6 +211,16 @@ export type Campaign = {
   searchedToday: number;
   queuedToday: number;
   enrichedToday: number;
+  /**
+   * Seeds whose co-view list has been opened, ever, and how many were opened today.
+   *
+   * The first stops a campaign re-reading the same sidebar on every exploring day.
+   * The second is what lets an exploring day be *finished*: `dayDone` was written in
+   * terms of `searchedToday`, which never moves on a day that runs no queries, so
+   * without this an advance would redo the day's work on every call.
+   */
+  explored: string[];
+  exploredToday: number;
   /** An enrichment run a previous tick could not wait out. Drained first, always. */
   pendingJobId: string | null;
 
@@ -200,8 +271,15 @@ export function utcDay(at: Date = new Date()): string {
  * Shown at creation so a ceiling is set against a real number rather than a
  * guess, and so "why did it stop on day four" has an answer before day one.
  */
-export function estimateUsd(s: CampaignSettings): number {
-  const search = s.days * s.searchesPerDay * COST_PER_QUERY;
+export function estimateUsd(s: CampaignSettings, strategy: CampaignStrategy = "search"): number {
+  /**
+   * Only the days that actually run queries are charged for them, which makes this
+   * number honest on an exploring campaign for the first time: a seven-day run that
+   * switches on day two searches once, so it is a hundred queries and not seven
+   * hundred. A hop itself is free — the co-view list arrived with an enrichment
+   * already paid for — so exploring adds nothing to the search line.
+   */
+  const search = searchDayCount(strategy, s) * s.searchesPerDay * COST_PER_QUERY;
   const enrich = s.days * s.enrichPerDay * COST_PER_PROFILE;
   return Number((search + enrich).toFixed(4));
 }
@@ -219,7 +297,18 @@ export function terminalReason(c: Campaign, planLength: number): string | null {
   if (c.settings.budgetUsd > 0 && c.spentUsd >= c.settings.budgetUsd) {
     return `reached its ${c.settings.budgetUsd.toFixed(2)} dollar ceiling`;
   }
-  if (c.queryCursor >= planLength) {
+  /**
+   * An exhausted plan ends a searching campaign and nothing else.
+   *
+   * For `search` it is the honest answer: there is no work left. For anything that
+   * explores it is the *expected* state — burning the whole plan on day one is the
+   * point of the shape — and this check firing there would have finished every such
+   * campaign on day two, before it followed a single edge.
+   */
+  // Defaulted, not asserted. A campaign literal built without a strategy — a test
+  // fixture, a document written before the field existed — searched, and treating it
+  // as anything else would quietly stop applying the rule it was written under.
+  if ((c.strategy ?? "search") === "search" && c.queryCursor >= planLength) {
     return `ran out of queries, ${planLength} of ${planLength} used, so the selection was narrower than the schedule`;
   }
   return null;
@@ -261,12 +350,16 @@ export function hydrateCampaign(stored: Partial<Campaign> | null): Campaign | nu
     selection: { ...EMPTY_SELECTION, ...(stored.selection ?? {}) },
     queries: Array.isArray(stored.queries) ? stored.queries : [],
     settings: cleanSettings(stored.settings, defaultSettings()),
+    // Anything written before the strategy existed searched, which is what it did.
+    strategy: isStrategy(stored.strategy) ? stored.strategy : "search",
     day: stored.day ?? 0,
     lastTickDay: stored.lastTickDay ?? null,
     queryCursor: stored.queryCursor ?? 0,
     searchedToday: stored.searchedToday ?? 0,
     queuedToday: stored.queuedToday ?? 0,
     enrichedToday: stored.enrichedToday ?? 0,
+    explored: Array.isArray(stored.explored) ? stored.explored : [],
+    exploredToday: stored.exploredToday ?? 0,
     pendingJobId: stored.pendingJobId ?? null,
     spentUsd: stored.spentUsd ?? 0,
     top: Array.isArray(stored.top) ? stored.top : [],
@@ -280,6 +373,22 @@ export function hydrateCampaign(stored: Partial<Campaign> | null): Campaign | nu
   };
 }
 
+/**
+ * What a day did, in words, for whichever surface is printing it.
+ *
+ * One function because there are three of them — the Agent screen twice and the MCP
+ * once — and a day that followed the graph reported "0 queries" in all three.
+ */
+export function tickWork(t: { queries: number; explored?: number }): string {
+  const parts: string[] = [];
+  if (t.queries > 0) parts.push(`${t.queries} ${t.queries === 1 ? "query" : "queries"}`);
+  if (t.explored) {
+    parts.push(`${t.explored} co-view ${t.explored === 1 ? "list" : "lists"}`);
+  }
+  if (parts.length === 0) parts.push("nothing to run");
+  return parts.join(" and ");
+}
+
 /** The one-line shape the list views and the MCP both want. */
 export function summarise(c: Campaign) {
   return {
@@ -289,9 +398,10 @@ export function summarise(c: Campaign) {
     status: c.status,
     finishedReason: c.finishedReason,
     day: c.day,
-    // All six, not the two the row happens to print. The screen has to be able
+    // Every setting, not the two the row happens to print. The screen has to be able
     // to change every one of them, and it can only offer what it was sent.
     settings: c.settings,
+    strategy: c.strategy,
     spentUsd: Number(c.spentUsd.toFixed(4)),
     foundCount: c.foundCount,
     lastTickAt: c.lastTickAt,

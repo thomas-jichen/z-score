@@ -2,7 +2,15 @@ import { createMcpHandler, withMcpAuth } from "mcp-handler";
 import type { AuthInfo } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import { MAX_PROFILES_PER_RUN, isMock, startProfileRun } from "@/lib/apify";
-import { LIMITS, estimateUsd, summarise } from "@/lib/campaign";
+import {
+  type CampaignSettings,
+  type CampaignStrategy,
+  estimateUsd,
+  LIMITS,
+  searchDayCount,
+  summarise,
+  tickWork,
+} from "@/lib/campaign";
 import { planQueries } from "@/lib/campaignQueries";
 import {
   buildReport,
@@ -21,7 +29,7 @@ import { COST_PER_PROFILE, neighborsOf, toSlug } from "@/lib/enrichment";
 import { applyEnrichJob } from "@/lib/enrichApply";
 import { newJobId, readJob, writeJob, type EnrichJob } from "@/lib/jobs";
 import { verifyMcpToken } from "@/lib/mcpTokens";
-import { heldOrErased, isSuppressed, neighborsFrom } from "@/lib/people";
+import { heldOrErased, hopAfter, isSuppressed, nextHopFrom } from "@/lib/people";
 import type { ProfileId } from "@/lib/profiles";
 import { COST_PER_QUERY, EMPTY_SELECTION, type Selection } from "@/lib/query";
 import { reserveProfiles, reserveSearch } from "@/lib/ratelimit";
@@ -91,6 +99,26 @@ const verifyToken = async (_req: Request, bearer?: string): Promise<AuthInfo | u
 
 /* ── Shapes shared by several tools ─────────────────────────────────────── */
 
+/**
+ * How the days are laid out, in a sentence.
+ *
+ * Said out loud on create and on read, because a strategy the caller cannot see is a
+ * strategy they will forget they set. The numbers alone do not carry it: a seven-day
+ * campaign with a hundred searches a day means two very different things depending on
+ * whether day two searches.
+ */
+function dayPlan(c: { strategy: CampaignStrategy; settings: CampaignSettings }): string {
+  const s = c.settings;
+  const searchDays = searchDayCount(c.strategy, s);
+  if (c.strategy === "explore") {
+    return `${s.days} days, all of them following co-view lists, ${s.exploreFrom} a day, up to ${s.maxHop} ${s.maxHop === 1 ? "hop" : "hops"} out.`;
+  }
+  if (c.strategy === "search") {
+    return `${s.days} days of keyword search, up to ${s.searchesPerDay} queries a day.`;
+  }
+  return `${s.days} days: ${searchDays} of keyword search at up to ${s.searchesPerDay} queries a day, then ${s.days - searchDays} following co-view lists, ${s.exploreFrom} a day, up to ${s.maxHop} ${s.maxHop === 1 ? "hop" : "hops"} out.`;
+}
+
 const selectionSchema = z
   .object({
     programs: z.array(z.string().max(80)).max(40).optional(),
@@ -138,6 +166,31 @@ const SETTINGS_SHAPE = {
       .optional(),
     budgetUsd: z.number().min(LIMITS.budgetUsd.min).max(LIMITS.budgetUsd.max).optional(),
     scoreBar: z.number().min(LIMITS.scoreBar.min).max(LIMITS.scoreBar.max).optional(),
+    switchDay: z
+      .number()
+      .int()
+      .min(LIMITS.switchDay.min)
+      .max(LIMITS.switchDay.max)
+      .optional()
+      .describe(
+        "First day that explores instead of searching. Only read when strategy is search-then-explore."
+      ),
+    exploreFrom: z
+      .number()
+      .int()
+      .min(LIMITS.exploreFrom.min)
+      .max(LIMITS.exploreFrom.max)
+      .optional()
+      .describe("How many of the best people's co-view lists to open on an exploring day."),
+    maxHop: z
+      .number()
+      .int()
+      .min(LIMITS.maxHop.min)
+      .max(LIMITS.maxHop.max)
+      .optional()
+      .describe(
+        "How far from a searched person a find may be. Two is the default because a co-view is not a similarity model and each hop is a chance to drift."
+      ),
 } as const;
 
 const settingsSchema = z
@@ -291,6 +344,8 @@ Each row carries the score, the archetype, and which of the campaign's own searc
         const data = {
           campaign: summarise(c),
           settings: c.settings,
+          strategy: c.strategy,
+          days: dayPlan(c),
           selection: c.selection,
           queries: c.queries,
           plannedQueries: plan.length,
@@ -394,17 +449,31 @@ Each row carries the score, the archetype, and which of the campaign's own searc
         title: "Start an autonomous search",
         description: `Start a multi-day search that runs itself.
 
-Nothing runs at creation. The campaign sits at day 0 until the daily cron, an advance_campaign call, or the Advance button on the site moves it. Each day it runs up to searchesPerDay Google queries built from the selection and queries, queues the most promising people it does not already have, and pays to enrich up to enrichPerDay of them.
+Nothing runs at creation. The campaign sits at day 0 until the daily cron, an advance_campaign call, or the Advance button on the site moves it. Each day it queues the most promising people it does not already have and pays to enrich up to enrichPerDay of them. How it *finds* them is the strategy.
 
-It stops on whichever comes first: days elapsed, budgetUsd spent, or the queries running out.
+strategy: "search" runs up to searchesPerDay Google queries built from the selection and queries. This is the default and what every campaign did before.
+
+strategy: "search-then-explore" is the one to reach for when somebody describes the way they actually work: find a few interesting people, then look at who else browsers viewed alongside them, and follow that. Day one casts a wide keyword net to find the archetype — a hundred queries is reasonable, since the point is to find seeds rather than to be exhaustive. From switchDay onward it runs no queries at all and instead opens the "People also viewed" list of the exploreFrom highest-scoring people it has enriched, queues the best of those neighbours, and enriches them so the next day has somewhere to go. Set switchDay to 2 for "search once, then explore".
+
+strategy: "explore" skips the net and mines the co-view lists of people already in the roster. Give it no selection at all if you like.
+
+Exploring is free. A co-view list arrives with a profile that was already paid for, so a hop costs nothing until the neighbours themselves are enriched. What it costs instead is precision: a co-view reports who was looked at in the same session, not who is similar, so maxHop bounds how far a find may be from a searched person. It defaults to 2. Read the report rather than trusting the depth.
+
+It stops on whichever comes first: days elapsed, budgetUsd spent, or — for a searching campaign only — the queries running out. A campaign that explores is expected to burn its plan early, so that is not an ending for it. An exploring day with no unopened co-view lists left searches instead rather than idling, and says so in the day's note.
 
 Money. A search costs $${COST_PER_QUERY} and is not the concern. Enrichment costs $${COST_PER_PROFILE} a profile, is charged whether or not the profile comes back, and is the only real spend. budgetUsd is a hard ceiling, not a target.
 
-Read plannedQueries in the response. If it is far below days x searchesPerDay the selection is too narrow to fill the schedule and the campaign will finish early — widen the selection or add queries of your own. warnings will say so.
+Read plannedQueries in the response. If it is far below the number of *searching* days times searchesPerDay, the selection is too narrow to fill the schedule and the campaign will finish early — widen the selection or add queries of your own. warnings will say so.
 
 Only one campaign runs at a time, because they share a single daily run and would starve each other.`,
         inputSchema: z.object({
           name: z.string().min(1).max(80),
+          strategy: z
+            .enum(["search", "search-then-explore", "explore"])
+            .optional()
+            .describe(
+              "How it finds people. Defaults to search. Use search-then-explore for 'find some good people, then follow who else was viewed alongside them'."
+            ),
           selection: selectionSchema.optional(),
           queries: z
             .array(z.string().max(300))
@@ -419,7 +488,7 @@ Only one campaign runs at a time, because they share a single daily run and woul
         annotations: { readOnlyHint: false, idempotentHint: false, openWorldHint: false },
       },
       async (args, ctx) => {
-        const { name, selection, queries } = args;
+        const { name, strategy, selection, queries } = args;
         const owner = identity(ctx);
         await migrateIfNeeded();
         const result = await createCampaign(owner, {
@@ -434,8 +503,9 @@ Only one campaign runs at a time, because they share a single daily run and woul
         const s = campaign.settings;
         return reply(
           `Created "${campaign.name}" (${campaign.id}).\n` +
-            `${s.days} days, up to ${s.searchesPerDay} searches and ${s.queuePerDay} queued a day, ${s.enrichPerDay} enriched a day, ceiling $${s.budgetUsd.toFixed(2)}.\n` +
-            `${plannedQueries} distinct ${plannedQueries === 1 ? "query" : "queries"} planned. Estimated full run $${estimateUsd(s).toFixed(2)}.\n` +
+            `${dayPlan(campaign)}\n` +
+            `${s.queuePerDay} queued a day, ${s.enrichPerDay} enriched a day, ceiling $${s.budgetUsd.toFixed(2)}.\n` +
+            `${plannedQueries} distinct ${plannedQueries === 1 ? "query" : "queries"} planned. Estimated full run $${estimateUsd(s, campaign.strategy).toFixed(2)}.\n` +
             `Nothing has run yet — it advances once a day, or call advance_campaign to start now.` +
             (warnings.length ? `\n\nWorth knowing: ${warnings.join(" ")}` : ""),
           {
@@ -443,7 +513,7 @@ Only one campaign runs at a time, because they share a single daily run and woul
             campaign: summarise(campaign),
             settings: s,
             plannedQueries,
-            estimateUsd: estimateUsd(s),
+            estimateUsd: estimateUsd(s, campaign.strategy),
             warnings,
           }
         );
@@ -477,7 +547,7 @@ Spends money. Read tick.note: that is where a refused enrichment, a rate limit o
         const t = res.tick;
 
         const summary = t
-          ? `Day ${t.day}: ${t.queries} ${t.queries === 1 ? "query" : "queries"}, ${t.hits} hits, ${t.queued} queued, ${t.enriched} enriched, ${t.tagged} tagged, $${t.usd.toFixed(3)} spent.${t.note ? ` ${t.note}` : ""}`
+          ? `Day ${t.day}: ${tickWork(t)}, ${t.hits} hits, ${t.queued} queued, ${t.enriched} enriched, ${t.tagged} tagged, $${t.usd.toFixed(3)} spent.${t.note ? ` ${t.note}` : ""}`
           : (res.note ?? "Nothing to do.");
 
         return reply(
@@ -643,7 +713,12 @@ Give explicit slugs — the LinkedIn /in/<handle>, never a display name — or n
 People the team deleted permanently are refused and counted, not silently dropped. Anyone already marked known or rejected is left exactly as they are.`,
         inputSchema: z.object({
           slugs: z.array(z.string().max(200)).max(100).optional(),
-          neighborsOf: z.string().max(200).optional(),
+          neighborsOf: z
+            .union([z.string().max(200), z.array(z.string().max(200)).max(25)])
+            .optional()
+            .describe(
+              "One slug or several. Expanding ten people in one call beats ten calls, and the neighbours are already paid for."
+            ),
         }),
         annotations: { readOnlyHint: false, idempotentHint: true, openWorldHint: false },
       },
@@ -654,44 +729,75 @@ People the team deleted permanently are refused and counted, not silently droppe
         const roster = await readRoster();
         const marks = hydrate(await get<Partial<ProfileState>>(stateKey(owner))).marks;
 
-        let hits: { slug: string; name: string; headline: string; url: string; snippet: string; matchedShards: string[] }[] = [];
+        const hits: { slug: string; name: string; headline: string; url: string; snippet: string; matchedShards: string[] }[] = [];
+        /** Set for neighbours, so they are queued as neighbours and not as searches. */
+        const via = new Map<string, { seedSlug: string; seedName: string; hop: number }>();
 
         if (neighborsOf) {
-          const seedSlug = toSlug(neighborsOf);
-          const seed = seedSlug ? roster[seedSlug] : undefined;
-          if (!seed) return failed(`${neighborsOf} is not in the roster, so its neighbours are unknown.`);
-          if (!seed.enriched) {
+          const asked = Array.isArray(neighborsOf) ? neighborsOf : [neighborsOf];
+          const seeds = [];
+          for (const one of asked) {
+            const seedSlug = toSlug(one);
+            const seed = seedSlug ? roster[seedSlug] : undefined;
+            if (!seed) return failed(`${one} is not in the roster, so its neighbours are unknown.`);
+            if (!seed.enriched) {
+              return failed(
+                `${seed.name} has not been enriched, and the neighbour list only arrives with a profile. Enrich them first.`
+              );
+            }
+            seeds.push(seed);
+          }
+
+          const known = heldOrErased(roster, (await readTeam()).deleted);
+          for (const n of nextHopFrom(seeds, known)) {
+            hits.push({
+              slug: n.slug,
+              name: n.name,
+              headline: n.position,
+              url: n.url,
+              snippet: "",
+              matchedShards: [],
+            });
+            /**
+             * The provenance, which this tool used to throw away.
+             *
+             * `queueHits` stamps `{kind:"serp"}` by default, so a neighbour queued
+             * here was recorded as a Google find. That cost the hop — `hopAfter`
+             * reads `discoveredVia` — and it cost the graph its discovery edge, so
+             * the one link that is a fact about the search rather than an inference
+             * about the people was silently dropped every time Claude expanded.
+             */
+            via.set(n.slug, {
+              seedSlug: n.seedSlug,
+              seedName: n.seedName,
+              hop: hopAfter(roster[n.seedSlug]),
+            });
+          }
+          if (hits.length === 0) {
             return failed(
-              `${seed.name} has not been enriched, and the neighbour list only arrives with a profile. Enrich them first.`
+              `No new neighbours for ${seeds.map((s) => s.name).join(", ")}.`
             );
           }
-          const known = heldOrErased(roster, (await readTeam()).deleted);
-          hits = neighborsFrom(seed, known).map((n) => ({
-            slug: n.slug,
-            name: n.name,
-            headline: n.position,
-            url: n.url,
-            snippet: "",
-            matchedShards: [],
-          }));
-          if (hits.length === 0) return failed(`No new neighbours for ${seed.name}.`);
         } else {
           const wanted = (slugs ?? []).map((s) => toSlug(s)).filter((s): s is string => Boolean(s));
           if (wanted.length === 0) return failed("Give either slugs or neighborsOf.");
-          hits = wanted.map((slug) => ({
-            slug,
-            name: roster[slug]?.name ?? slug,
-            headline: roster[slug]?.headline ?? "",
-            url: roster[slug]?.url ?? `https://www.linkedin.com/in/${slug}`,
-            snippet: "",
-            matchedShards: [],
-          }));
+          for (const slug of wanted) {
+            hits.push({
+              slug,
+              name: roster[slug]?.name ?? slug,
+              headline: roster[slug]?.headline ?? "",
+              url: roster[slug]?.url ?? `https://www.linkedin.com/in/${slug}`,
+              snippet: "",
+              matchedShards: [],
+            });
+          }
         }
 
         const res = await queueHits(owner, hits, {
-          query: neighborsOf ? `neighbours of ${neighborsOf}` : "added by Claude",
+          query: "added by Claude",
           selection: EMPTY_SELECTION,
           marks,
+          via,
         });
         if (res.slugs.length === 0) {
           return failed(
@@ -900,6 +1006,8 @@ Enriching also fetches each person's neighbours, which is what queue_people's ne
     instructions: `Z-Score finds exceptional young people and ranks them on a hand-tuned taxonomy.
 
 The shape of the work: list_taxonomy to learn the vocabulary, run_search to sanity-check a query, create_campaign to set a multi-day search running, advance_campaign or the daily cron to move it along, get_campaign for the report.
+
+There are two ways to find people and the second is easy to overlook. Keyword search is one. The other is that every enriched profile arrives with the "People also viewed" list beside it, already paid for, so somebody good leads to the people browsers looked at alongside them. queue_people does one hop of that on demand; create_campaign with strategy "search-then-explore" does it unattended for days on end, which is the shape to reach for when a person describes finding one promising person and working outward from them.
 
 What you may not do, by design: nothing here deletes a person, resets the roster, edits a taxonomy weight, or marks anyone known or rejected. Deciding whether somebody is worth talking to is the human's call.
 

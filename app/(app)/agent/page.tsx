@@ -7,7 +7,13 @@ import { Category } from "@/components/Category";
 import { Button, Card, EmptyState, Pill } from "@/components/primitives";
 import { menusByFacet } from "@/lib/tags";
 import { GRAD_YEARS } from "@/lib/searchTaxonomy";
-import type { CampaignSettings } from "@/lib/campaign";
+import {
+  type CampaignSettings,
+  type CampaignStrategy,
+  daySearches,
+  STRATEGIES,
+  tickWork,
+} from "@/lib/campaign";
 import type { Selection } from "@/lib/query";
 import type { CustomTerms } from "@/lib/state";
 import type { TagFacet } from "@/lib/tagRegistry";
@@ -41,6 +47,8 @@ type Summary = {
   finishedReason?: string;
   day: number;
   settings: CampaignSettings;
+  /** Optional, so a summary written before the field existed still reads. */
+  strategy?: CampaignStrategy;
   spentUsd: number;
   foundCount: number;
   lastTickAt?: string;
@@ -105,6 +113,8 @@ const CATEGORIES: {
 /** What to say to Claude. Copyable, because the first prompt should not be a guess. */
 const PROMPTS = [
   "Set up a seven day search for Stanford and MIT founders who did YC or a16z Speedrun, 100 queries a day, and enrich the best 10 each day.",
+  "Spend day one on 100 queries for Stanford and MIT founders, then spend the next six days following who else people viewed alongside the best of them.",
+  "Take the ten best people in the queue and show me who else was viewed alongside them.",
   "Change the Stanford founders campaign to 14 days and raise its ceiling to $20.",
   "Try the query \"stanford dropout building\" before I commit to it, and tell me if it is worth a campaign.",
   "How is my campaign doing, and who are the ten best people it has found?",
@@ -150,6 +160,7 @@ export default function AgentPage() {
   const [name, setName] = useState("");
   const [sel, setSel] = useState<Selection>(BLANK);
   const [rawQueries, setRawQueries] = useState("");
+  const [strategy, setStrategy] = useState<CampaignStrategy>("search");
   const [draft, setDraft] = useState<CampaignSettings | null>(null);
 
   const [openReport, setOpenReport] = useState<string | null>(null);
@@ -232,13 +243,14 @@ export default function AgentPage() {
       .split("\n")
       .map((q) => q.trim())
       .filter(Boolean);
-    const data = await post({ op: "create", name, selection: sel, queries, settings: draft });
+    const data = await post({ op: "create", name, strategy, selection: sel, queries, settings: draft });
     setBusy(null);
     if (!data) return;
     setCreating(false);
     setName("");
     setSel(BLANK);
     setRawQueries("");
+    setStrategy("search");
     setNotice(
       `${data.campaign.name} is ready. ${nQueries(data.plannedQueries)} planned, about ${money(data.estimateUsd)} for the full run. Nothing has run yet.` +
         (data.warnings?.length ? ` ${data.warnings.join(" ")}` : "")
@@ -255,7 +267,7 @@ export default function AgentPage() {
     const t = data.tick;
     setNotice(
       t
-        ? `Day ${t.day}: ${nQueries(t.queries)}, ${t.queued} queued, ${t.enriched} enriched, ${money(t.usd)} spent.${t.note ? ` ${t.note}` : ""}`
+        ? `Day ${t.day}: ${tickWork(t)}, ${t.queued} queued, ${t.enriched} enriched, ${money(t.usd)} spent.${t.note ? ` ${t.note}` : ""}`
         : (data.note ?? "Nothing to do.")
     );
     await load();
@@ -427,7 +439,40 @@ export default function AgentPage() {
               </div>
 
               <div className="z-stack" style={{ gap: "var(--z-space-5)" }}>
-                <Settings limits={limits} value={draft} onChange={setDraft} facts={facts} />
+                {/*
+                  How it finds people, above the numbers that describe how much.
+                  
+                  It leads because it changes what the numbers mean: a hundred searches
+                  a day is a different campaign depending on whether day two searches at
+                  all. One line of prose under the choice, because "explore" on its own
+                  could mean anything, and "follows who else people viewed" is the thing
+                  somebody recognises as the way they already work.
+                */}
+                <div className="z-stack" style={{ gap: 6 }}>
+                  <p className="z-label is-quiet">How it finds people</p>
+                  <div className="z-row z-row-wrap" style={{ gap: "var(--z-space-2)" }}>
+                    {STRATEGIES.map((v) => (
+                      <Pill
+                        key={v}
+                        as="button"
+                        active={strategy === v}
+                        onClick={() => setStrategy(v)}
+                        title={STRATEGY_HINT[v]}
+                      >
+                        {STRATEGY_LABEL[v]}
+                      </Pill>
+                    ))}
+                  </div>
+                  <p className="z-micro">{STRATEGY_HINT[strategy]}</p>
+                </div>
+
+                <Settings
+                  limits={limits}
+                  value={draft}
+                  onChange={setDraft}
+                  facts={facts}
+                  strategy={strategy}
+                />
 
                 <details className="z-disclosure">
                   <summary>Queries of your own</summary>
@@ -794,14 +839,25 @@ function CampaignRow({
         </span>
 
         {/* One segment a day, filled for days done. Countable, and it says "this is
-            a seven-day thing" without a sentence. */}
-        <span className="z-camp-days" title={`Day ${c.day} of ${c.settings.days}`} aria-label={`Day ${c.day} of ${c.settings.days}`}>
+            a seven-day thing" without a sentence.
+            
+            A day that follows co-view lists is drawn hollow, so the strip also says
+            what shape the run is: two solid then five hollow is "search, then
+            explore" read at a glance and with no extra words on the row. */}
+        <span
+          className="z-camp-days"
+          title={`Day ${c.day} of ${c.settings.days}. ${dayShape(c)}`}
+          aria-label={`Day ${c.day} of ${c.settings.days}. ${dayShape(c)}`}
+        >
           {Array.from({ length: c.settings.days }, (_, i) => (
             <span
               key={i}
               className="z-camp-day"
               data-done={i < c.day || undefined}
               data-live={live || undefined}
+              data-explore={
+                !daySearches(c.strategy ?? "search", i + 1, c.settings.switchDay) || undefined
+              }
             />
           ))}
         </span>
@@ -908,7 +964,7 @@ function CampaignRow({
               <div className="z-disclosure-body z-stack" style={{ gap: "var(--z-space-2)" }}>
                 {meta.ticks.map((t, i) => (
                   <p className="z-micro" key={i}>
-                    Day {t.day}, {when(t.at)}: {nQueries(t.queries)}, {t.queued} queued,{" "}
+                    Day {t.day}, {when(t.at)}: {tickWork(t)}, {t.queued} queued,{" "}
                     {t.enriched} enriched, {money(t.usd)}.{t.note ? ` ${t.note}` : ""}
                   </p>
                 ))}
@@ -932,7 +988,14 @@ function CampaignRow({
  * already know the score is in sigma. The unit goes in the label rather than the
  * hint because the hint is the second line and people set a number off the first.
  */
-const FIELDS: { key: keyof CampaignSettings; label: string; hint: string; step: number }[] = [
+const FIELDS: {
+  key: keyof CampaignSettings;
+  label: string;
+  hint: string;
+  step: number;
+  /** Absent means always. Otherwise which strategies read it. */
+  when?: "explores" | "search-then-explore";
+}[] = [
   { key: "days", label: "Days", hint: "It advances once a day", step: 1 },
   { key: "searchesPerDay", label: "Searches a day", hint: "A tenth of a cent each", step: 5 },
   { key: "queuePerDay", label: "Queued a day", hint: "The best of what it finds", step: 5 },
@@ -944,27 +1007,94 @@ const FIELDS: { key: keyof CampaignSettings; label: string; hint: string; step: 
     hint: "Optional, 0 means take the best",
     step: 0.5,
   },
+  /**
+   * Only shown when the strategy reads them.
+   *
+   * A number on screen that the loop is ignoring is worse than one that is missing:
+   * it invites somebody to tune it and then wonder why nothing changed.
+   */
+  {
+    key: "switchDay",
+    label: "Switch on day",
+    hint: "Before this it searches",
+    step: 1,
+    when: "search-then-explore",
+  },
+  /**
+   * "Explored a day", to sit in the row it belongs to.
+   *
+   * The grid already reads "Searches a day, Queued a day, Enriched a day", so a
+   * fourth in that shape needs no explaining. The first draft called this "Explore
+   * from" and put it next to "Explore from day", which are two different numbers
+   * that read as one.
+   */
+  { key: "exploreFrom", label: "Explored a day", hint: "Top people's lists opened", step: 1, when: "explores" },
+  { key: "maxHop", label: "Hops out", hint: "How far a find may be", step: 1, when: "explores" },
 ];
+
+/** Whether a field is worth showing for the strategy in hand. */
+function shows(f: (typeof FIELDS)[number], strategy: CampaignStrategy): boolean {
+  if (!f.when) return true;
+  if (f.when === "search-then-explore") return strategy === "search-then-explore";
+  return strategy !== "search";
+}
+
+/** The shape of the run, for the day strip's tooltip. */
+function dayShape(c: { strategy?: CampaignStrategy; settings: CampaignSettings }): string {
+  const how = c.strategy ?? "search";
+  if (how === "search") return "Every day searches.";
+  if (how === "explore") return "Every day follows co-view lists.";
+  return `Searches until day ${c.settings.switchDay}, then follows co-view lists.`;
+}
+
+const STRATEGY_LABEL: Record<CampaignStrategy, string> = {
+  search: "Keyword search",
+  "search-then-explore": "Search then explore",
+  explore: "Explore only",
+};
+
+/**
+ * What each strategy actually does, in one line under the choice.
+ *
+ * The names alone do not carry it. "Explore" could mean anything; "follows who else
+ * people viewed" is the thing somebody recognises as their own workflow.
+ */
+const STRATEGY_HINT: Record<CampaignStrategy, string> = {
+  search: "Google queries built from the selection, every day.",
+  "search-then-explore":
+    "Searches for the first days to find the archetype, then follows who else people viewed.",
+  explore: "No searching. Follows who else people viewed, from the people already held.",
+};
 
 function Settings({
   limits,
   value,
   onChange,
   facts,
+  strategy,
 }: {
   limits: Limits;
   value: CampaignSettings;
   onChange: (next: CampaignSettings) => void;
   facts: Facts | null;
+  strategy?: CampaignStrategy;
 }) {
+  const how = strategy ?? "search";
+  /**
+   * Only the days that search are charged for queries, so an exploring campaign
+   * finally estimates what it will actually cost. Following a co-view list is free:
+   * it arrived with a profile somebody already paid for.
+   */
+  const searchDays =
+    how === "search" ? value.days : how === "explore" ? 0 : Math.max(0, Math.min(value.days, value.switchDay - 1));
   const est =
-    value.days * value.searchesPerDay * (facts?.costPerQuery ?? 0.001) +
+    searchDays * value.searchesPerDay * (facts?.costPerQuery ?? 0.001) +
     value.days * value.enrichPerDay * (facts?.costPerProfile ?? 0.004);
 
   return (
     <div>
       <div className="z-set-grid">
-        {FIELDS.map((f) => (
+        {FIELDS.filter((f) => shows(f, how)).map((f) => (
           <label className="z-set" key={f.key}>
             <span className="z-set-label">{f.label}</span>
             <input

@@ -3378,6 +3378,26 @@ tr[data-pinned] td:first-child {
   background: var(--z-blue);
 }
 
+/**
+ * A day that follows co-view lists rather than searching.
+ *
+ * Hollow, so the strip reads as the shape of the run: two solid then five outlined is
+ * "search, then explore" at a glance. An outline rather than a second fill colour,
+ * because the accent already means one thing here and a second would mean nothing.
+ */
+.z-camp-day[data-explore] {
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--z-border);
+}
+
+.z-camp-day[data-explore][data-done] {
+  box-shadow: inset 0 0 0 1px var(--z-ink-faint);
+}
+
+.z-camp-day[data-explore][data-done][data-live] {
+  box-shadow: inset 0 0 0 1px var(--z-blue);
+}
+
 .z-camp-found,
 .z-camp-spend {
   font-size: var(--z-fs-micro);

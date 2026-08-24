@@ -6,6 +6,7 @@ import {
   isSuppressed,
   migrateLegacy,
   personFromHit,
+  personFromSlug,
   refreshDerived,
 } from "./people";
 import { buildSearchLabels } from "./tags";
@@ -125,6 +126,16 @@ export async function queueHits(
     reviveRejected?: boolean;
     marks?: Marks;
     max?: number;
+    /**
+     * For hits that came off a co-view list rather than a search.
+     *
+     * Without this every caller queueing neighbours through here records them as a
+     * Google find, because `personFromHit` stamps `{kind:"serp"}`. That is what MCP's
+     * `queue_people` does today, and it costs the hop: `hopAfter` reads
+     * `discoveredVia`, and the graph draws its discovery edges from `pav` provenance,
+     * so a neighbour queued that way is invisible as a neighbour ever after.
+     */
+    via?: Map<string, { seedSlug: string; seedName: string; hop: number }>;
   }
 ): Promise<QueueHitsResult> {
   const [roster, team] = await Promise.all([readRoster(), readTeam()]);
@@ -155,6 +166,20 @@ export async function queueHits(
 
     // Already in the roster? Keep the richer record; only marks change.
     if (roster[slug]) continue;
+
+    const from = opts.via?.get(slug);
+    if (from) {
+      // No search labels: nothing here was asserted by a query, so there is nothing
+      // to cross-check and nothing to claim.
+      fresh.push(
+        personFromSlug(
+          slug,
+          { kind: "pav", seedSlug: from.seedSlug, seedName: from.seedName, hop: from.hop },
+          { name: hit.name, headline: hit.headline }
+        )
+      );
+      continue;
+    }
 
     // Chips are cross-checked against this hit's own text, so an OR group never
     // silently asserts a credential the snippet does not actually show.
