@@ -107,12 +107,21 @@ export default function SweepPage() {
   /** Slugs ticked for the next action, across both paths. */
   const [picked, setPicked] = useState<Set<string>>(new Set());
   /**
-   * What the recent runs added, so the results table and the sidebar offer are
-   * about work just done rather than the whole roster. Persisted, because a
-   * reload used to lose the offer entirely even though the neighbours it is built
-   * from were saved all along.
+   * What this visit added, and what the last one did.
+   *
+   * One list used to do both jobs, and the heading over it said "this session"
+   * while a mount rehydrated it from the stored document — so after any reload the
+   * panel showed a previous visit's people and claimed they were this one's. Two
+   * lists is the whole fix: `sessionSlugs` starts empty every time and only grows
+   * when a run in *this* visit puts somebody in the roster.
+   *
+   * `recentSlugs` keeps doing what it was for, which is letting the People also
+   * viewed offer survive a reload. It just stops pretending to be the present.
    */
   const [sessionSlugs, setSessionSlugs] = useState<string[]>([]);
+  const [priorSlugs, setPriorSlugs] = useState<string[]>([]);
+  /** Open until closed, then it stays as left. A finished run is worth reading. */
+  const [addedOpen, setAddedOpen] = useState(true);
 
   /**
    * People Also Viewed is offered, never taken. It stays shut until asked for,
@@ -148,6 +157,11 @@ export default function SweepPage() {
   function rememberAdded(slugs: string[]) {
     const next = [...new Set([...sessionSlugs, ...slugs])].slice(-MAX_RECENT_SLUGS);
     setSessionSlugs(next);
+    // The last visit's panel goes the moment this one has something to show, which
+    // is what makes the two mutually exclusive rather than two lists of the same
+    // people under two headings.
+    setPriorSlugs([]);
+    setAddedOpen(true);
     patch({ recentSlugs: next });
   }
 
@@ -163,7 +177,8 @@ export default function SweepPage() {
       setSel(restoredSel);
     }
     if (state.seeds.length > 0 && !seedText) setSeedText(state.seeds.join("\n"));
-    if (state.recentSlugs.length > 0) setSessionSlugs(state.recentSlugs);
+    // Into `priorSlugs`, because this is by definition not what this visit did.
+    if (state.recentSlugs.length > 0) setPriorSlugs(state.recentSlugs);
     setRestored(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loading, restored]);
@@ -456,10 +471,17 @@ export default function SweepPage() {
   }
 
   const recent = state.sweeps.slice(0, 8);
-  const added = useMemo(
-    () => sessionSlugs.map((s) => roster[s]).filter(Boolean),
-    [sessionSlugs, roster]
-  );
+  /**
+   * Whichever list is showing. This feeds the table *and* the People also viewed
+   * offer below it (`nextHopFrom(added, known)`), so resolving it against the last
+   * visit's slugs when this one has added nothing is what keeps the offer alive
+   * across a reload — the reason `recentSlugs` is persisted at all.
+   */
+  const thisSession = sessionSlugs.length > 0;
+  const added = useMemo(() => {
+    const slugs = thisSession ? sessionSlugs : priorSlugs;
+    return slugs.map((s) => roster[s]).filter(Boolean);
+  }, [thisSession, sessionSlugs, priorSlugs, roster]);
 
   /**
    * The People Also Viewed offer, derived from the roster rather than held in
@@ -806,12 +828,30 @@ export default function SweepPage() {
             </details>
           )}
 
-          {/* Everything this visit put into the roster. */}
+          {/*
+            What a run put into the roster, and honest about which run.
+            
+            A disclosure now, sitting between the two it already sat between, so it
+            is a third in an established row rather than a widget bolted on. The two
+            headings differ in more than wording: this visit's list opens itself,
+            because a run that just finished is the thing you came to read, and the
+            last visit's stays shut, because it is context and not news.
+          */}
           {added.length > 0 && (
-            <div className="z-section-gap">
-              <div className="z-col-head">
-                <p className="z-label is-quiet">Added this session, {added.length}</p>
-              </div>
+            <details
+              className="z-disclosure z-section-gap"
+              {...(thisSession
+                ? {
+                    open: addedOpen,
+                    onToggle: (e: React.SyntheticEvent<HTMLDetailsElement>) =>
+                      setAddedOpen(e.currentTarget.open),
+                  }
+                : {})}
+            >
+              <summary>
+                {thisSession ? "Added this session" : "Added last session"}
+                <span className="z-count">{added.length}</span>
+              </summary>
               <div className="z-table-wrap">
                 <table className="z-table">
                   <thead>
@@ -863,7 +903,7 @@ export default function SweepPage() {
                   </tbody>
                 </table>
               </div>
-            </div>
+            </details>
           )}
 
           {recent.length > 0 && (
