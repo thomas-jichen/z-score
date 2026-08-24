@@ -505,6 +505,19 @@ export default function SweepPage() {
   const hitPickCount = hits.filter((h) => picked.has(h.slug)).length;
   const pavPicked = pavShown.filter((n) => picked.has(n.slug));
   const seedCount = parseSeedInput(seedText).slugs.length;
+
+  /**
+   * Empty the box, and forget the list.
+   *
+   * Both, because the seed list is persisted and rehydrated on load: clearing only
+   * the textarea would look like it worked and put every line back on the next visit.
+   * Gated on the raw text rather than on the parsed count, so a box full of lines
+   * that parsed to nothing can still be emptied — which is exactly when you want to.
+   */
+  function clearSeeds() {
+    setSeedText("");
+    patch({ seeds: [] });
+  }
   const working = busy || busyAction !== null;
 
   /**
@@ -562,11 +575,20 @@ export default function SweepPage() {
           ]}
         />
         <span className="z-spacer" />
-        {mode === "serp" && chosen > 0 && (
-          <button className="z-linkish" onClick={() => update({ ...BLANK })}>
-            Clear all
-          </button>
-        )}
+        {/* One affordance in one place for both modes. A second button somewhere
+            else in seed mode would be the same idea in a different spot, and the
+            header is where you already look to change what the screen is doing. */}
+        {mode === "serp"
+          ? chosen > 0 && (
+              <button className="z-linkish" onClick={() => update({ ...BLANK })}>
+                Clear all
+              </button>
+            )
+          : seedText.trim().length > 0 && (
+              <button className="z-linkish" onClick={clearSeeds}>
+                Clear all
+              </button>
+            )}
       </div>
 
       {ephemeral && (
