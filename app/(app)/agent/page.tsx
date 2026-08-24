@@ -457,13 +457,13 @@ export default function AgentPage() {
                         as="button"
                         active={strategy === v}
                         onClick={() => setStrategy(v)}
-                        title={STRATEGY_HINT[v]}
+                        title={strategyHint(v, draft)}
                       >
                         {STRATEGY_LABEL[v]}
                       </Pill>
                     ))}
                   </div>
-                  <p className="z-micro">{STRATEGY_HINT[strategy]}</p>
+                  <p className="z-micro">{strategyHint(strategy, draft)}</p>
                 </div>
 
                 <Settings
@@ -831,7 +831,15 @@ function CampaignRow({
             {c.finishedReason
               ? `${c.finishedReason[0].toUpperCase()}${c.finishedReason.slice(1)}`
               : live
-                ? `Day ${c.day} of ${c.settings.days}`
+                ? // One word for what today is actually doing. The day strip shows the
+                  // shape of the whole run; this says where in it you are.
+                  `Day ${c.day} of ${c.settings.days}${
+                    (c.strategy ?? "search") === "search"
+                      ? ""
+                      : daySearches(c.strategy ?? "search", c.day, c.settings.switchDay)
+                        ? ", searching"
+                        : ", exploring"
+                  }`
                 : c.day === 0
                   ? "Not started"
                   : `Stopped on day ${c.day}`}
@@ -1028,7 +1036,7 @@ const FIELDS: {
    * from" and put it next to "Explore from day", which are two different numbers
    * that read as one.
    */
-  { key: "exploreFrom", label: "Explored a day", hint: "Top people's lists opened", step: 1, when: "explores" },
+  { key: "exploreFrom", label: "Explored a day", hint: "The best people's lists", step: 1, when: "explores" },
   { key: "maxHop", label: "Hops out", hint: "How far a find may be", step: 1, when: "explores" },
 ];
 
@@ -1059,12 +1067,26 @@ const STRATEGY_LABEL: Record<CampaignStrategy, string> = {
  * The names alone do not carry it. "Explore" could mean anything; "follows who else
  * people viewed" is the thing somebody recognises as their own workflow.
  */
-const STRATEGY_HINT: Record<CampaignStrategy, string> = {
-  search: "Google queries built from the selection, every day.",
-  "search-then-explore":
-    "Searches for the first days to find the archetype, then follows who else people viewed.",
-  explore: "No searching. Follows who else people viewed, from the people already held.",
-};
+/**
+ * What each strategy does, in one line under the choice.
+ *
+ * The names alone do not carry it. "Explore" could mean anything; "follows who else
+ * people viewed" is the thing somebody recognises as their own workflow. The middle
+ * one takes the settings so it can name the actual day rather than saying "the first
+ * days", which is both vague and wrong the moment you change the number.
+ */
+function strategyHint(how: CampaignStrategy, s: CampaignSettings): string {
+  if (how === "search") return "Google queries built from the selection, every day.";
+  if (how === "explore") {
+    return "No searching. Follows who else people viewed, starting from the people already held.";
+  }
+  const searchDays = Math.max(0, Math.min(s.days, s.switchDay - 1));
+  const first = searchDays === 1 ? "Searches on day 1" : `Searches for ${searchDays} days`;
+  const rest = s.days - searchDays;
+  return `${first} to find the archetype, then spends ${rest} ${
+    rest === 1 ? "day" : "days"
+  } following who else people viewed.`;
+}
 
 function Settings({
   limits,

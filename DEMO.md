@@ -131,6 +131,14 @@ heard of".
 Claude** and **Limits we do not set** — the second one is the credibility move: every
 number the loop obeys is on screen, including the ones you do not control.
 
+**6b. The part Cory asked for.** Still on `/agent`, click **New campaign** and pick
+**Search then explore**. The line under it changes as you move *Switch on day*:
+*"Searches on day 1 to find the archetype, then spends 6 days following who else people
+viewed."* That is his own workflow — find one good person, look at who else was viewed
+alongside them, follow it — running unattended. The day strip on a campaign row shows
+the shape: solid for a day that searched, outlined for a day that followed the graph.
+Then open `/graph`, leave only **Found via** on, and the arrows are the crawl itself.
+
 **7. Close on the money.** 30 people for 3.7 cents, and a hard ceiling that stops it.
 
 ---
