@@ -406,16 +406,20 @@ export function Avatar({
         alt=""
         aria-hidden="true"
         /**
-         * Lazy in a list of thirty-odd, eager for the one in a hero.
+         * Eager, everywhere.
          *
-         * Not just a nicety: an image that mounts *after* a state change — the moment
-         * a photo is replaced and `bust` changes — never started loading at all under
-         * lazy, even sitting 171px down a fresh page. It stayed `complete: false` with
-         * no `currentSrc` while an `Image()` built by hand with the identical URL
-         * loaded fine. The hero is one 72px square above the fold; there was never
-         * anything to defer.
+         * `loading="lazy"` does not work for an image that mounts *after* a state
+         * change, which in this app is most of them: filter the queue, type in the
+         * search box, replace a photo, and the new rows arrive with `complete: false`
+         * and no `currentSrc` and simply never fetch. Measured at 427px down a
+         * scrolled-to-top page, and flipping the same element to eager loaded it
+         * instantly. It looked fine on a cold page load, which is what hid it.
+         *
+         * The whole roster is about 400KB of 200px squares from our own origin, and
+         * they revalidate rather than being held, so there was nothing here worth
+         * deferring in exchange for a photo that silently does not appear.
          */
-        loading={size === "lg" ? "eager" : "lazy"}
+        loading="eager"
         decoding="async"
         width={size === "lg" ? 72 : 34}
         height={size === "lg" ? 72 : 34}

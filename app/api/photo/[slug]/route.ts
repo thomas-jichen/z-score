@@ -42,16 +42,32 @@ export async function GET(req: Request, ctx: { params: Promise<{ slug: string }>
   const photo = await photoFor(slug, person.enriched?.photoUrl);
   if (!photo) return new NextResponse(null, { status: 404 });
 
+  /**
+   * Revalidated rather than held, with an ETag doing the work.
+   *
+   * This was `max-age=86400`, on the theory that a photo never changes. It does: a
+   * re-enrichment can bring a new one, and somebody can replace one by hand. The
+   * first time that happened the browser kept serving the previous image for a day
+   * and the page looked broken in the one way that is impossible to debug from the
+   * outside — the bytes in the store were right and the screen was wrong.
+   *
+   * `no-cache` means revalidate before use, not "do not store". Unchanged bytes cost
+   * a 304 with no body, which for a page of thirty-odd avatars is cheaper than it
+   * sounds and always correct. An email is fetched once on open, so it loses nothing.
+   */
+  const tag = `"${photo.at}-${photo.data.length}"`;
+  if (req.headers.get("if-none-match") === tag) {
+    return new NextResponse(null, {
+      status: 304,
+      headers: { ETag: tag, "Cache-Control": "private, no-cache" },
+    });
+  }
+
   return new NextResponse(Buffer.from(photo.data, "base64"), {
     headers: {
       "Content-Type": photo.contentType,
-      /**
-       * Immutable for a day at the browser and a year at the edge. The bytes for a
-       * slug only change when somebody changes their LinkedIn photo and we re-enrich
-       * them, and a day is a short enough leash for that while still meaning the
-       * queue does not refetch forty images on every navigation.
-       */
-      "Cache-Control": "private, max-age=86400, stale-while-revalidate=604800",
+      "Cache-Control": "private, no-cache",
+      ETag: tag,
       /** Never indexed, never a public asset. */
       "X-Robots-Tag": "noindex, noimageindex",
       "Content-Disposition": "inline",
