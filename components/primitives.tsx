@@ -362,16 +362,61 @@ export function TagChip({ tag, onRemove }: { tag: Tag; onRemove?: () => void }) 
 
 /* ── Person cell ────────────────────────────────────────────────────────── */
 
-export function Avatar({ name, size }: { name: string; size?: "lg" }) {
-  // Square + grayscale, matching zfellows' image treatment (30/30 hero images).
+/**
+ * The person, as a 34px square.
+ *
+ * Square and grayscale either way, matching zfellows' own image treatment, which is
+ * the reason a photo drops in here without redesigning anything: the initials box was
+ * already the right shape and already had `object-fit: cover` waiting on it.
+ *
+ * `slug` is what turns it into a picture, and only when `photo` says there is one to
+ * fetch. It is served from our own origin — see `lib/photo.ts` for why the CDN link is
+ * neither rendered nor allowed through the CSP.
+ */
+export function Avatar({
+  name,
+  slug,
+  photo,
+  size,
+}: {
+  name: string;
+  slug?: string;
+  photo?: boolean;
+  size?: "lg";
+}) {
   const initials = name
     .split(" ")
     .map((p) => p[0])
     .slice(0, 2)
     .join("");
+  const cls = `z-avatar${size === "lg" ? " is-lg" : ""}`;
+
+  if (photo && slug) {
+    return (
+      <img
+        className={cls}
+        src={`/api/photo/${encodeURIComponent(slug)}`}
+        alt=""
+        aria-hidden="true"
+        loading="lazy"
+        decoding="async"
+        width={size === "lg" ? 72 : 34}
+        height={size === "lg" ? 72 : 34}
+        /**
+         * A stored photo can still 404 — a picture removed since the last enrichment,
+         * a link that expired before anyone asked for it. Hiding the broken image is
+         * what leaves the initials underneath visible instead of a torn-page icon.
+         */
+        onError={(e) => {
+          e.currentTarget.style.display = "none";
+        }}
+      />
+    );
+  }
+
   return (
     <span
-      className={`z-avatar${size === "lg" ? " is-lg" : ""}`}
+      className={cls}
       aria-hidden="true"
       style={{
         display: "inline-flex",
@@ -405,7 +450,7 @@ export function PersonCell({
 }) {
   return (
     <span className="z-person">
-      <Avatar name={candidate.name} />
+      <Avatar name={candidate.name} slug={candidate.slug} photo={candidate.has_photo} />
       <span style={{ minWidth: 0 }}>
         <span className="z-person-head">
           <Link href={`/candidate/${candidate.slug}`} className="z-person-name">

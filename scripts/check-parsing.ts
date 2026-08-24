@@ -422,6 +422,55 @@ check("region taken from the structured parsed block", p.region, "TX");
 check("experience description kept for matching", Boolean(p.experience[0]), true);
 check("garbage in gives null, not a broken record", parseProfile({ nothing: true }, VIA_SERP), null);
 
+console.log("\nthe profile photo");
+{
+  /**
+   * The vendor returns four square sizes — 675, 400, 200, 100 — and a flat `photo`
+   * alongside them. 200 is the one worth keeping: the avatar renders at 34px and the
+   * detail page at 72px, so it covers both at 2x and still weighs single-digit
+   * kilobytes. Measured over twenty-four real payloads, 23 had a picture.
+   */
+  const withSizes = (sizes: { url: string; width: number }[]) =>
+    parseProfile({ ...RAW_PROFILE, profilePicture: { url: "https://media.licdn.com/flat", sizes } }, VIA_SERP);
+
+  check(
+    "the 200px size is chosen",
+    withSizes([
+      { url: "https://media.licdn.com/a-675", width: 675 },
+      { url: "https://media.licdn.com/a-400", width: 400 },
+      { url: "https://media.licdn.com/a-200", width: 200 },
+      { url: "https://media.licdn.com/a-100", width: 100 },
+    ])?.photoUrl,
+    "https://media.licdn.com/a-200"
+  );
+
+  // Nothing at 200 or above: take the biggest rather than nothing at all.
+  check(
+    "otherwise the largest on offer",
+    withSizes([
+      { url: "https://media.licdn.com/a-100", width: 100 },
+      { url: "https://media.licdn.com/a-64", width: 64 },
+    ])?.photoUrl,
+    "https://media.licdn.com/a-100"
+  );
+
+  check(
+    "an unsized object falls back to its own url",
+    parseProfile({ ...RAW_PROFILE, profilePicture: { url: "https://media.licdn.com/flat" } }, VIA_SERP)?.photoUrl,
+    "https://media.licdn.com/flat"
+  );
+
+  check(
+    "and a payload with only the flat field still works",
+    parseProfile({ ...RAW_PROFILE, photo: "https://media.licdn.com/plain" }, VIA_SERP)?.photoUrl,
+    "https://media.licdn.com/plain"
+  );
+
+  // One profile in twenty-four had no picture, so absent has to stay absent rather
+  // than becoming an empty string the avatar would try to render.
+  check("no picture means no field", parseProfile(RAW_PROFILE, VIA_SERP)?.photoUrl, undefined);
+}
+
 console.log("\ngrad year fallback");
 check(
   "start year plus four when no end date is stated",

@@ -8,12 +8,7 @@ import type {
   Provenance,
   Volunteering,
 } from "./enrichment";
-import {
-  inferGradYear,
-  profileUrl,
-  toSlug,
-  usableNeighbors,
-} from "./enrichment";
+import { inferGradYear, MAX_PROFILES_PER_RUN, profileUrl, toSlug, usableNeighbors } from "./enrichment";
 import { envNumber } from "./ratelimit";
 import { inferYear } from "./search";
 
@@ -55,7 +50,13 @@ const SCRAPER_MODE = "Profile details no email ($4 per 1k)";
  * actor refuses, gets billed, and only then clamps itself. Slower is the right way
  * to be wrong, so an account with a paid plan opts into the bigger batch.
  */
-export const MAX_PROFILES_PER_RUN = envNumber(process.env.ZSCORE_APIFY_MAX_PER_RUN, 10);
+/**
+ * Re-exported so this file stays the one place server code asks about the vendor.
+ * It lives in `lib/enrichment.ts` because the queue's buttons need it too, and
+ * importing this module from a client component drags `node:fs` into the browser
+ * bundle — which is a build failure, discovered the direct way.
+ */
+export { MAX_PROFILES_PER_RUN };
 
 export type RunStatus =
   | "READY"
@@ -437,6 +438,32 @@ function parseNeighbors(v: unknown): Neighbor[] {
     .filter((n): n is Neighbor => n !== null);
 }
 
+/**
+ * The profile photo, at a size worth keeping.
+ *
+ * `profilePicture.sizes` comes back as 675, 400, 200 and 100 square. 200 is the one
+ * to store: the avatar renders at 28px and the detail page at 44px, so 200 covers
+ * both at 2x with room to spare, and it is a few kilobytes rather than fifty. `photo`
+ * is the flat fallback for items that arrive without the sized object — one profile
+ * in twenty-four had no picture at all, which is why this is optional everywhere.
+ */
+function photoUrl(o: Record<string, unknown>): string | undefined {
+  const pic = o.profilePicture;
+  if (pic && typeof pic === "object") {
+    const sizes = arr((pic as Record<string, unknown>).sizes);
+    // Nearest at or above 200, else the largest on offer.
+    const ranked = sizes
+      .map((s) => ({ url: str((s as Record<string, unknown>).url), w: num((s as Record<string, unknown>).width) ?? 0 }))
+      .filter((s) => s.url)
+      .sort((a, b) => a.w - b.w);
+    const best = ranked.find((s) => s.w >= 200) ?? ranked[ranked.length - 1];
+    if (best) return best.url;
+    const flat = str((pic as Record<string, unknown>).url);
+    if (flat) return flat;
+  }
+  return str(o.photo) || undefined;
+}
+
 /** HarvestAPI payload to our shape. The one place the vendor schema lives. */
 export function parseProfile(raw: unknown, discoveredVia: Provenance): EnrichedProfile | null {
   const o = (raw ?? {}) as Record<string, unknown>;
@@ -558,6 +585,7 @@ export function parseProfile(raw: unknown, discoveredVia: Provenance): EnrichedP
     currentPosition: currentPositionText(o.currentPosition) || undefined,
     followerCount: num(o.followerCount),
     connectionsCount: num(o.connectionsCount),
+    photoUrl: photoUrl(o),
     status: str(o.status) || undefined,
     registeredAt: str(o.registeredAt) || undefined,
     neighbors,

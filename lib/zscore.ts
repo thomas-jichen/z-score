@@ -102,6 +102,14 @@ export type Candidate = {
 
   /** False when this person is known from search results alone. */
   enriched: boolean;
+  /**
+   * Whether there is a photo to ask `/api/photo` for.
+   *
+   * A flag rather than letting every avatar request its own slug and fall back on a
+   * 404: half a roster arrives without a picture, and forty pointless round trips per
+   * navigation is a cost paid for nothing. The digest email needs the same answer.
+   */
+  has_photo: boolean;
   surfaced_at: string;
 };
 

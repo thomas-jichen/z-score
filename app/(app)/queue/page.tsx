@@ -4,7 +4,7 @@ import Link from "next/link";
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { useApp } from "@/components/AppState";
-import { estimateCost, formatCost } from "@/lib/enrichment";
+import { MAX_PROFILES_PER_RUN, estimateCost, formatCost } from "@/lib/enrichment";
 import { emptyFilters, type QueueFilters } from "@/lib/state";
 import type { PersonStatus } from "@/lib/people";
 import {
@@ -213,6 +213,18 @@ function QueueInner() {
    */
   const richChecked = checkedRows.filter((r) => r.enriched);
 
+  /**
+   * A run takes ten profiles, so the button offers ten.
+   *
+   * The vendor rejects a larger request outright, and the route turns that into a
+   * 400 — so "Enrich 36" was a button that could only fail, and Re-enrich inherited
+   * it the day it was added. Offering the first ten instead makes the label true, and
+   * because the queue is sorted the ten it takes are the ten worth paying for first.
+   * The rest stay ticked, so pressing it again works through the selection.
+   */
+  const runnable = <T,>(rows: T[]) => rows.slice(0, MAX_PROFILES_PER_RUN);
+  const leftOver = (n: number) => Math.max(0, n - MAX_PROFILES_PER_RUN);
+
   // Drop checks for rows that are no longer visible, so a bulk action can never
   // hit someone the user cannot see.
   useEffect(() => {
@@ -286,10 +298,21 @@ function QueueInner() {
   }
 
   async function bulkEnrich() {
-    const slugs = thinChecked.map((r) => r.slug);
-    if (slugs.length === 0) return;
-    const ok = await enrich(slugs, { kind: "seed", hop: 0 });
-    if (ok) setChecked(new Set());
+    const batch = runnable(thinChecked);
+    if (batch.length === 0) return;
+    const rest = leftOver(thinChecked.length);
+    const ok = await enrich(
+      batch.map((r) => r.slug),
+      { kind: "seed", hop: 0 }
+    );
+    if (!ok) return;
+    // Only the batch is unticked, so what is left is what is left to do.
+    setChecked((prev) => {
+      const next = new Set(prev);
+      for (const r of batch) next.delete(r.slug);
+      return next;
+    });
+    if (rest > 0) setNotice(`Pulling ${batch.length}. ${rest} still selected, so press it again.`);
   }
 
   /**
@@ -316,18 +339,29 @@ function QueueInner() {
   }, [selectionKey]);
 
   async function bulkRefresh() {
-    const slugs = richChecked.map((r) => r.slug);
-    if (slugs.length === 0) return;
+    const batch = runnable(richChecked);
+    if (batch.length === 0) return;
     if (!armedRefresh) {
       setArmedRefresh(true);
       return;
     }
     setArmedRefresh(false);
-    const ok = await enrich(slugs, { kind: "seed", hop: 0 });
-    if (ok) {
-      setNotice(`Pulling ${slugs.length} ${slugs.length === 1 ? "profile" : "profiles"} again.`);
-      setChecked(new Set());
-    }
+    const rest = leftOver(richChecked.length);
+    const ok = await enrich(
+      batch.map((r) => r.slug),
+      { kind: "seed", hop: 0 }
+    );
+    if (!ok) return;
+    setChecked((prev) => {
+      const next = new Set(prev);
+      for (const r of batch) next.delete(r.slug);
+      return next;
+    });
+    setNotice(
+      rest > 0
+        ? `Pulling ${batch.length} again. ${rest} still selected, so press it again.`
+        : `Pulling ${batch.length} ${batch.length === 1 ? "profile" : "profiles"} again.`
+    );
   }
 
   async function bulkAnalyze() {
@@ -615,7 +649,8 @@ function QueueInner() {
               <span className="z-spacer" />
               {thinChecked.length > 0 && (
                 <Button size="sm" onClick={bulkEnrich} disabled={job.phase === "running"}>
-                  Enrich {thinChecked.length}, {formatCost(estimateCost(thinChecked.length))}
+                  Enrich {runnable(thinChecked).length},{" "}
+                  {formatCost(estimateCost(runnable(thinChecked).length))}
                 </Button>
               )}
               {richChecked.length > 0 && (
@@ -627,8 +662,10 @@ function QueueInner() {
                   data-armed={armedRefresh || undefined}
                 >
                   {armedRefresh
-                    ? `Pay again for ${richChecked.length}?`
-                    : `Re-enrich ${richChecked.length}, ${formatCost(estimateCost(richChecked.length))}`}
+                    ? `Pay again for ${runnable(richChecked).length}?`
+                    : `Re-enrich ${runnable(richChecked).length}, ${formatCost(
+                        estimateCost(runnable(richChecked).length)
+                      )}`}
                 </Button>
               )}
               {taggerEnabled && (

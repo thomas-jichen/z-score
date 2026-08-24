@@ -433,9 +433,19 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
       }
       patch({ activeJobId: null });
 
-      // Tag the new profiles straight away, so the graph and the taxonomy
-      // review queue are populated without anyone remembering to ask.
-      if (result.newSlugs.length > 0) void analyze(result.newSlugs);
+      /**
+       * Tag what just landed, so the graph and the taxonomy review queue are
+       * populated without anyone remembering to ask.
+       *
+       * Forced, and that is the whole of the fix. The route skips anyone who already
+       * has a `taggedAt`, and this list is every profile the run applied rather than
+       * only the ones new to the roster — so re-enriching somebody refreshed their
+       * profile and left the model's read of it exactly as it was. Which defeats the
+       * point: you re-enrich because a profile has changed, and the terms are the part
+       * that has to change with it. A genuinely new person has no `taggedAt`, so for
+       * them this is what would have happened anyway.
+       */
+      if (result.newSlugs.length > 0) void analyze(result.newSlugs, true);
     },
     [patch, analyze]
   );

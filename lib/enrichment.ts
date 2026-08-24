@@ -198,6 +198,14 @@ export type EnrichedProfile = {
   status?: string;
   /** When the account was created. Joining at 14 is itself a signal. */
   registeredAt?: string;
+  /**
+   * Where the vendor's copy of the profile photo lives, at 200px.
+   *
+   * Kept only so `/api/photo` knows what to go and fetch once. The URL is signed and
+   * carries an expiry, so it is not something to render from: by the time anybody
+   * opens a digest from last month it is a dead link. The bytes are what we keep.
+   */
+  photoUrl?: string;
   /** People Also Viewed. The expansion primitive for the seed path. */
   neighbors: Neighbor[];
   /**
@@ -211,6 +219,21 @@ export type EnrichedProfile = {
 
 /** $4 per 1,000 profiles, HarvestAPI's no-email mode. */
 export const COST_PER_PROFILE = 0.004;
+
+/**
+ * Profiles one vendor run will accept.
+ *
+ * The free Apify plan refuses a larger request and bills for the attempt, so this is
+ * a hard ceiling rather than a preference, and the route turns a bigger list into a
+ * 400. The queue's buttons need the number to avoid offering a press that can only
+ * fail, which is why it lives here rather than in `lib/apify.ts`: that module is
+ * server-only and importing it from a client component breaks the build.
+ *
+ * The env override is read on the server. A client bundle sees `undefined` and uses
+ * the default, so raising it there makes the buttons offer fewer than allowed — the
+ * conservative direction, and the only one that cannot produce a failing request.
+ */
+export const MAX_PROFILES_PER_RUN = Number(process.env.ZSCORE_APIFY_MAX_PER_RUN) || 10;
 
 export function estimateCost(count: number): number {
   return count * COST_PER_PROFILE;
