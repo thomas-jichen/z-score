@@ -1500,6 +1500,7 @@ a.z-archetype:hover {
 
 .z-delivery-input {
   max-width: 17rem;
+  margin-top: 8px;
 }
 
 /**
@@ -2696,6 +2697,21 @@ tr[data-pinned] td:first-child {
   font-size: var(--z-fs-small);
   font-weight: 500;
   color: var(--z-ink);
+  line-height: 1.35;
+}
+
+/**
+ * "already counted as RSI" — the second text level on a review row.
+ *
+ * Faint and unemphasised on purpose. It is not a warning and not an action; it is the
+ * fact that changes what the row is asking. The term above stays the only thing at
+ * full ink, so the row still reads as one item and not as two.
+ */
+.z-review-covered {
+  display: block;
+  margin-top: 2px;
+  font-size: var(--z-fs-micro);
+  color: var(--z-ink-faint);
   line-height: 1.35;
 }
 

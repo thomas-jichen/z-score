@@ -835,8 +835,19 @@ export function hydrateTeam(stored: Partial<TeamState> | null): TeamState {
        * Unioned so nothing a teammate dismissed by hand comes back, and never
        * subtracted: this is the same list the dismiss button writes to, so anything
        * seeded here can be brought back on the taxonomy screen.
+       *
+       * Gated on `behindSeeds`, and that gate is the whole of it. The union ran on
+       * every single read, so the `×` on the Dismissed list wrote a shorter array and
+       * the next read put the entry straight back — the sentence above was false for
+       * all forty-odd seeded terms, which is every term anybody would want to undo.
+       * Now the seed lands once per `SEED_VERSION`, so a hand un-dismissal sticks and
+       * bumping the version is still how a new batch of noise arrives.
        */
-      dismissed: [...new Set([...(tax.dismissed ?? []), ...LOW_SIGNAL])],
+      dismissed: behindSeeds(tax)
+        ? [...new Set([...(tax.dismissed ?? []), ...LOW_SIGNAL])]
+        : Array.isArray(tax.dismissed)
+          ? tax.dismissed
+          : base.taxonomy.dismissed,
       removed: Array.isArray(tax.removed) ? tax.removed : base.taxonomy.removed,
       polymathPoints: tax.polymathPoints ?? base.taxonomy.polymathPoints,
     },

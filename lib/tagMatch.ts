@@ -3,6 +3,9 @@ import {
   foldWords,
   isNoiseWord,
   keyFromWords,
+  normalizeKey,
+  resolveAny,
+  withoutWhen,
   type RegistryIndex,
   type TagDef,
   type TagFacet,
@@ -72,6 +75,38 @@ const MIN_PROSE_KEY = 3;
  * the other is a join.
  */
 const JOIN_WORDS = new Set(["the", "a", "an", "of", "and"]);
+
+/**
+ * Facets whose evidence is prose rather than a structured field.
+ *
+ * Accelerators belong here for the same reason programmes do: "YC S26" and "a16z
+ * Speedrun Scout" appear in headlines constantly and frequently nowhere else. The
+ * risk that made companies ineligible — "interned at a Google-backed startup" is not
+ * a Google role — does not apply, because naming an accelerator in your own headline
+ * *is* the claim.
+ *
+ * Lives here rather than in `lib/tags.ts` because `coverageOf` needs it too, and one
+ * shared set is the only way the two cannot drift.
+ */
+export const TEXT_FACETS = new Set<TagFacet>(["program", "accelerator"]);
+
+/**
+ * Phrases that carry an accelerator's name and none of its meaning.
+ *
+ * "Y Combinator Startup School" is a free online course with open enrolment. It read
+ * as YC itself and put a 2.0 — the heaviest weight in the taxonomy — on someone whose
+ * honour was literally "Y Combinator Startup School 2026 Admit". The YC Summer
+ * Fellowship is the same shape of problem: a grant, not a batch, and holding the Y
+ * Combinator tag has to mean being funded as a founder.
+ *
+ * The list is short and specific by design: each entry is a real thing whose whole
+ * problem is that it borrows a famous name.
+ *
+ * Shared with `coverageOf` for the same reason TEXT_FACETS is: a term that cannot
+ * award a tag must not be allowed to say the tag is already counted.
+ */
+export const BORROWED_NAME =
+  /startup school|startup library|\bcohort\s+guest\b|newsletter|\bsummer fellow\b|\bfellowship grant\b|\bconference\b|\bmeetup\b/i;
 
 /**
  * Split into words, keeping each one's offsets in the original string.
@@ -182,6 +217,128 @@ export function scanText(text: string, index: RegistryIndex): Found[] {
   }
 
   return out;
+}
+
+/* ── Coverage ───────────────────────────────────────────────────────────── */
+
+/**
+ * Whether the registry already accounts for a term, and how completely.
+ *
+ * `same`    the term says nothing the tag does not. Another spelling of one thing.
+ * `extends` the tag's whole name is in here, plus words of its own.
+ * `none`    the registry has never heard of this.
+ */
+export type Coverage =
+  | { kind: "same"; def: TagDef }
+  | { kind: "extends"; def: TagDef }
+  | { kind: "none" };
+
+/**
+ * The question the review queue should have been asking all along.
+ *
+ * `unmatchedTerms` decided "unmatched" with one exact lookup of the whole string,
+ * while the scoring side finds a tag with a sliding window over the same text. So
+ * "Research Science Institute (RSI)" was awarded RSI — the window `research science`
+ * hits the alias — and simultaneously offered for promotion, because the whole
+ * string normalises to `research-science-rsi`, which is neither of RSI's two keys.
+ * `foldWords` treats brackets as plain separators, so a parenthetical acronym is
+ * just an extra token. Six people were credited and the row still read as untriaged.
+ *
+ * Pressing Promote on such a row minted a second tag with its own weight, and those
+ * six then held both. This is the function that stops that, and it asks the strong
+ * question in the same terms the scorer does.
+ *
+ * ── Whole keys, not loose words ───────────────────────────────────────────
+ * A similarity percentage would need tuning and would collapse real distinctions at
+ * the margin. So this counts tokens instead: the scan covers part of the term, and
+ * whatever is left over has to be a *complete* name the tag already answers to.
+ *
+ * The first version asked only that each leftover word appear *somewhere* in the
+ * tag's keys, which is a bag-of-words test over the union of every alias, and it was
+ * far too loose. Bessemer is seeded with the alias `bessemer-venture-partners`, so
+ * the word `partners` was free — and "Bessemer Partners", an ordinary employer name,
+ * came back as another spelling of a 1.4-weight accelerator. `autoAlias` would then
+ * have written it down, and because `orgFacetLookup` probes the accelerator facet for
+ * every company name, working at a firm with that name would have started paying out
+ * an accelerator's points through the structured path, where no match policy applies.
+ * "AMP Academy" reached Jane Street AMP through `academy`, and "Simons Foundation
+ * Research Fellow" — a postdoc award — reached a high-school summer programme
+ * through `research`, the same way.
+ *
+ * Requiring a whole key kills all three and keeps every case worth keeping, because
+ * an acronym *is* a whole key and "Partners" is not: `rsi` is RSI's id, `bcg` is an
+ * alias of Boston Consulting Group. "MIT PRIMES Circle" keeps `circle`, which is
+ * nobody's name, so it stays its own thing and stays in the queue.
+ */
+export function coverageOf(index: RegistryIndex, term: string): Coverage {
+  // The fast path is the old test, and it is still the commonest answer.
+  const direct = resolveAny(index, term);
+  if (direct) return { kind: "same", def: direct };
+
+  /**
+   * Scanned across every facet, not just TEXT_FACETS.
+   *
+   * That gate exists to stop prose *paying out* — a headline mentioning Google is
+   * not a Google role — and the question here is only whether the registry knows
+   * these words. Gating it was the first draft of this function, and checking it
+   * against the live queue killed it: "Boston Consulting Group (BCG)" is sitting
+   * there, the seed has had that label with the alias BCG all along, and it is a
+   * company, so the facet-gated version walked straight past it.
+   */
+  const hits = scanText(term, index);
+  if (hits.length === 0) return { kind: "none" };
+
+  // Two different tags named in one term is a human's problem, not a rule's.
+  const def = hits[0].def;
+  if (hits.some((h) => h.def.id !== def.id)) return { kind: "none" };
+
+  const kept = withoutWhen(normalizeKey(term)).split("-").filter(Boolean);
+  if (kept.length === 0) return { kind: "none" };
+
+  // What the scan actually matched, taken from the span rather than guessed at.
+  const matched = new Set<string>();
+  for (const h of hits) {
+    for (const w of normalizeKey(h.span.text).split("-")) if (w) matched.add(w);
+  }
+
+  // Every complete name this tag answers to, including its own id.
+  const keys = new Set([normalizeKey(def.label), ...def.aliases]);
+  const leftover = kept.filter((w) => !matched.has(w));
+  if (leftover.every((w) => keys.has(w))) return { kind: "same", def };
+
+  /**
+   * A partial overlap is a claim that something is *already counted*, so it has to
+   * pass the same gates that would have counted it.
+   *
+   * These are `proseTags`' gates, applied to the term instead of to a profile field,
+   * and each one is load-bearing:
+   *
+   *   facet       A school or a company in the middle of a longer name is the venue,
+   *               not the credential. "Stanford AI Club" contains Stanford, but the
+   *               club is not the university, and "already counted as Stanford" would
+   *               be true of the person and misleading about the term.
+   *   structured  Never read from text at all. Without this, "Benchmark Capital
+   *               Partners" reads as the fund — the exact false positive the policy
+   *               exists to prevent, printed on screen as a settled fact.
+   *   qualified   A name that is also an ordinary word needs the sentence around it
+   *               to be talking about holding something. "Rise Robotics" is a company;
+   *               "Rise Global Fellow" is the fellowship.
+   *
+   * `same` deliberately skips them. That verdict is about spelling — `bcg` is Boston
+   * Consulting Group whatever facet it sits in — and the leftover-must-be-a-whole-key
+   * rule above is what keeps it honest.
+   */
+  if (!TEXT_FACETS.has(def.facet)) return { kind: "none" };
+  // A borrowed name is the whole reason this gate exists: "Y Combinator Startup
+  // School" is an open online course, and calling it already-counted-as-YC would put
+  // the heaviest weight in the taxonomy behind a free enrolment.
+  if (def.facet === "accelerator" && BORROWED_NAME.test(term)) return { kind: "none" };
+  const policy = def.match ?? "text";
+  if (policy === "structured") return { kind: "none" };
+  if (policy === "qualified" && !hasQualifier(term, hits[0].span, def.facet)) {
+    return { kind: "none" };
+  }
+  return { kind: "extends", def };
 }
 
 /**

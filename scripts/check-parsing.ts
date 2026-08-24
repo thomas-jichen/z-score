@@ -35,7 +35,7 @@ import {
   digestDue,
 } from "../lib/state";
 import { PURGED_ALIASES, isBannedTag } from "../lib/searchTaxonomy";
-import { readTier, scanText } from "../lib/tagMatch";
+import { coverageOf, readTier, scanText } from "../lib/tagMatch";
 import type { Candidate } from "../lib/zscore";
 import { renderQueueDigest } from "../lib/emailDigest";
 import { FONT, INK, plural } from "../lib/emailHtml";
@@ -65,11 +65,12 @@ import {
 } from "../lib/tags";
 import { classifyOrg, extractTags, inferHomeState } from "../lib/extract";
 import { extractTerms, groundedIn } from "../lib/groq";
-import { cleanDeleted, cleanTaxonomy, withPromoted } from "../lib/team";
+import { aliasesToLearn, cleanDeleted, cleanTaxonomy, withPromoted } from "../lib/team";
 import { START_WEIGHT, assignCluster, round } from "../lib/clusters";
 import {
   aliasIsUsable,
   containsTokens,
+  addAlias,
   indexRegistry,
   makeTag,
   resolveAny,
@@ -841,6 +842,36 @@ console.log("\nhydrateTeam — a stored registry keeps up with the seed lists");
   check("and is marked so it only happens once", stale.taxonomy.seedVersion, SEED_VERSION);
 
   /**
+   * Un-dismissing a seeded term has to stick.
+   *
+   * `LOW_SIGNAL` was unioned into `dismissed` on *every* read, so pressing × wrote a
+   * shorter array and the very next read put the entry straight back. Forty-odd terms
+   * — DECA, Model UN, AP Scholar — could not be brought back at all, while the comment
+   * beside the union claimed they could. It is gated on the same `behindSeeds` marker
+   * as the weight recalibration above, so the seed lands once per version.
+   *
+   * DECA is deliberately the example: it stays banned at the token level by
+   * `isBannedTag`, which is a different mechanism and is untouched by this.
+   */
+  const dismissedAfterRead = (tax: Partial<TaxonomyPrefs>) =>
+    hydrateTeam({ taxonomy: tax } as Parameters<typeof hydrateTeam>[0]).taxonomy.dismissed;
+
+  const seeded = dismissedAfterRead({ seedVersion: undefined });
+  check("a stale document gets the seeded dismissals", seeded.includes("DECA"), true);
+
+  const undone = seeded.filter((d) => d !== "DECA");
+  check(
+    "and un-dismissing one survives the next read",
+    dismissedAfterRead({ seedVersion: SEED_VERSION, dismissed: undone }).includes("DECA"),
+    false
+  );
+  check(
+    "while a version bump is still how a new batch arrives",
+    dismissedAfterRead({ seedVersion: 1, dismissed: undone }).includes("DECA"),
+    true
+  );
+
+  /**
    * The marker has to survive a save, or "once" becomes "every time".
    *
    * `cleanTaxonomy` rebuilds the document field by field, so a field it forgets is a
@@ -1402,6 +1433,254 @@ console.log("\ntermCounts and unmatchedTerms");
     "hand-added terms reach the promote queue too",
     unmatchedTerms([{ ...bare("m"), manualTerms: ["Clark Scholar"] }], TAX)[0].term,
     "Clark Scholar"
+  );
+}
+
+console.log("\ncoverageOf — the term that is already counted");
+{
+  /**
+   * The bug this whole section exists for.
+   *
+   * Deciding "unmatched" asked whether the *whole string* was a key; the scorer asks
+   * whether any window inside it is. So RSI was awarded to six people off the words
+   * "Research Science Institute" and the same row sat in the review queue, because
+   * brackets are plain separators to `foldWords` and the acronym becomes a third
+   * token: `research-science-rsi`, which is neither `rsi` nor `research-science`.
+   * Promoting it minted a second tag and paid those six twice.
+   */
+  const ix = indexRegistry(TAX.tags);
+  const cover = (term: string) => coverageOf(ix, term);
+
+  check("the parenthetical acronym is the same thing", cover("Research Science Institute (RSI)").kind, "same");
+  check(
+    "and it is RSI",
+    (() => {
+      const c = cover("Research Science Institute (RSI)");
+      return c.kind === "same" ? c.def.id : "none";
+    })(),
+    "rsi"
+  );
+  // withoutWhen strips the trailing year, so a dated instance is the same thing too.
+  check("dated, still the same thing", cover("Research Science Institute (RSI), 2024").kind, "same");
+
+  /**
+   * The regression test for scanning every facet rather than only the prose ones.
+   *
+   * Boston Consulting Group is seeded with the alias BCG and is a `company`. The first
+   * draft of `coverageOf` gated the scan on TEXT_FACETS, which is right for awarding
+   * — a headline naming Google is not a Google role — and walked straight past this.
+   */
+  check("a company acronym counts too", cover("Boston Consulting Group (BCG)").kind, "same");
+
+  /**
+   * Partial overlap. The tag is in there, and so are words of its own, so it stays a
+   * question — but the row says which credential is already banked.
+   */
+  check("the issuing organisation extends the tag", cover("SSP International").kind, "extends");
+
+  /**
+   * A two-character key is not enough to drive coverage, because MIN_PROSE_KEY will
+   * not let the scanner match one at all. `yc` is an alias of Y Combinator and the
+   * guard exists because "10 companies into yc/a16z" is somebody placing other people
+   * into batches, not being in one. So every `(YC S26)` row in the queue is untouched
+   * by this change — which is the right answer, and not the one I predicted.
+   */
+  check("a two-letter alias does not annotate a batch row", cover("Conifer (YC S26)").kind, "none");
+  check("spelled out, it would", cover("Conifer, Y Combinator S26").kind, "extends");
+
+  /**
+   * The precision guard, and the reason this counts tokens instead of scoring
+   * similarity. "Circle" is nobody's word, so a genuinely different programme is
+   * still offered as its own thing rather than being swallowed by MIT PRIMES. It is
+   * `none` rather than `extends` because PRIMES is `qualified` and "Circle" is not a
+   * qualifier — either way the row survives, which is the property that matters.
+   */
+  check("a longer programme name is not folded away", cover("MIT PRIMES Circle").kind, "none");
+
+  /**
+   * The loose-word regression, and the reason the leftover has to be a *whole* key.
+   *
+   * Bessemer is seeded with the alias `bessemer-venture-partners`, so a bag-of-words
+   * test over the union of its aliases made the word "partners" free and turned an
+   * ordinary employer name into another spelling of a 1.4-weight accelerator. Since
+   * `orgFacetLookup` probes the accelerator facet for every company name, aliasing it
+   * would have started paying out through the structured path, where no match policy
+   * applies. Two more of the same shape.
+   */
+  for (const term of ["Bessemer Partners", "AMP Academy", "Simons Foundation Research Fellow"]) {
+    check(`${term} is not another spelling`, cover(term).kind !== "same", true);
+  }
+
+  /**
+   * "Already counted" is a claim that something has been awarded, so it passes the
+   * gates that would have awarded it — `proseTags`' own, applied to the term.
+   */
+  check("a structured-only tag never claims credit", cover("Benchmark Capital Partners").kind, "none");
+  check("nor an unqualified ordinary word", cover("Rise Robotics").kind, "none");
+  check("nor a borrowed name", cover("Y Combinator Startup School").kind, "none");
+
+  /**
+   * A school or a company inside a longer name is the venue, not the credential.
+   * Saying "already counted as Stanford" on a club row would be true of the person
+   * and misleading about the term.
+   */
+  check("a campus in the middle of a club name says nothing", cover("Stanford AI Club").kind, "none");
+
+  // Real rows off the live queue, none of which the registry has ever heard of.
+  for (const term of ["Brylo", "Applied Compute", "Allen Kitchen and Bath"]) {
+    check(`${term} is genuinely new`, cover(term).kind, "none");
+  }
+  check(
+    "a parenthetical acronym with no tag behind it is left alone",
+    cover("National Science Foundation (NSF)").kind,
+    "none"
+  );
+}
+
+console.log("\nthe review queue stops offering settled work");
+{
+  const held: Person = {
+    ...bare("held"),
+    extractedTerms: ["Research Science Institute (RSI)", "SSP International", "Brylo"],
+  };
+  const rows = unmatchedTerms([held], TAX);
+  const term = (t: string) => rows.find((r) => r.term === t);
+
+  check("the settled row is marked exact", term("Research Science Institute (RSI)")?.covered?.exact, true);
+  check(
+    "so the screen hides it",
+    rows.filter((r) => !r.covered?.exact).some((r) => r.term === "Research Science Institute (RSI)"),
+    false
+  );
+
+  check("the overlapping row survives", Boolean(term("SSP International")), true);
+  check("and names what already counts", term("SSP International")?.covered?.label, "SSP");
+  check("and is not exact, so it stays visible", term("SSP International")?.covered?.exact, false);
+
+  check("a genuinely new term is untouched", term("Brylo")?.covered, undefined);
+}
+
+console.log("\npromoting a covered term cannot mint a duplicate");
+{
+  /**
+   * The double-count regression. Folding writes one alias; the registry must not grow
+   * by an entry, and the tag must keep its own weight.
+   */
+  const before = Object.keys(TAX.tags).length;
+  const ix = indexRegistry(TAX.tags);
+  const cover = coverageOf(ix, "Research Science Institute (RSI)");
+  const folded =
+    cover.kind === "same" ? addAlias(TAX.tags, cover.def.id, "Research Science Institute (RSI)") : TAX.tags;
+
+  check("no new entry", Object.keys(folded).length, before);
+  check("the alias landed", folded.rsi.aliases.includes("research-science-rsi"), true);
+  check("the weight is untouched", folded.rsi.weight, TAX.tags.rsi.weight);
+  check(
+    "and now the plain lookup finds it",
+    resolveAny(indexRegistry(folded), "Research Science Institute (RSI)")?.id,
+    "rsi"
+  );
+
+  /**
+   * The unattended path. `withPromoted` used to check only whether the exact id was
+   * free, so this label was eligible and nobody would have seen it happen.
+   */
+  check(
+    "the machine refuses a near-duplicate spelling",
+    withPromoted(TAX.tags, [
+      { label: "Research Science Institute (RSI)", facet: "program", weight: 1.6, cluster: "research" },
+    ]),
+    TAX.tags
+  );
+
+  /**
+   * A separate case, because the one above is caught twice over and so proves nothing
+   * about either guard on its own: "Research Science Institute (RSI)" is also a
+   * `possible` near-duplicate of RSI by similarity, so removing the coverage check
+   * left it refused anyway. "SSP International" is far enough from `ssp` in bigrams
+   * to score below the threshold, so coverage is the only thing standing in its way.
+   */
+  check(
+    "and refuses one only coverage can see",
+    withPromoted(TAX.tags, [
+      { label: "SSP International", facet: "company", weight: 1, cluster: null },
+    ]),
+    TAX.tags
+  );
+}
+
+console.log("\naddAlias vets what it is handed");
+{
+  /**
+   * `usableAliases` describes itself as "one place, because there are three writers
+   * … and an alias that is unsafe is unsafe whichever door it came through".
+   * `addAlias` was a fourth door and did not knock. It cost nothing while both its
+   * callers passed labels a human had picked; it matters now that the tagging route
+   * writes aliases unattended.
+   */
+  const grand = addAlias(TAX.tags, "isef", "Grand Award");
+  check("a word that means nothing alone is refused", grand, TAX.tags);
+  check(
+    "so it cannot be resolved from anywhere",
+    resolveAny(indexRegistry(grand), "Grand Award")?.label ?? null,
+    null
+  );
+
+  const deca = addAlias(TAX.tags, "rsi", "DECA Research Science");
+  check("a banned name cannot sneak in as an alias", deca, TAX.tags);
+
+  check(
+    "and the alias this change exists for still lands",
+    addAlias(TAX.tags, "rsi", "Research Science Institute (RSI)").rsi.aliases.includes(
+      "research-science-rsi"
+    ),
+    true
+  );
+}
+
+console.log("\nwhich spellings get written down");
+{
+  const row = (term: string, id: string, exact = true) => ({ term, covered: { id, exact } });
+
+  check(
+    "an exact spelling is learned",
+    aliasesToLearn([row("Research Science Institute (RSI)", "rsi")], TAX.tags, 10),
+    [{ id: "rsi", label: "Research Science Institute (RSI)" }]
+  );
+
+  check(
+    "an overlap is not — it is still a question",
+    aliasesToLearn([row("SSP International", "ssp", false)], TAX.tags, 10).length,
+    0
+  );
+
+  /**
+   * A school or a lab is never aliased. `resolveByContainment` reads a facet's
+   * aliases longest-first and looks its exclusion list up by the form that matched,
+   * so a long alias outranks the canonical name and inherits none of the guards that
+   * keep Michigan State out of Michigan. "Penn Wharton" really is UPenn, and it still
+   * does not get written onto a college.
+   */
+  check(
+    "but never onto a college",
+    aliasesToLearn([row("Penn Wharton", "upenn")], TAX.tags, 10).length,
+    0
+  );
+
+  check(
+    "an unknown tag id is skipped rather than thrown on",
+    aliasesToLearn([row("Whatever", "no-such-tag")], TAX.tags, 10).length,
+    0
+  );
+
+  check(
+    "and the cap is honoured",
+    aliasesToLearn(
+      [row("Research Science Institute (RSI)", "rsi"), row("Boston Consulting Group (BCG)", "boston-consulting")],
+      TAX.tags,
+      1
+    ).length,
+    1
   );
 }
 

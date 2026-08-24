@@ -268,24 +268,21 @@ function Delivery() {
           <p className="z-delivery-line">{sentence}</p>
 
           {open ? (
-            <div className="z-row z-row-wrap" style={{ gap: "var(--z-space-3)", marginTop: 8 }}>
-              <input
-                className="z-set-input z-delivery-input"
-                type="email"
-                inputMode="email"
-                autoFocus={editing}
-                placeholder="you@example.com"
-                value={draft}
-                onChange={(e) => setDraft(e.target.value)}
-                onBlur={save}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") e.currentTarget.blur();
-                  if (e.key === "Escape") setEditing(false);
-                }}
-                aria-label="Your address"
-              />
-              <span className="z-micro">Yours alone, and nobody else sees it.</span>
-            </div>
+            <input
+              className="z-set-input z-delivery-input"
+              type="email"
+              inputMode="email"
+              autoFocus={editing}
+              placeholder="you@example.com"
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              onBlur={save}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") e.currentTarget.blur();
+                if (e.key === "Escape") setEditing(false);
+              }}
+              aria-label="Your address"
+            />
           ) : (
             <div className="z-row z-row-wrap" style={{ gap: "var(--z-space-4)", marginTop: 8 }}>
               <button

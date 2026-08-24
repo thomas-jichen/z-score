@@ -715,7 +715,7 @@ const WHEN_NOT_WHAT = /^(\d+x)-|-(\d+x)$|-([wsf]\d\d)$|-(\d{4})$|-(\d\d)$/;
 const HOW_FAR_NOT_WHAT =
   /-(bronze|silver|gold|platinum|medalist|medallist|medal|honou?rable|mention|place|prize|semi|division|track|spotlight)$/;
 
-function withoutWhen(key: string): string {
+export function withoutWhen(key: string): string {
   let out = key;
   // Repeated, because a term can carry both: "3x Regeneron ISEF Finalist 2025".
   for (let last = ""; out !== last; ) {
@@ -954,7 +954,22 @@ export function seedRegistry(input: {
 /** Record that `label` is another spelling of an existing tag. */
 export function addAlias(reg: TagRegistry, id: string, label: string): TagRegistry {
   const def = reg[id];
+  if (!def) return reg;
   const key = normalizeKey(label);
-  if (!def || !key || key === def.id || def.aliases.includes(key)) return reg;
+  /**
+   * Vetted through `aliasIsUsable`, like every other alias writer.
+   *
+   * `usableAliases` says of itself that it is "one place, because there are three
+   * writers … and an alias that is unsafe is unsafe whichever door it came through".
+   * This was a fourth door and it did not knock: `addAlias(reg, "isef", "Grand
+   * Award")` stored the bare token `grand`, after which "Grand Award" resolved to
+   * ISEF from anywhere — precisely the standing-alone-means-nothing failure the
+   * filter exists to stop. A DECA-bearing label went in the same way, around a ban
+   * that is asserted on the other writers.
+   *
+   * It cost nothing before because both callers passed labels a human had chosen. It
+   * matters now that the tagging route writes aliases unattended.
+   */
+  if (!aliasIsUsable(key, def.id) || def.aliases.includes(key)) return reg;
   return { ...reg, [id]: { ...def, aliases: [...def.aliases, key] } };
 }

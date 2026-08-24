@@ -20,7 +20,16 @@ import {
   type Tier,
 } from "./tagRegistry";
 import { isBannedTag } from "./searchTaxonomy";
-import { hasQualifier, readTier, scanText, tieredWeight, type Span } from "./tagMatch";
+import {
+  BORROWED_NAME,
+  TEXT_FACETS,
+  coverageOf,
+  hasQualifier,
+  readTier,
+  scanText,
+  tieredWeight,
+  type Span,
+} from "./tagMatch";
 import type { Signal } from "./zscore";
 
 /**
@@ -266,21 +275,6 @@ function fieldedText(p: Person): Field[] {
 }
 
 /**
- * Phrases that carry an accelerator's name and none of its meaning.
- *
- * "Y Combinator Startup School" is a free online course with open enrolment. It read
- * as YC itself and put a 2.0 — the heaviest weight in the taxonomy — on someone whose
- * honour was literally "Y Combinator Startup School 2026 Admit". The YC Summer
- * Fellowship is the same shape of problem: a grant, not a batch, and holding the Y
- * Combinator tag has to mean being funded as a founder.
- *
- * The list is short and specific by design: each entry is a real thing whose whole
- * problem is that it borrows a famous name.
- */
-const BORROWED_NAME =
-  /startup school|startup library|\bcohort\s+guest\b|newsletter|\bsummer fellow\b|\bfellowship grant\b|\bconference\b|\bmeetup\b/i;
-
-/**
  * The scoring vocabulary: every tag switched on, by display label.
  *
  * One list, from one place. There used to be two parallel systems — a flat
@@ -296,17 +290,6 @@ export function vocabulary(tax: TaxonomyPrefs): string[] {
 }
 
 /** Facets whose evidence is prose rather than a structured field. */
-/**
- * Facets whose evidence is prose rather than a structured field.
- *
- * Accelerators belong here for the same reason programmes do: "YC S26" and "a16z
- * Speedrun Scout" appear in headlines constantly and frequently nowhere else. The
- * risk that made companies ineligible — "interned at a Google-backed startup" is not
- * a Google role — does not apply, because naming an accelerator in your own headline
- * *is* the claim.
- */
-const TEXT_FACETS = new Set<TagFacet>(["program", "accelerator"]);
-
 /** Which part of a record a facet is understood to have come from. */
 const SOURCE_FOR_FACET: Record<TagFacet, MatchedTerm["source"]> = {
   program: "honors",
@@ -882,6 +865,15 @@ export type Unmatched = {
    * field. Absent for prose, where only the words are known.
    */
   facet?: TagFacet;
+  /**
+   * A tag that already accounts for this term, when one does.
+   *
+   * `exact` means the term says nothing the tag does not, so the row is settled work
+   * and the screen hides it. Otherwise the tag is named inside a longer term that
+   * adds words of its own, and the row stays with the overlap spelled out — the
+   * credential is already banked, and what is left to decide is the rest of the name.
+   */
+  covered?: { id: string; label: string; exact: boolean };
 };
 
 export function unmatchedTerms(people: Person[], tax: TaxonomyPrefs): Unmatched[] {
@@ -892,7 +884,10 @@ export function unmatchedTerms(people: Person[], tax: TaxonomyPrefs): Unmatched[
   const schools = schoolStateLookup(tax);
   const orgs = orgFacetLookup(tax);
   const dismissed = new Set(tax.dismissed.map((t) => normalizeKey(t)));
-  const tally = new Map<string, { term: string; slugs: string[]; facet?: TagFacet }>();
+  const tally = new Map<
+    string,
+    { term: string; slugs: string[]; facet?: TagFacet; covered?: Unmatched["covered"] }
+  >();
 
   const offer = (raw: string, slug: string, facet?: TagFacet) => {
     const term = raw.trim();
@@ -901,11 +896,39 @@ export function unmatchedTerms(people: Person[], tax: TaxonomyPrefs): Unmatched[
     // Banned names are not offered at all. Leaving them in the queue would be an
     // invitation to promote something that can never be promoted, and the row would
     // sit there forever because Dismiss is the only thing that would move it.
-    if (!key || resolveAny(index, term) || dismissed.has(key) || isBannedTag(key)) return;
+    if (!key || dismissed.has(key) || isBannedTag(key)) return;
+
+    /**
+     * Two tests, because they mean different things.
+     *
+     * `resolveAny` asks whether the whole string is already a key or an alias. If it
+     * is, the registry has this spelling written down: nothing to show and nothing to
+     * learn, so it is dropped outright as it always was.
+     *
+     * `coverageOf` asks the question the scorer asks — whether any window inside the
+     * string is a key. That is what the old single test missed, and the two disagreed
+     * about every name carrying a parenthetical acronym: RSI was awarded to six
+     * people and offered for promotion at the same time, and promoting it would have
+     * minted a duplicate and paid them twice.
+     *
+     * A `same` verdict is kept in the list rather than dropped, because it is a new
+     * spelling of a known tag and the tagging route learns it — see `autoAlias`. The
+     * screen is what hides it.
+     */
+    if (resolveAny(index, term)) return;
+    const cover = coverageOf(index, term);
+
     const entry = tally.get(key) ?? { term, slugs: [], facet };
     if (!entry.slugs.includes(slug)) entry.slugs.push(slug);
     // A facet from a structured field beats one guessed from prose, which has none.
     if (!entry.facet && facet) entry.facet = facet;
+    if (!entry.covered && cover.kind !== "none") {
+      entry.covered = {
+        id: cover.def.id,
+        label: cover.def.label,
+        exact: cover.kind === "same",
+      };
+    }
     tally.set(key, entry);
   };
 
@@ -935,7 +958,13 @@ export function unmatchedTerms(people: Person[], tax: TaxonomyPrefs): Unmatched[
   }
 
   return [...tally.values()]
-    .map((e) => ({ term: e.term, count: e.slugs.length, slugs: e.slugs, facet: e.facet }))
+    .map((e) => ({
+      term: e.term,
+      count: e.slugs.length,
+      slugs: e.slugs,
+      facet: e.facet,
+      covered: e.covered,
+    }))
     .sort((a, b) => b.count - a.count || a.term.localeCompare(b.term));
 }
 

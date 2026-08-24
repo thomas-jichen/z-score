@@ -12,10 +12,14 @@ import {
 import {
   MAX_TAGS,
   TAG_FACETS,
+  aliasIsUsable,
   clampWeight,
+  indexRegistry,
+  normalizeKey,
   isTagFacet,
   isTagMatch,
   isTier,
+  resolveTag,
   tagId,
   usableAliases,
   type TagDef,
@@ -23,6 +27,7 @@ import {
   type TagRegistry,
   type Tier,
 } from "./tagRegistry";
+import { coverageOf } from "./tagMatch";
 import { str, strList } from "./validate";
 
 /**
@@ -247,17 +252,88 @@ export const AUTO_PROMOTE_FLOOR = 0.5;
  * whole point of the taxonomy screen is that a human's number wins. Returns the same
  * object when nothing was added, so callers can skip the write.
  */
+/**
+ * Which spellings the registry should write down, out of a review queue.
+ *
+ * Pure, and separated from the route for that reason: the route reads the store and
+ * writes it, and the only part worth arguing about is this decision.
+ *
+ * A row is `covered.exact` when every leftover word of the term is a complete name
+ * the tag already answers to — "Research Science Institute (RSI)", where `rsi` is the
+ * tag's own id. Writing it down is what stops the review queue offering the same
+ * settled term forever, and it lets the tagger's own terms and the search chips
+ * resolve it too, since both of those only ever do exact lookups.
+ */
+export function aliasesToLearn(
+  rows: readonly { term: string; covered?: { id: string; exact: boolean } }[],
+  tags: TagRegistry,
+  limit: number
+): { id: string; label: string }[] {
+  const out: { id: string; label: string }[] = [];
+  for (const r of rows) {
+    if (out.length >= limit) break;
+    if (!r.covered?.exact) continue;
+
+    const def = tags[r.covered.id];
+    if (!def) continue;
+
+    /**
+     * Never onto a school or a lab.
+     *
+     * `resolveByContainment` walks a facet's labels *and* its aliases, longest form
+     * first, and looks its exclusion list up by the form that matched — so a long
+     * alias outranks the canonical name and inherits none of the "different
+     * institution that merely contains this one" guards that keep Michigan State out
+     * of Michigan. Nothing reachable is harmful today, but the blast radius is every
+     * education record, and an alias buys nothing here: those facets already resolve
+     * by containment and by LinkedIn entity id.
+     */
+    if (NEVER_ALIASED.has(def.facet)) continue;
+
+    // `addAlias` vets the key itself, so this only has to avoid asking twice.
+    if (!aliasIsUsable(normalizeKey(r.term), def.id)) continue;
+    out.push({ id: def.id, label: r.term });
+  }
+  return out;
+}
+
+/** The facets `resolveByContainment` reads, where an extra alias changes matching. */
+const NEVER_ALIASED = new Set<TagFacet>(["college", "highschool", "lab"]);
+
 export function withPromoted(
   tags: TagRegistry,
   additions: { label: string; facet: TagFacet; weight: number; cluster: Archetype | null }[]
 ): TagRegistry {
   let changed = false;
   const next = { ...tags };
+  /**
+   * Rebuilt as it grows, because each addition can be the reason the next one is a
+   * duplicate. Eight terms from one batch of model calls routinely include two
+   * spellings of the same thing.
+   */
+  let index = indexRegistry(next);
   for (const a of additions) {
     const id = tagId(a.label, a.facet);
     // And this is what stops the tagger auto-promoting one, which needs no human at
     // all. The prompt already says to skip these; a prompt is not a guarantee.
     if (!id || next[id] || isBannedTag(id)) continue;
+
+    /**
+     * The two questions the id check cannot answer.
+     *
+     * This is the unattended path — no human sees these before they land — and it
+     * was checking only whether the exact id existed. So "Research Science Institute
+     * (RSI)" was eligible: its id is `research-science-rsi`, which is free, while RSI
+     * itself already scores for the same six people under `rsi`. Minting it would
+     * have paid them twice, for a name the registry could already read.
+     *
+     * `possible` is the resolver's own "looks like an existing tag but not
+     * certainly", and its comment says such a term belongs in the review queue
+     * because collapsing two distinct awards cannot be undone. A machine is exactly
+     * who should not be making that call.
+     */
+    if (coverageOf(index, a.label).kind !== "none") continue;
+    if (resolveTag(index, { label: a.label, facet: a.facet }).kind === "possible") continue;
     next[id] = {
       id,
       label: a.label,
@@ -268,6 +344,7 @@ export function withPromoted(
       promoted: true,
     };
     changed = true;
+    index = indexRegistry(next);
   }
   return changed ? next : tags;
 }

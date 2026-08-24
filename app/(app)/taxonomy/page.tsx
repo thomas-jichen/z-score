@@ -22,6 +22,7 @@ import {
   type TagRegistry,
 } from "@/lib/tagRegistry";
 import { heldTags, unmatchedTerms } from "@/lib/tags";
+import { coverageOf } from "@/lib/tagMatch";
 import { Button, Card, EmptyState, Pill } from "@/components/primitives";
 
 /**
@@ -113,7 +114,25 @@ export default function TaxonomyPage() {
   /** A person's name, not their username. A slug is not who anybody is. */
   const nameOf = useCallback((slug: string) => roster[slug]?.name || slug, [roster]);
 
-  const pending = useMemo(() => unmatchedTerms(people, t), [people, t]);
+  /**
+   * Everything the roster names that the registry has not written down.
+   *
+   * Filtered on `covered.exact`, which is the whole of the fix here. A term whose
+   * every word an existing tag already owns is settled work: "Research Science
+   * Institute (RSI)" was sitting in this queue while RSI was being awarded to the
+   * six people it names, because deciding "unmatched" asked whether the whole string
+   * was a key and the scorer asked whether any window inside it was. The row was
+   * never a question. Worse, promoting it minted a second tag and paid those six
+   * twice, which is exactly what the registry exists to prevent.
+   *
+   * The rows are still returned by `unmatchedTerms` — the tagging route reads them
+   * and writes the spelling down as an alias. Hiding them is this screen's business,
+   * not the derivation's.
+   */
+  const pending = useMemo(
+    () => unmatchedTerms(people, t).filter((u) => !u.covered?.exact),
+    [people, t]
+  );
 
   const promotedCount = useMemo(
     () => Object.values(t.tags).filter((d) => d.promoted).length,
@@ -179,13 +198,33 @@ export default function TaxonomyPage() {
     const { term, weight, cluster, facet: f } = promoting;
     const def = makeTag({ label: term, facet: f, weight, cluster, promoted: true });
 
-    // A label that already resolves is the same thing under another name, so it
-    // becomes an alias rather than a second entry.
-    const existing = resolveAny(indexRegistry(t.tags), term);
-    const tags = existing ? addAlias(t.tags, existing.id, term) : { ...t.tags, [def.id]: def };
+    /**
+     * A label the registry can already read is the same thing under another name, so
+     * it becomes an alias rather than a second entry.
+     *
+     * This used to ask `resolveAny`, which only answers for the whole string — the
+     * same weakness that let the row into the queue in the first place, so the check
+     * could never fire on anything this screen offered. `coverageOf` asks the
+     * question the scorer asks.
+     */
+    const cover = coverageOf(indexRegistry(t.tags), term);
+    const tags =
+      cover.kind === "same"
+        ? addAlias(t.tags, cover.def.id, term)
+        : { ...t.tags, [def.id]: def };
 
     patchTeam({ taxonomy: { ...t, tags } });
     setPromoting(null);
+  }
+
+  /**
+   * Fold a longer name into the tag it already contains.
+   *
+   * The row said "already counted as Y Combinator" and this is the button that acts
+   * on it: one alias, no weight to choose, so it skips the promote form entirely.
+   */
+  function foldIn(term: string, id: string) {
+    patchTeam({ taxonomy: { ...t, tags: addAlias(t.tags, id, term) } });
   }
 
   function dismiss(term: string) {
@@ -360,6 +399,15 @@ export default function TaxonomyPage() {
                   {(allPending ? pending : pending.slice(0, PENDING_WINDOW)).map((p) => (
                     <div className="z-review-row" key={p.term}>
                       <span className="z-review-term">{p.term}</span>
+                      {/* The overlap, said out loud. This term contains a tag the
+                          person is already scored for, so the credential is banked
+                          and the only open question is the rest of the name. Without
+                          the line the row looks like a finding nobody has acted on. */}
+                      {p.covered && (
+                        <span className="z-review-covered">
+                          already counted as {p.covered.label}
+                        </span>
+                      )}
                       <div className="z-review-foot">
                         <span className="z-review-seen">
                           {/* A real count over real people, each one reachable by
@@ -368,12 +416,22 @@ export default function TaxonomyPage() {
                           <Link href={`/candidate/${p.slugs[0]}`}>{nameOf(p.slugs[0])}</Link>
                           {p.slugs.length > 1 && ` +${p.slugs.length - 1}`}
                         </span>
-                        <button
-                          className="z-quiet is-accent"
-                          onClick={() => beginPromote(p.term, p.facet)}
-                        >
-                          Promote
-                        </button>
+                        {p.covered ? (
+                          <button
+                            className="z-quiet is-accent"
+                            onClick={() => foldIn(p.term, p.covered!.id)}
+                            title={`Record this spelling on the ${p.covered.label} tag. No new tag, no new weight.`}
+                          >
+                            Fold in
+                          </button>
+                        ) : (
+                          <button
+                            className="z-quiet is-accent"
+                            onClick={() => beginPromote(p.term, p.facet)}
+                          >
+                            Promote
+                          </button>
+                        )}
                         <button className="z-quiet is-bare" onClick={() => dismiss(p.term)}>
                           Dismiss
                         </button>

@@ -4,11 +4,11 @@ import { extractMany, hasGroq, groqModel, suggestClassification } from "@/lib/gr
 import type { Person } from "@/lib/people";
 import { migrateIfNeeded, readRoster, readTeam, writePeople } from "@/lib/serverState";
 import { unmatchedTerms, vocabulary } from "@/lib/tags";
-import { withPromoted, worthPromoting } from "@/lib/team";
+import { aliasesToLearn, withPromoted, worthPromoting } from "@/lib/team";
 import { TEAM_KEY, type TeamState } from "@/lib/state";
 import { set } from "@/lib/store";
 import type { Archetype } from "@/lib/clusters";
-import type { TagFacet } from "@/lib/tagRegistry";
+import { addAlias, type TagFacet } from "@/lib/tagRegistry";
 import { reserveTagging } from "@/lib/ratelimit";
 import { cleanSlugs, isBad, readJson, str } from "@/lib/validate";
 import { adjudicateFresh } from "@/lib/tagAdjudicate";
@@ -123,7 +123,20 @@ export async function POST(req: Request) {
      * recognised the thing; anything it is guessing at stays in the queue, which is
      * what the queue is for.
      */
-    const promoted = await autoPromote(updated, team).catch((e) => {
+    /**
+     * First, write down the spellings the registry can already read.
+     *
+     * Before auto-promotion, because an alias learned here can be the reason a term
+     * in the same batch stops looking new. Free and unmetered — no model call, and an
+     * alias cannot invent a score, it can only make a match the scorer was already
+     * making an exact one.
+     */
+    const learned = await autoAlias(updated).catch((e) => {
+      log.warn("tag.autoalias.failed", { error: e instanceof Error ? e.message : "unknown" });
+      return 0;
+    });
+
+    const promoted = await autoPromote(updated, learned > 0 ? await readTeam() : team).catch((e) => {
       // Best effort, always. The people are already written; a rate limit or a bad
       // response here must not turn a successful tagging run into a 500 and have the
       // client report that nothing happened.
@@ -187,9 +200,61 @@ export async function GET() {
  */
 const MAX_AUTO_PROMOTE = 8;
 
+/**
+ * Teach the registry a spelling of a tag it already has.
+ *
+ * The review queue used to offer "Research Science Institute (RSI)" while RSI was
+ * being awarded to the same six people, because deciding "unmatched" asked whether
+ * the whole string was a key and the scorer asked whether any window inside it was.
+ * `coverageOf` reconciles the two, and every term it calls `exact` is a name the
+ * registry can read but has not written down.
+ *
+ * Writing it down is worth doing rather than merely hiding the row: an alias also
+ * lets the tagger's own terms and the search chips resolve, which are two award paths
+ * that only ever did exact lookups. And it is the safest write in the app — `addAlias`
+ * cannot change a weight, cannot create an entry, and declines a key that is already
+ * the id or already present, so running twice is running once.
+ */
+const MAX_AUTO_ALIAS = 24;
+
+async function autoAlias(people: Person[]): Promise<number> {
+  const fresh = await readTeam();
+  const exact = unmatchedTerms(people, fresh.taxonomy).filter((u) => u.covered?.exact);
+  if (exact.length === 0) return 0;
+
+  const take = aliasesToLearn(exact, fresh.taxonomy.tags, MAX_AUTO_ALIAS);
+  if (take.length === 0) return 0;
+
+  let tags = fresh.taxonomy.tags;
+  for (const a of take) tags = addAlias(tags, a.id, a.label);
+  // `addAlias` vets the key as well, so a row can survive the decision above and
+  // still be declined. Nothing written means nothing to say.
+  if (tags === fresh.taxonomy.tags) return 0;
+
+  await set(TEAM_KEY, { ...fresh, taxonomy: { ...fresh.taxonomy, tags } });
+
+  // Said out loud rather than truncated in silence: a capped sweep that reports the
+  // full count reads as "covered everything" when it did not.
+  log.info("tag.autoalias", {
+    learned: take.length,
+    dropped: exact.length - take.length,
+  });
+  return take.length;
+}
+
 async function autoPromote(people: Person[], team: TeamState): Promise<string[]> {
   const pending = unmatchedTerms(people, team.taxonomy)
     .filter((u) => u.facet && PROMOTABLE.has(u.facet))
+    /**
+     * Covered terms are dropped here rather than at the write.
+     *
+     * `withPromoted` refuses them, which is the guarantee that matters, but it
+     * refuses them *after* this loop has paid for a classification each. "SSP
+     * International" is a permanent resident of the queue — the registry can read it,
+     * so it will never be promoted, and it was burning a model call and one of only
+     * eight slots on every single tagging run.
+     */
+    .filter((u) => !u.covered)
     .slice(0, MAX_AUTO_PROMOTE);
   if (pending.length === 0) return [];
 
@@ -221,8 +286,19 @@ async function autoPromote(people: Person[], team: TeamState): Promise<string[]>
   if (tags === fresh.taxonomy.tags) return [];
   await set(TEAM_KEY, { ...fresh, taxonomy: { ...fresh.taxonomy, tags } });
 
-  const labels = additions.map((a) => a.label);
-  log.info("tag.autopromote", { count: labels.length });
+  /**
+   * What actually landed, read off the registry rather than off the request.
+   *
+   * This used to return `additions.map(a => a.label)`, but `withPromoted` has vetoes
+   * of its own — a banned name, a near duplicate, a term the registry can already
+   * read — so the caller was told a term had been promoted when it had just been
+   * declined. Diffing the ids is the only answer that cannot drift from the write.
+   */
+  const before = new Set(Object.keys(fresh.taxonomy.tags));
+  const labels = Object.keys(tags)
+    .filter((id) => !before.has(id))
+    .map((id) => tags[id].label);
+  log.info("tag.autopromote", { count: labels.length, asked: additions.length });
   return labels;
 }
 
