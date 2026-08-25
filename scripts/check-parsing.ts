@@ -64,7 +64,7 @@ import {
   termCounts,
   unmatchedTerms,
 } from "../lib/tags";
-import { classifyOrg, extractTags, inferHomeState } from "../lib/extract";
+import { classifyOrg, currentState, extractTags, inferHomeState } from "../lib/extract";
 import { extractTerms, groundedIn } from "../lib/groq";
 import { aliasesToLearn, cleanDeleted, cleanTaxonomy, withPromoted } from "../lib/team";
 import { groundedTerms } from "../lib/tags";
@@ -2201,6 +2201,68 @@ console.log("\nhome state — from the high school, not from any state on the pr
     facets.find((t) => t.facet === "homestate")?.inferred,
     true
   );
+}
+
+/**
+ * Where they are now, when LinkedIn declines to name a state.
+ *
+ * "City, State, Country" is the form the parser was written for and it is not the
+ * only form on offer: anywhere LinkedIn treats as a metropolitan area, the location
+ * is the metro's own name and no state appears at all. Fifteen of fifty enriched
+ * people said "San Francisco Bay Area", so the largest concentration of people in
+ * the roster arrived at the Arrange-by-Current control as "Location unknown" — a
+ * control whose only job is to show where everybody is.
+ */
+console.log("\ncurrent location — the metro names, and the one city that is a state");
+{
+  // `region` is cleared explicitly rather than left alone: `bare` hands back the
+  // same enriched object every time, so one fixture's structured code would answer
+  // every later question in the block.
+  const at = (location: string, region?: string) => {
+    const p = bare("loc");
+    p.enriched!.location = location;
+    p.enriched!.region = region;
+    return currentState(p.enriched!);
+  };
+
+  check("the plain form still works", at("Palo Alto, California, United States"), "California");
+  check("and the structured code still wins", at("somewhere odd", "TX"), "Texas");
+
+  check("a metro with no state in its name", at("San Francisco Bay Area"), "California");
+  check("and another", at("Greater Boston"), "Massachusetts");
+  check("and one written as a metroplex", at("Dallas-Fort Worth Metroplex"), "Texas");
+  check("a smaller one", at("Greater Fort Wayne"), "Indiana");
+
+  // The state is there, sharing its comma-separated part with two other words, so
+  // the part-by-part lookup cannot see it.
+  check(
+    "a state buried in a metro's name",
+    at("Austin, Texas Metropolitan Area"),
+    "Texas"
+  );
+  check(
+    "even when the city name contains it",
+    at("New York City Metropolitan Area"),
+    "New York"
+  );
+  // Word-bounded, or "Indiana" is inside "Indianapolis" and "Virginia" inside
+  // "West Virginia".
+  check("longest name wins", at("Charleston, West Virginia Area"), "West Virginia");
+
+  /**
+   * The capital is the one place where a city's name is also a state's, and it is
+   * dense enough to matter: without the guard, everybody in Washington DC was filed
+   * three thousand miles away on the Pacific coast.
+   */
+  check("the capital is not the state", at("Washington, D.C."), undefined);
+  check("nor is its metro", at("Washington DC-Baltimore Area"), "District of Columbia");
+  check("and Seattle still is", at("Greater Seattle Area"), "Washington");
+
+  // A wrong state is worse than no state: it files somebody in a cohort they were
+  // never part of.
+  check("a metro across a state line is refused", at("Kansas City Metropolitan Area"), undefined);
+  check("a country with no state is nothing", at("United States"), undefined);
+  check("and neither is somewhere abroad", at("Mumbai, Maharashtra, India"), undefined);
 }
 
 console.log("\naccelerators — the signal that was invisible");

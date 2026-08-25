@@ -16,6 +16,7 @@ import {
   buildGraph,
   edgePath,
   neighborsOf,
+  textWidth,
   type EdgeSource,
   type GraphNode,
   type GroupBy,
@@ -195,29 +196,111 @@ export default function GraphPage() {
    * you that there are clusters and nothing else — the whole value of the control
    * is in the labels. Derived from the laid-out nodes rather than from the anchors
    * the layout used, because a group's members end up wherever the forces put them
-   * and the label has to sit above *that*, not above where it was aimed.
+   * and the label has to sit near *that*, not near where it was aimed.
+   *
+   * ── Why the centre and not the top ────────────────────────────────────────
+   * The first version wrote each name above its group's bounding box, which is right
+   * for two or three groups and falls apart at ten: a force layout gives a group a
+   * tall ragged box, so every box top ends up in the same band near the frame and the
+   * names pile into each other. Arrange by Current is the case that showed it —
+   * "MASSACHUSETTS", "MICHIGAN" and "CALIFORNIA" printed through one another with a
+   * node sitting on the middle of all three. Centroids are as far apart as the groups
+   * themselves are, which is the property the box tops did not have.
+   *
+   * ── And why they are then pushed apart ────────────────────────────────────
+   * Centroids alone are not enough, because a small group can settle inside a large
+   * one. Biggest group first, since its name is the one most people are looking for,
+   * and anything that lands on top of a name already placed drops a line until it is
+   * clear. Deterministic, so the same data reads the same way twice.
    */
   const groupLabels = useMemo(() => {
     if (graph.groups.length === 0) return [];
-    const box = new Map<string, { x1: number; x2: number; y: number }>();
+
+    const sum = new Map<string, { x: number; y: number; n: number }>();
     for (const n of graph.nodes) {
       if (n.kind !== "person" || !n.group) continue;
-      const r = n.r;
-      const b = box.get(n.group);
-      box.set(
-        n.group,
-        b
-          ? { x1: Math.min(b.x1, n.x - r), x2: Math.max(b.x2, n.x + r), y: Math.min(b.y, n.y - r) }
-          : { x1: n.x - r, x2: n.x + r, y: n.y - r }
-      );
+      const acc = sum.get(n.group) ?? { x: 0, y: 0, n: 0 };
+      sum.set(n.group, { x: acc.x + n.x, y: acc.y + n.y, n: acc.n + 1 });
     }
-    return [...box.entries()].map(([label, b]) => ({
-      label,
-      x: (b.x1 + b.x2) / 2,
-      // Nudged inside the frame, so a group that settled against the top edge is
-      // still named rather than clipped.
-      y: Math.max(14, b.y - 11),
-    }));
+
+    /**
+     * Everything already on the canvas, as boxes to keep clear of.
+     *
+     * Padded, because a node is drawn slightly larger than its radius — a focus ring,
+     * a stroke — and because a name that stops one pixel short of a disc has not
+     * really cleared it.
+     */
+    const PAD = 4;
+    const solid = graph.nodes.map((n) => {
+      const hw = (n.kind === "person" ? n.r : n.w / 2) + PAD;
+      const hh = (n.kind === "person" ? n.r : n.h / 2) + PAD;
+      return { x1: n.x - hw, x2: n.x + hw, y1: n.y - hh, y2: n.y + hh };
+    });
+
+    const LINE = 15;
+    const placed: typeof solid = [];
+    const out: { label: string; x: number; y: number }[] = [];
+    const clear = (b: (typeof solid)[number]) =>
+      ![...solid, ...placed].some(
+        (q) => q.x1 < b.x2 && q.x2 > b.x1 && q.y1 < b.y2 && q.y2 > b.y1
+      );
+
+    for (const [label, acc] of [...sum.entries()].sort((a, b) => b[1].n - a[1].n)) {
+      // 10px uppercase with tracking, against a helper calibrated for 11.5px mixed
+      // case. Approximate on purpose: this decides whether a name is covered, not
+      // where a glyph lands.
+      // The 8px is breathing room, so two names that both find a spot cannot end up
+      // touching — "MICHIGAN" and "MASSACHUSETTS" ran into one word.
+      const half = (textWidth(label) * (10 / 11.5) + label.length * 0.8) / 2 + 8;
+      const cx = acc.x / acc.n;
+      const cy = acc.y / acc.n;
+      const boxAt = (c: { x: number; y: number }) => ({
+        x1: c.x - half,
+        x2: c.x + half,
+        y1: c.y - 10,
+        y2: c.y + 5,
+      });
+
+      /**
+       * Walk out of the crowd, the way a map labels a region.
+       *
+       * A centroid is the right place to *aim* and the wrong place to write: it is
+       * the middle of the group, which is where its people are. Every name was
+       * printing behind somebody — "MASSACHUSETTS" arriving as "CHUSETTS". So the
+       * search starts just above the centre of mass and spirals outward in rings
+       * until the name's box touches nothing: no node, no name already placed.
+       *
+       * Eight directions rather than three, because a canvas this size always has a
+       * gap and the first version could not reach it — "FLORIDA" had a node above it,
+       * below it and outboard of it, ran out of candidates, and fell back to printing
+       * behind the node it started under.
+       */
+      const ideal = { x: cx, y: cy - 26 };
+      let best = ideal;
+      let found = false;
+      for (let step = 0; step <= 18 && !found; step++) {
+        for (let dir = 0; dir < (step === 0 ? 1 : 8); dir++) {
+          // Up first, then fanning round, so a name sits above its group when it can.
+          const angle = -Math.PI / 2 + (dir % 2 ? 1 : -1) * Math.ceil(dir / 2) * (Math.PI / 4);
+          const c = {
+            x: ideal.x + Math.cos(angle) * step * 15,
+            y: ideal.y + Math.sin(angle) * step * 13,
+          };
+          if (!clear(boxAt(c))) continue;
+          best = c;
+          found = true;
+          break;
+        }
+      }
+
+      // Inside the frame whatever the search found, or a group against an edge is
+      // named off-screen.
+      const x = Math.min(Math.max(best.x, half + 6), VIEW_WIDTH - half - 6);
+      const y = Math.min(Math.max(best.y, 14), VIEW_HEIGHT - 8);
+      placed.push(boxAt({ x, y }));
+      out.push({ label, x, y });
+    }
+    return out;
   }, [graph.nodes, graph.groups]);
   const hubById = useMemo(() => new Map(graph.hubs.map((h) => [h.id, h])), [graph.hubs]);
 
@@ -439,32 +522,39 @@ export default function GraphPage() {
                 ))}
               </div>
               <span className="z-spacer" />
-              {/* Only means anything once hubs are drawn. */}
-              {showTags && (
-                <label
-                  className="z-row z-micro"
-                  style={{ gap: 8, flex: "none" }}
-                  title="A thing most of the queue shares is not a connection between any two of them. Above this it drops out of the picture and stays in the leads."
-                >
-                  Hubs up to
-                  <input
-                    type="range"
-                    min={2}
-                    // Never smaller than the biggest hub, so a growing roster cannot
-                    // put one out of the slider's reach.
-                    max={Math.max(30, graph.largestHub)}
-                    step={1}
-                    value={maxHolders}
-                    onChange={(e) => {
-                      touchedWindow.current = true;
-                      setMaxHolders(Number(e.target.value));
-                    }}
-                    className="z-graph-range"
-                    aria-label="Largest hub to draw, in people"
-                  />
-                  <span className="z-num">{maxHolders}</span> people
-                </label>
-              )}
+              {/**
+               * Shown in both modes, because it governs both.
+               *
+               * It was hidden unless hubs were drawn, on the reading that a ceiling on
+               * hubs is about hubs. It is not: person-to-person links are built from
+               * the tags inside this window, so in People mode — the mode the screen
+               * opens in — the invisible control was deciding which lines appeared.
+               * Turning it down there is the answer to a graph that has become a web,
+               * and there was no way to find it.
+               */}
+              <label
+                className="z-row z-micro"
+                style={{ gap: 8, flex: "none" }}
+                title="Something most of the queue shares is not a connection between any two of them. Past this it stops drawing links and stays in the leads below."
+              >
+                Shared by up to
+                <input
+                  type="range"
+                  min={2}
+                  // Never smaller than the biggest hub, so a growing roster cannot
+                  // put one out of the slider's reach.
+                  max={Math.max(30, graph.largestHub)}
+                  step={1}
+                  value={maxHolders}
+                  onChange={(e) => {
+                    touchedWindow.current = true;
+                    setMaxHolders(Number(e.target.value));
+                  }}
+                  className="z-graph-range"
+                  aria-label="Largest shared thing to draw, in people"
+                />
+                <span className="z-num">{maxHolders}</span> people
+              </label>
             </div>
           </div>
 

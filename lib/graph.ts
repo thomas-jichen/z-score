@@ -311,7 +311,7 @@ const CHIP_H = 22;
  * other rattling. Approximate, deterministic, and no measurement API — which
  * matters, because the layout runs before anything is in the document.
  */
-function textWidth(s: string): number {
+export function textWidth(s: string): number {
   let w = 0;
   for (const ch of s) {
     if (" .,:;'`|!ijltfrI[]()-".includes(ch)) w += 3.6;

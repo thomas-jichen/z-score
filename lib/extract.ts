@@ -151,11 +151,143 @@ export function currentState(e: EnrichedProfile, fallback?: string): string | un
   const fromCode = stateName(e.region) ?? stateName(fallback);
   if (fromCode) return fromCode;
 
-  for (const part of (e.location ?? "").split(",")) {
+  const loc = e.location ?? "";
+  const flat = metroKey(loc);
+  if (AMBIGUOUS_METRO.has(flat)) return undefined;
+  if (METRO_STATE[flat]) return METRO_STATE[flat];
+
+  for (const part of loc.split(",")) {
     const named = stateName(part);
+    // "Washington, D.C." is the one city whose name is also a state, and it is a
+    // dense enough place to matter. The comma split reaches "Washington" first, so
+    // without this a person in the capital is filed three thousand miles away.
+    if (named === "Washington" && mentionsDC(flat)) continue;
     if (named) return named;
   }
-  return undefined;
+  return stateInside(flat);
+}
+
+/** Lowercase, and every run of anything but letters and digits becomes one space. */
+function metroKey(s: string): string {
+  return s
+    .normalize("NFKD")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+const mentionsDC = (flat: string) => /\bd c\b|\bdc\b/.test(flat);
+
+/**
+ * What LinkedIn writes instead of a state.
+ *
+ * The profile's location is not always "City, State, Country". For anywhere it
+ * considers a metropolitan area it writes the metro's own name and no state at all —
+ * and on a real roster that is not an edge case: fifteen of fifty enriched people
+ * said "San Francisco Bay Area", which made the single largest concentration of
+ * people in the whole queue invisible to an arrangement whose entire job is to show
+ * where everybody is. Measured across the same fifty, this and `stateInside` between
+ * them take the answer from 28 to 47.
+ *
+ * Written out rather than parsed, because a metro name is a proper noun and stripping
+ * "Greater" off the front to look up a city needs a table of cities to look it up in.
+ * A name that is not here resolves to nothing, which is the same answer it gave before.
+ *
+ * Multi-state metros are listed under their core city's state — somebody in the New
+ * York metro who lives in Newark groups with New York, which is the honest answer for
+ * a control about who is reachable from where. What is *not* acceptable is a state the
+ * person has no relationship to at all, which is what `AMBIGUOUS_METRO` is for.
+ */
+const METRO_STATE: Record<string, string> = {
+  "san francisco bay area": "California",
+  "los angeles metropolitan area": "California",
+  "greater sacramento": "California",
+  "san diego metropolitan area": "California",
+  "greater santa barbara": "California",
+  "new york city metropolitan area": "New York",
+  "buffalo niagara falls area": "New York",
+  "greater syracuse ny area": "New York",
+  "greater boston": "Massachusetts",
+  "greater philadelphia": "Pennsylvania",
+  "greater pittsburgh region": "Pennsylvania",
+  "greater chicago area": "Illinois",
+  "greater seattle area": "Washington",
+  "greater houston": "Texas",
+  "dallas fort worth metroplex": "Texas",
+  "greater san antonio": "Texas",
+  "miami fort lauderdale area": "Florida",
+  "tampa bay area": "Florida",
+  "greater orlando": "Florida",
+  "greater jacksonville": "Florida",
+  "atlanta metropolitan area": "Georgia",
+  "detroit metropolitan area": "Michigan",
+  "greater ann arbor": "Michigan",
+  "greater grand rapids": "Michigan",
+  "greater minneapolis st paul area": "Minnesota",
+  "greater cleveland": "Ohio",
+  "greater cincinnati": "Ohio",
+  "greater indianapolis": "Indiana",
+  "greater fort wayne": "Indiana",
+  "greater milwaukee": "Wisconsin",
+  "greater madison area": "Wisconsin",
+  "greater phoenix area": "Arizona",
+  "greater tucson area": "Arizona",
+  "denver metropolitan area": "Colorado",
+  "greater boulder": "Colorado",
+  "greater colorado springs": "Colorado",
+  "salt lake city metropolitan area": "Utah",
+  "las vegas metropolitan area": "Nevada",
+  "greater reno area": "Nevada",
+  "greater new orleans": "Louisiana",
+  "greater nashville": "Tennessee",
+  "greater memphis": "Tennessee",
+  "greater birmingham alabama area": "Alabama",
+  "charlotte metro": "North Carolina",
+  "raleigh durham chapel hill area": "North Carolina",
+  "greater richmond region": "Virginia",
+  "greater hartford": "Connecticut",
+  "greater st louis": "Missouri",
+  "greater omaha": "Nebraska",
+  "greater des moines area": "Iowa",
+  "oklahoma city metropolitan area": "Oklahoma",
+  "louisville metropolitan area": "Kentucky",
+  "baltimore metropolitan area": "Maryland",
+  "providence rhode island area": "Rhode Island",
+  "greater albuquerque": "New Mexico",
+  "greater boise area": "Idaho",
+  "portland oregon metropolitan area": "Oregon",
+  "washington dc baltimore area": "District of Columbia",
+};
+
+/**
+ * Metros with no single answer, refused rather than guessed.
+ *
+ * Kansas City straddles the state line its name gets wrong — the core city is in
+ * Missouri — and either choice files half its people in a state they do not live in.
+ * A wrong state is worse than no state: it puts somebody in a cohort they were never
+ * part of, and the whole control exists to be trusted on sight.
+ */
+const AMBIGUOUS_METRO = new Set(["kansas city metropolitan area"]);
+
+/**
+ * A state named anywhere in the string, longest name first.
+ *
+ * The comma split above wants "City, State, Country" and LinkedIn also writes
+ * "Austin, Texas Metropolitan Area" and "Rochester, New York Metropolitan Area",
+ * where the state shares its comma-separated part with two other words. Longest
+ * first because "West Virginia" contains "Virginia", and word-bounded because
+ * otherwise "Indiana" is inside "Indianapolis".
+ */
+function stateInside(flat: string): string | undefined {
+  const padded = ` ${flat} `;
+  const dc = mentionsDC(flat);
+  let best: string | undefined;
+  for (const name of STATE_NAMES) {
+    if (name === "Washington" && dc) continue;
+    if (!padded.includes(` ${name.toLowerCase()} `)) continue;
+    if (!best || name.length > best.length) best = name;
+  }
+  return best;
 }
 
 /**

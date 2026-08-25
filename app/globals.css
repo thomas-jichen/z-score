@@ -512,10 +512,26 @@ a.z-pill {
   text-decoration: none;
 }
 
-button.z-pill:hover,
-a.z-pill:hover {
+/**
+ * Hover is for the ones that are off.
+ *
+ * `button.z-pill:hover` outranks `.z-pill.is-active` on specificity, so pointing at
+ * a pill that was on repainted it in the pale off colours — and since the cursor is
+ * still on the pill the instant after you click it, every toggle in the app looked
+ * like it had failed. Worst on the Arrange row, which is a radio group: selecting
+ * "Current" left nothing looking selected until the mouse moved away.
+ */
+button.z-pill:not(.is-active):hover,
+a.z-pill:not(.is-active):hover {
   background: var(--z-surface-blue);
   color: var(--z-blue);
+}
+
+/* An on pill still has to answer the pointer. Same idiom as `.z-btn`, so pressable
+   things brighten and nothing changes colour under the cursor. */
+button.z-pill.is-active:hover,
+a.z-pill.is-active:hover {
+  filter: brightness(1.1);
 }
 
 /**
@@ -1982,6 +1998,10 @@ tr[data-pinned] td:first-child {
   stroke: var(--z-surface);
   stroke-width: 3.5;
   stroke-linejoin: round;
+  /* SVG paints the stroke after the fill by default, so a 3.5px halo was being
+     drawn over an 11.5px glyph — nearly two pixels eaten from each edge of every
+     letter. The names read as thin and slightly broken and it was not obvious why. */
+  paint-order: stroke fill;
 }
 
 /* A group's name, written on the canvas behind its people. Set as a quiet
@@ -1996,6 +2016,13 @@ tr[data-pinned] td:first-child {
   font-family: var(--z-font);
   opacity: 0.55;
   pointer-events: none;
+  /* Written over a hundred edges, so it carries the canvas with it. `paint-order`
+     is the whole trick: without it the halo paints on top of the glyph and eats
+     it, which is why the stroke on `.z-graph-name` needed the same fix. */
+  stroke: var(--z-surface);
+  stroke-width: 4;
+  stroke-linejoin: round;
+  paint-order: stroke fill;
 }
 
 /* A hub is a chip, not a dot with a caption. The label *is* the node, which is
