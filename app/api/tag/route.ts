@@ -1,14 +1,30 @@
 import { NextResponse } from "next/server";
 import { resolveProfile } from "@/lib/auth";
-import { extractMany, hasGroq, groqModel, suggestClassification } from "@/lib/groq";
+import {
+  extractMany,
+  groqModel,
+  hasGroq,
+  suggestClassification,
+  suggestSchool,
+} from "@/lib/groq";
 import type { Person } from "@/lib/people";
+import { isHighSchool } from "@/lib/enrichment";
+import type { ProfileId } from "@/lib/profiles";
 import { migrateIfNeeded, readRoster, readTeam, writePeople } from "@/lib/serverState";
 import { groundedTerms, unmatchedTerms, vocabulary } from "@/lib/tags";
+import { autoSchools } from "@/lib/schools";
 import { aliasesToLearn, withPromoted, worthPromoting } from "@/lib/team";
 import { TEAM_KEY, type TeamState } from "@/lib/state";
 import { set } from "@/lib/store";
 import type { Archetype } from "@/lib/clusters";
-import { addAlias, normalizeKey, type TagFacet } from "@/lib/tagRegistry";
+import {
+  addAlias,
+  indexRegistry,
+  makeTag,
+  normalizeKey,
+  resolveTag,
+  type TagFacet,
+} from "@/lib/tagRegistry";
 import { reserveTagging } from "@/lib/ratelimit";
 import { cleanSlugs, isBad, readJson, str } from "@/lib/validate";
 import { adjudicateFresh } from "@/lib/tagAdjudicate";
@@ -167,7 +183,24 @@ export async function POST(req: Request) {
       return 0;
     });
 
-    const promoted = await autoPromote(updated, learned > 0 ? await readTeam() : team).catch((e) => {
+    /**
+     * Then place the schools nobody had seeded.
+     *
+     * A home state is only knowable through `TagDef.state`, which until now existed
+     * only on the fifty-odd schools seeded by hand — so eighteen people in this roster
+     * named a high school and were still from nowhere. Same shape of gap on the other
+     * side: a college the registry has never heard of resolves to no tag, so it can
+     * never be a hub on the graph however many people share it.
+     */
+    const placed = await autoSchools(updated, r.profile, Date.now() + 60_000).catch((e) => {
+      log.warn("tag.autoschools.failed", { error: e instanceof Error ? e.message : "unknown" });
+      return 0;
+    });
+
+    // Re-read if either earlier step wrote the taxonomy, since a learned alias or a
+    // newly placed school can be the reason a term stops looking new.
+    const before = learned > 0 || placed > 0 ? await readTeam() : team;
+    const promoted = await autoPromote(updated, before).catch((e) => {
       // Best effort, always. The people are already written; a rate limit or a bad
       // response here must not turn a successful tagging run into a 500 and have the
       // client report that nothing happened.
@@ -200,6 +233,8 @@ export async function POST(req: Request) {
       adjudicated: judged.judged,
       approved: judged.approved,
       promoted,
+      /** Schools the registry did not know, now placed. Zero weight, so no score moved. */
+      schoolsPlaced: placed,
       people: updated,
       // Partial failure is reported rather than swallowed: some people did get
       // tagged, and the caller should be able to say so.

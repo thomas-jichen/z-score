@@ -79,6 +79,7 @@ const GROUP_LABEL: Record<GroupBy, string> = {
   cluster: "Cluster",
   year: "Class",
   home: "Home",
+  current: "Current",
 };
 
 const GROUP_HINT: Record<GroupBy, string> = {
@@ -86,6 +87,7 @@ const GROUP_HINT: Record<GroupBy, string> = {
   cluster: "Pull each archetype to its own quarter of the canvas.",
   year: "Pull by college class, so who is available when reads at a glance.",
   home: "Pull by the home state inferred from their high school — the geography of the pipeline.",
+  current: "Pull by the location on their profile, which is where they are now rather than where they are from.",
 };
 
 /** Three families, because a chip should read as its kind at a glance. */
@@ -137,7 +139,18 @@ export default function GraphPage() {
    * the dense view meant the first thing anyone saw was the hardest thing to read.
    */
   const [showTags, setShowTags] = useState(false);
+  /**
+   * The window, which opens as wide as the roster needs and then only narrows.
+   *
+   * A fixed default was the bug: it was raised to 20 so that Stanford would be
+   * visible, the roster grew, and at 22 Stanford was hidden by the number that existed
+   * to show it. `touched` is what keeps this from becoming annoying in the other
+   * direction — once the slider has been dragged the choice is deliberate, and a
+   * roster that grows must not yank it back open. Same idiom the sweep screen uses for
+   * a restored selection.
+   */
   const [maxHolders, setMaxHolders] = useState(DEFAULT_MAX_HOLDERS);
+  const touchedWindow = useRef(false);
   const [search, setSearch] = useState("");
   const [hovered, setHovered] = useState<string | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
@@ -165,6 +178,13 @@ export default function GraphPage() {
       }),
     [queued, roster, team.taxonomy, sources, groupBy, showTags, maxHolders]
   );
+
+  useEffect(() => {
+    if (touchedWindow.current) return;
+    // Only ever upward. Narrowing on its own would hide something the previous render
+    // had already shown, which is the behaviour being fixed.
+    setMaxHolders((prev) => (graph.largestHub > prev ? graph.largestHub : prev));
+  }, [graph.largestHub]);
 
   const byId = useMemo(() => new Map(graph.nodes.map((n) => [n.id, n])), [graph.nodes]);
 
@@ -215,8 +235,27 @@ export default function GraphPage() {
     if (!focus) return null;
     const hub = hubById.get(focus);
     if (hub) return new Set([focus, ...hub.slugs.map((s) => `p:${s}`)]);
+
+    /**
+     * A person lights everyone they are connected to, not everyone they are drawn to.
+     *
+     * People mode keeps only the three strongest links per person, deliberately, so
+     * the view does not collapse into the hairball the hubs exist to avoid. But the
+     * highlight was reading the drawn edges, so clicking somebody with twenty-five
+     * connections lit about ten — while the panel beside it listed all twenty-five and
+     * said "and 17 more". The picture and the words disagreed about the same question.
+     *
+     * `connections` is the full answer and always computed, so this costs nothing. It
+     * is the same principle the hub branch above already follows: a hub lights its
+     * holders whether or not its chip is on the canvas.
+     */
+    if (focus.startsWith("p:")) {
+      const slug = focus.slice(2);
+      const links = graph.connections[slug];
+      if (links?.length) return new Set([focus, ...links.map((l) => `p:${l.slug}`)]);
+    }
     return neighborsOf(graph.edges, focus);
-  }, [focus, hubById, graph.edges]);
+  }, [focus, hubById, graph.edges, graph.connections]);
 
   const matches = useMemo(() => {
     const term = search.trim().toLowerCase();
@@ -411,10 +450,15 @@ export default function GraphPage() {
                   <input
                     type="range"
                     min={2}
-                    max={30}
+                    // Never smaller than the biggest hub, so a growing roster cannot
+                    // put one out of the slider's reach.
+                    max={Math.max(30, graph.largestHub)}
                     step={1}
                     value={maxHolders}
-                    onChange={(e) => setMaxHolders(Number(e.target.value))}
+                    onChange={(e) => {
+                      touchedWindow.current = true;
+                      setMaxHolders(Number(e.target.value));
+                    }}
                     className="z-graph-range"
                     aria-label="Largest hub to draw, in people"
                   />

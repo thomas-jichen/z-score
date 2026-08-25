@@ -1,4 +1,5 @@
 import type { Archetype } from "./clusters";
+import { STATE_NAMES } from "./extract";
 import { ARCHETYPES, isArchetype } from "./clusters";
 import type { Person } from "./people";
 import { log } from "./log";
@@ -1067,6 +1068,90 @@ export async function adjudicateMatches(
   const filled: Record<string, boolean> = {};
   for (const id of asked) filled[id] = r.value[id] === true;
   return { ok: true, value: filled };
+}
+
+/**
+ * Which state a school is in, asked once per school in the app's lifetime.
+ *
+ * ── Why this exists ──────────────────────────────────────────────────────
+ * A home state is only knowable through `TagDef.state`, and that only exists on the
+ * schools somebody seeded by hand. Measured on a fifty-person roster, twenty-two had
+ * no home state and eighteen of those named a high school the registry simply did not
+ * know: Clements, Ravenwood, Northville, Midwood, Francis Lewis, Millard North. There
+ * is no list to seed that ends — there are twenty-odd thousand US high schools — so
+ * the app has to be able to learn one.
+ *
+ * ── Why the model is the right tool here ─────────────────────────────────
+ * "Which state is Millard North High School in" is a fact it knows and a fact that
+ * does not change. It is asked once, the answer is written into the taxonomy, and no
+ * profile ever causes the question again. That is the opposite of the usual reason to
+ * be wary of a model: nothing here is a judgement.
+ *
+ * ── Why it may refuse ────────────────────────────────────────────────────
+ * The education section is not only schools. This roster's rows include Inspirit AI,
+ * Yale Young Global Scholars, Stanford Pre-Collegiate Studies, The Residency and
+ * Z Fellows. A summer programme is not a home town, and `kind: "neither"` is how the
+ * model says so — which matters, because the alternative is a taxonomy slowly filling
+ * with things that are not schools.
+ */
+export type SchoolAnswer = {
+  kind: "highschool" | "college" | "neither";
+  /** A full US state name, or null for anywhere else and for anything refused. */
+  state: string | null;
+  sure: boolean;
+};
+
+const SCHOOL_SYSTEM = `You are told the name of something listed in the education section of a LinkedIn profile. Answer two questions about it.
+
+First, what is it? "highschool" for a secondary school. "college" for a university or any degree-granting institution. "neither" for anything else — a summer programme, a bootcamp, an accelerator, an online course, a fellowship, a competition. Yale Young Global Scholars is neither. Inspirit AI is neither. Z Fellows is neither.
+
+Second, which US state is it in? Give the full state name, spelled out. Use null if it is outside the United States, or if you are not confident which state it is, or if it is "neither". A wrong state is worse than no state: it files somebody under a cohort they were never part of.
+
+Do not guess from a name that could be several places. "Warren High School" and "Anderson High School" exist in many states; unless the name itself settles it, answer null.
+
+Reply with JSON only: {"kind":"highschool","state":"Nebraska","sure":true}`;
+
+const SCHOOL_SCHEMA: Schema = {
+  name: "school",
+  schema: {
+    type: "object",
+    properties: {
+      kind: { type: "string", enum: ["highschool", "college", "neither"] },
+      state: { type: ["string", "null"] },
+      sure: { type: "boolean" },
+    },
+    required: ["kind", "state", "sure"],
+    additionalProperties: false,
+  },
+};
+
+function parseSchool(raw: unknown): SchoolAnswer | null {
+  const o = (raw ?? {}) as Record<string, unknown>;
+  const kind = o.kind;
+  if (kind !== "highschool" && kind !== "college" && kind !== "neither") return null;
+
+  /**
+   * Matched against the canonical fifty rather than trusted as written. Every reader
+   * of `TagDef.state` compares it to `US_STATES`, so a state spelled any other way is
+   * a value that looks right in the registry and groups nobody.
+   */
+  const given = typeof o.state === "string" ? o.state.trim() : "";
+  const state = STATE_NAMES.find((n) => n.toLowerCase() === given.toLowerCase()) ?? null;
+
+  return { kind, state: kind === "neither" ? null : state, sure: o.sure === true };
+}
+
+export async function suggestSchool(
+  name: string
+): Promise<{ ok: true; value: SchoolAnswer } | { ok: false; error: string }> {
+  return chatJson(
+    [
+      { role: "system", content: SCHOOL_SYSTEM },
+      { role: "user", content: `Education entry: ${name}` },
+    ],
+    SCHOOL_SCHEMA,
+    parseSchool
+  );
 }
 
 export async function suggestClassification(

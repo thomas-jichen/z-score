@@ -801,6 +801,14 @@ export function makeTag(input: {
   cluster?: Archetype | null;
   linkedinId?: string;
   promoted?: boolean;
+  /**
+   * Where a school is, which is the only way a home state is ever knowable.
+   *
+   * Seeds have always carried it and `cleanTaxonomy` has always preserved it; this
+   * was simply the one door into the registry that could not set it, so a school
+   * learned rather than seeded arrived stateless and placed nobody.
+   */
+  state?: string;
 }): TagDef {
   return {
     id: normalizeKey(input.label),
@@ -810,6 +818,7 @@ export function makeTag(input: {
     weight: clampWeight(input.weight ?? 0),
     cluster: input.cluster ?? null,
     ...(input.linkedinId ? { linkedinId: input.linkedinId } : {}),
+    ...(input.state ? { state: input.state } : {}),
     promoted: input.promoted ?? false,
   };
 }

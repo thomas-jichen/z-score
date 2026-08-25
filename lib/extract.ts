@@ -224,7 +224,8 @@ export function inferHomeState(
   return undefined;
 }
 
-const STATE_NAMES = Object.values(US_STATES);
+/** The canonical fifty, spelled the one way every reader of `TagDef.state` expects. */
+export const STATE_NAMES = Object.values(US_STATES);
 
 /**
  * A batch marker inside a company's registered name.

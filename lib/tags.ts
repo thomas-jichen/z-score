@@ -755,14 +755,32 @@ export function allTags(p: Person, tax: TaxonomyPrefs): Tag[] {
    * people. The facet is the tag's own, and it is the only thing that decides kind.
    */
   const out: Tag[] = [];
-  const key = (kind: TagKind, label: string) => `${kind}:${label.toLowerCase()}`;
+  /**
+   * Identity is the facet, not the kind.
+   *
+   * `FACET_KIND` maps several facets onto one kind on purpose — a company and a
+   * startup are both "extracted" to a reader — but keying *identity* on kind meant two
+   * genuinely different facts about one person collapsed into whichever arrived first.
+   * `state` and `homestate` are both kind "state", so anybody who still lives where
+   * they grew up had one of the two silently dropped, and the graph's Home arrangement
+   * reads the `homestate` facet: fifteen people in a fifty-person roster had a home
+   * state that was known, resolved, and invisible, filed under "Home unknown".
+   *
+   * `extractTags` already refuses to suppress that duplicate, with a comment saying
+   * the two are different facts and that hiding one "made that group invisible". This
+   * is the same mistake, one layer further on.
+   *
+   * A tag from outside the registry has no facet and falls back to kind, which is the
+   * only identity it has.
+   */
+  const key = (t: Tag) => `${t.facet ?? t.kind}:${t.label.toLowerCase()}`;
   const have = new Set<string>();
   /** Registry ids already placed, so a resolvable extracted term is not repeated. */
   const placed = new Set<string>();
 
   const take = (t: Tag) => {
-    if (have.has(key(t.kind, t.label))) return;
-    have.add(key(t.kind, t.label));
+    if (have.has(key(t))) return;
+    have.add(key(t));
     out.push(t);
   };
 

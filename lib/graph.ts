@@ -80,16 +80,19 @@ export type EdgeSource = (typeof EDGE_SOURCES)[number];
  * city for ten weeks — whereas the home state inferred from their high school is
  * the durable fact and the one that describes a pipeline.
  */
-export const GROUP_BY = ["none", "cluster", "year", "home"] as const;
+export const GROUP_BY = ["none", "cluster", "year", "home", "current"] as const;
 export type GroupBy = (typeof GROUP_BY)[number];
 
 /**
  * Above this a tag is background, not a connection. It becomes a lead instead.
  *
- * Twenty rather than eight, so the opening view shows the whole roster's shared
- * ground and the slider is used to *narrow* it. Eight hid Stanford, which is the
- * single most connected thing about this population and the first thing anyone
- * looks for.
+ * A floor for the window rather than the window itself. This was the whole answer,
+ * set to twenty because eight "hid Stanford, which is the single most connected thing
+ * about this population and the first thing anyone looks for". The reasoning was right
+ * and a constant was the wrong way to hold it: the roster grew, Stanford reached
+ * twenty-two, and the number hid the very thing it had been raised to show. The screen
+ * opens its window at `largestHub` instead, so the slider only ever narrows and cannot
+ * be outgrown. This is what it uses before any hub exists.
  */
 export const DEFAULT_MAX_HOLDERS = 20;
 /** Below this a tag connects nobody to anybody. */
@@ -182,6 +185,13 @@ export type Graph = {
   connections: Record<string, Link[]>;
   /** Tags outside the rarity window, so the window's effect stays legible. */
   tooCommon: { label: string; count: number }[];
+  /**
+   * People in the biggest thing two of them share, measured before the window.
+   *
+   * That is the point of measuring it there: it is what the window ought to be able
+   * to reach, not what the window currently admits.
+   */
+  largestHub: number;
   tooRare: number;
   /** Hubs in the window but past the label cap. */
   hubsNotDrawn: number;
@@ -268,6 +278,16 @@ function groupValue(c: Candidate, tags: Tag[], by: GroupBy): string {
   if (by === "none") return "";
   if (by === "year") return c.graduation_year ? `Class of ${c.graduation_year}` : "Year unknown";
   if (by === "home") return tags.find((t) => t.facet === "homestate")?.label ?? "Home unknown";
+  /**
+   * Where they say they are, as opposed to where they are from.
+   *
+   * Two arrangements over the same fifty labels, and the difference between them is
+   * the interesting part: Home is a fact about the pipeline, this is a fact about who
+   * is reachable now. They can only both exist because tag identity is keyed on facet
+   * — see `allTags` — since before that a person still living where they grew up had
+   * one of the two silently dropped.
+   */
+  if (by === "current") return tags.find((t) => t.facet === "state")?.label ?? "Location unknown";
   return c.archetype;
 }
 
@@ -352,6 +372,7 @@ export function buildGraph(
   }
 
   const tooCommon: { label: string; count: number }[] = [];
+  let largestHub = 0;
   let tooRare = 0;
   const inWindow = new Map<string, { tag: Tag; slugs: string[] }>();
   const hubs: Hub[] = [];
@@ -361,6 +382,7 @@ export function buildGraph(
     // Every tag two or more people share is a lead, whether or not it is drawable.
     // The ceiling exists to keep lines legible, not to hide information.
     if (n >= 2) {
+      largestHub = Math.max(largestHub, n);
       hubs.push({
         id: `t:${key}`,
         label: entry.tag.label,
@@ -558,6 +580,7 @@ export function buildGraph(
     hubs: hubs.slice(0, MAX_LEADS),
     connections,
     tooCommon,
+    largestHub,
     tooRare,
     hubsNotDrawn,
     groups,

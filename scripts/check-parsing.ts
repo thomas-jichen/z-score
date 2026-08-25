@@ -1487,6 +1487,149 @@ console.log("\ntermCounts and unmatchedTerms");
   );
 }
 
+console.log("\nliving where you grew up is two facts, not one");
+{
+  /**
+   * `FACET_KIND` maps `state` and `homestate` onto the same kind on purpose, but
+   * `allTags` was keying tag *identity* on kind — so anybody still living where they
+   * grew up had one of the two silently dropped. The graph's Home arrangement reads
+   * the `homestate` facet, so fifteen people in a fifty-person roster had a home state
+   * that was known, resolved, and filed under "Home unknown".
+   *
+   * `extractTags` already refuses to suppress that duplicate, its comment noting the
+   * two are different facts and hiding one "made that group invisible". This is the
+   * same mistake one layer further on.
+   */
+  const local: Person = {
+    ...bare("stayed"),
+    state: "Massachusetts",
+    enriched: {
+      ...(PERSON.enriched as NonNullable<Person["enriched"]>),
+      region: "MA",
+      educations: [{ school: "Phillips Academy", degree: "High School Diploma" }],
+    },
+  };
+
+  const tags = allTags(local, TAX);
+  const home = tags.filter((t) => t.facet === "homestate").map((t) => t.label);
+  const current = tags.filter((t) => t.facet === "state").map((t) => t.label);
+
+  check("the home state survives", home, ["Massachusetts"]);
+  check("and so does the current one", current, ["Massachusetts"]);
+  check(
+    "which is what the graph groups on",
+    tags.find((t) => t.facet === "homestate")?.label ?? "Home unknown",
+    "Massachusetts"
+  );
+
+  /**
+   * And the dedupe still does its job where the labels really are one thing: a tag
+   * reached twice through two sources is still one tag.
+   */
+  const once = allTags(PERSON, TAX);
+  const seen = new Set<string>();
+  const doubled = once.filter((t) => {
+    const k = `${t.facet ?? t.kind}:${t.label.toLowerCase()}`;
+    if (seen.has(k)) return true;
+    seen.add(k);
+    return false;
+  });
+  check("nothing is listed twice", doubled.length, 0);
+}
+
+console.log("\na school the registry learns");
+{
+  /**
+   * A home state is only knowable through `TagDef.state`, which existed only on the
+   * schools seeded by hand — so eighteen people in a fifty-person roster named a high
+   * school and were still from nowhere. `makeTag` was the one door into the registry
+   * that could not set a state.
+   */
+  const learned = makeTag({
+    label: "Millard North High School",
+    facet: "highschool",
+    weight: 0,
+    promoted: false,
+    state: "Nebraska",
+  });
+  check("a learned school carries its state", learned.state, "Nebraska");
+  check("and scores nothing", learned.weight, 0);
+  check("and is not promoted", learned.promoted, false);
+
+  const reg: TagRegistry = { ...TAX.tags, [learned.id]: learned };
+  const person: Person = {
+    ...bare("nebraskan"),
+    enriched: {
+      ...(PERSON.enriched as NonNullable<Person["enriched"]>),
+      educations: [{ school: "Millard North High School", degree: "High School Diploma" }],
+    },
+  };
+  const tax = { ...TAX, tags: reg };
+
+  check(
+    "so a home state becomes knowable",
+    inferHomeState(person.enriched!, schoolStateLookup(tax)),
+    "Nebraska"
+  );
+
+  /**
+   * The two halves of zero weight, and the feature is exactly the gap between them:
+   * invisible to the scorer, visible to the graph.
+   */
+  check(
+    "the scorer ignores it",
+    matchedTerms(person, tax).some((t) => t.label === "Millard North High School"),
+    false
+  );
+  check(
+    "the graph still sees it",
+    allTags(person, tax).some((t) => t.label === "Millard North High School" && t.facet === "highschool"),
+    true
+  );
+}
+
+console.log("\nthe school spelling that was simply missing");
+{
+  /**
+   * "Phillips Academy" is the school's actual name and what two profiles say. It was
+   * seeded as "Phillips Andover" with aliases that did not include it, so it placed
+   * nobody — and it is the case that would otherwise have been *learned* as a second
+   * tag for the same school.
+   */
+  const ix = indexRegistry(TAX.tags);
+  check(
+    "it resolves to the school already there",
+    resolveTag(ix, { label: "Phillips Academy", facet: "highschool" }).kind,
+    "exact"
+  );
+  check(
+    "as Phillips Andover",
+    (() => {
+      const r = resolveTag(ix, { label: "Phillips Academy", facet: "highschool" });
+      return r.kind === "exact" ? r.def.label : "none";
+    })(),
+    "Phillips Andover"
+  );
+  check(
+    "carrying the state, so it places somebody",
+    (() => {
+      const r = resolveTag(ix, { label: "Phillips Academy", facet: "highschool" });
+      return r.kind === "exact" ? r.def.state : null;
+    })(),
+    "Massachusetts"
+  );
+
+  /**
+   * And the guard that keeps a learned school from becoming a twin. A machine should
+   * not be deciding that two school names are one school.
+   */
+  check(
+    "a near-miss on a seeded school is not new",
+    resolveTag(ix, { label: "Phillips Academie", facet: "highschool" }).kind !== "new",
+    true
+  );
+}
+
 console.log("\na photo supplied by hand");
 {
   /**

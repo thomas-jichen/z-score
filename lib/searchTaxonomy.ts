@@ -597,7 +597,13 @@ export const HIGH_SCHOOLS: Seed[] = [
   { label: "Brooklyn Tech", aliases: ["Brooklyn Technical High School"], state: "New York" },
   { label: "Hunter College High School", aliases: ["Hunter College HS"], state: "New York" },
   { label: "Phillips Exeter", aliases: ["Phillips Exeter Academy", "Exeter"], state: "New Hampshire" },
-  { label: "Phillips Andover", aliases: ["Phillips Academy Andover", "Andover"], state: "Massachusetts" },
+  // "Phillips Academy" is the school's actual name, and what two profiles in the
+  // roster say. It was the one spelling the aliases missed.
+  {
+    label: "Phillips Andover",
+    aliases: ["Phillips Academy Andover", "Phillips Academy", "Andover"],
+    state: "Massachusetts",
+  },
   { label: "Harker", aliases: ["The Harker School"], state: "California" },
   { label: "IMSA", aliases: ["Illinois Mathematics and Science Academy"], state: "Illinois" },
   { label: "Bergen County Academies", aliases: ["BCA"], state: "New Jersey" },
