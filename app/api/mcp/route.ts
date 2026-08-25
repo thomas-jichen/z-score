@@ -46,6 +46,7 @@ import { hydrate, mergeState, stateKey, type ProfileState } from "@/lib/state";
 import { get, set } from "@/lib/store";
 import { dominantSignals } from "@/lib/zscore";
 import { log } from "@/lib/log";
+import { tagFresh } from "@/lib/campaignTag";
 
 /**
  * The MCP server.
@@ -825,6 +826,30 @@ People the team deleted permanently are refused and counted, not silently droppe
       }
     );
 
+    /**
+     * Read the profiles this door just paid for.
+     *
+     * The other two doors already do this — the browser calls /api/tag when its job
+     * lands, the campaign calls `tagFresh` from its own tick — and this one did not,
+     * so anyone the agent enriched over MCP kept a structured-fields-only score: no
+     * discovered terms, no learned school, and therefore no home state and no college
+     * hub on the graph. `force`, because the profile text is the input and we have just
+     * replaced it.
+     *
+     * Failing here does not fail the enrichment. The profiles are applied and paid for
+     * by this point; tagging is the free part, and `taggedAt` stays unset on anyone it
+     * misses so a later pass picks them up.
+     */
+    async function readFresh(owner: ProfileId, slugs: string[], deadline: number): Promise<string> {
+      if (slugs.length === 0) return "";
+      const r = await tagFresh(owner, slugs, deadline, true).catch((e) => {
+        log.warn("mcp.enrich.tag.failed", { error: e instanceof Error ? e.message : "unknown" });
+        return { tagged: 0, note: "The profiles are saved, but reading them for new terms failed." };
+      });
+      const said = r.tagged > 0 ? ` Read ${r.tagged} for new terms.` : "";
+      return `${said}${r.note ? ` ${r.note}` : ""}`;
+    }
+
     /* 12 ────────────────────────────────────────────────────────────────── */
     server.registerTool(
       "enrich_people",
@@ -858,8 +883,12 @@ Enriching also fetches each person's neighbours, which is what queue_people's ne
           if (!job) return failed(`No run with id ${jobId}.`);
           const applied = await applyEnrichJob(job);
           if (applied.status === "done") {
+            // Not on a re-collect: those profiles were read the first time round.
+            const read = applied.alreadyApplied
+              ? ""
+              : await readFresh(owner, applied.newSlugs, Date.now() + 200_000);
             return reply(
-              `Applied ${applied.people.length} profiles${applied.alreadyApplied ? " (already applied earlier)" : ""}.`,
+              `Applied ${applied.people.length} profiles${applied.alreadyApplied ? " (already applied earlier)" : ""}.${read}`,
               { status: "done", jobId, applied: applied.people.length, slugs: applied.newSlugs }
             );
           }
@@ -925,8 +954,10 @@ Enriching also fetches each person's neighbours, which is what queue_people's ne
         }
 
         if (applied.status === "done") {
+          // What is left of the 300s the function is allowed, less slack to answer in.
+          const read = await readFresh(owner, applied.newSlugs, deadline + 120_000);
           return reply(
-            `Enriched ${applied.people.length} of ${targets.length}, $${(targets.length * (isMock() ? 0 : COST_PER_PROFILE)).toFixed(3)} spent.`,
+            `Enriched ${applied.people.length} of ${targets.length}, $${(targets.length * (isMock() ? 0 : COST_PER_PROFILE)).toFixed(3)} spent.${read}`,
             {
               status: "done",
               jobId: job.id,

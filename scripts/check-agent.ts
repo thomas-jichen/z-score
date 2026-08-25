@@ -40,13 +40,14 @@ import {
 import { tagFresh } from "../lib/campaignTag";
 import { sendDueDigests, sendPendingCampaignEmails } from "../lib/emailSend";
 import { adjudicateFresh } from "../lib/tagAdjudicate";
-import { MAX_UNVOUCHED, heldTags, unvouchedTags } from "../lib/tags";
+import { MAX_UNVOUCHED, heldTags, schoolStateLookup, unvouchedTags } from "../lib/tags";
 import type { Person } from "../lib/people";
 import { EMPTY_SELECTION, type Selection } from "../lib/query";
 import type { ProfileId } from "../lib/profiles";
 import { MAX_PROFILES_PER_RUN } from "../lib/apify";
 import { HOURLY_TAG_CAP, reserveTagging } from "../lib/ratelimit";
 import { hasGroq } from "../lib/groq";
+import { inferHomeState } from "../lib/extract";
 import { readRoster, readTeam, writePeople } from "../lib/serverState";
 import { TEAM_KEY } from "../lib/state";
 import { del, get, set } from "../lib/store";
@@ -104,6 +105,44 @@ let groqAnswerOnly: string[] | null = null;
 let groqRemainingTokens: string | null = null;
 let groqResetTokens = "250ms";
 
+/**
+ * What the stub says when asked to *read* a profile rather than to judge one.
+ *
+ * Label and evidence, both, because the evidence is the input to `groundedTerms` and
+ * the gate is what these tests are for: a term quoted from prose that only borrows the
+ * name has to be refused on every path into the roster, and while this stub could only
+ * answer adjudications, the campaign path had no way to be asked.
+ */
+let groqTerms: { label: string; evidence: string }[] = [];
+
+/** Answers for the school questions, keyed by the education row as written. */
+let groqSchools: Record<string, { kind: string; state: string | null; sure: boolean }> = {};
+
+/** Which question this request is, taken from the schema the caller demanded. */
+function groqShape(body: string | undefined): string {
+  return /"json_schema":\{"name":"([a-z_]+)"/.exec(body ?? "")?.[1] ?? "";
+}
+
+function groqJson(payload: unknown): Response {
+  return new Response(
+    JSON.stringify({
+      choices: [{ finish_reason: "stop", message: { content: JSON.stringify(payload) } }],
+    }),
+    {
+      status: 200,
+      headers: {
+        "content-type": "application/json",
+        ...(groqRemainingTokens === null
+          ? {}
+          : {
+              "x-ratelimit-remaining-tokens": groqRemainingTokens,
+              "x-ratelimit-reset-tokens": groqResetTokens,
+            }),
+      },
+    }
+  );
+}
+
 function groqReply(body: string | undefined): Response {
   if (groqFailures > 0) {
     groqFailures--;
@@ -111,6 +150,14 @@ function groqReply(body: string | undefined): Response {
       status: groqStatus,
       headers: groqRetryAfter === null ? {} : { "retry-after": groqRetryAfter },
     });
+  }
+
+  const shape = groqShape(body);
+  if (shape === "extracted_terms") return groqJson({ terms: groqTerms });
+  if (shape === "school") {
+    const asked = /Education entry: ([^"]+)"/.exec(body ?? "")?.[1] ?? "";
+    // Silence is "not a school", which is also the real model's safe answer.
+    return groqJson(groqSchools[asked] ?? { kind: "neither", state: null, sure: false });
   }
   // Answer about exactly the ids the prompt asked about, which is how the real
   // model behaves and what makes the hallucination guard meaningful.
@@ -253,7 +300,15 @@ async function freshStore() {
 }
 
 /** A search-only person with whatever prose a case needs. */
-function personWith(slug: string, over: { headline?: string; about?: string; snippet?: string }): Person {
+function personWith(
+  slug: string,
+  over: {
+    headline?: string;
+    about?: string;
+    snippet?: string;
+    educations?: { school: string; degree?: string; field?: string }[];
+  }
+): Person {
   return {
     slug,
     name: `Person ${slug}`,
@@ -263,18 +318,18 @@ function personWith(slug: string, over: { headline?: string; about?: string; sni
     addedAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
     searchLabels: [],
-    ...(over.about
+    ...(over.about || over.educations
       ? {
           enriched: {
             slug,
             name: `Person ${slug}`,
             headline: over.headline ?? "",
-            about: over.about,
+            about: over.about ?? "",
             url: "",
             honors: [],
             projects: [],
             volunteering: [],
-            educations: [],
+            educations: over.educations ?? [],
             experience: [],
             skills: [],
             certifications: [],
@@ -1135,6 +1190,120 @@ async function run() {
     checkThat("saying why", /tagger is off/.test(off.note ?? ""), off.note);
     if (savedKey) process.env.ZSCORE_GROQ_API_KEY = savedKey;
     if (savedAlt) process.env.GROQ_API_KEY = savedAlt;
+  }
+
+  /**
+   * The three doors have to agree.
+   *
+   * A profile reaches the roster through the browser, through a campaign advance, or
+   * through Claude over MCP, and for a while only the browser applied the rules: the
+   * campaign stored whatever the model said and learned nothing from it. So a
+   * correction shipped against the roster that happened to be there held for anyone a
+   * human tagged and lapsed for everyone the cron found afterwards — which, over a few
+   * weeks of overnight runs, is most of the roster.
+   */
+  console.log("\nthe campaign door applies the same rules as the browser door");
+  {
+    await freshStore();
+    process.env.ZSCORE_GROQ_API_KEY = "test-key";
+
+    const about =
+      "Software engineer at a startup founded by a Y Combinator Summer Fellow. " +
+      "Also ran the Clements Robotics Invitational.";
+    await writePeople([
+      personWith("cron-found", {
+        about,
+        educations: [{ school: "Clements High School", degree: "High School Diploma" }],
+      }),
+    ]);
+
+    groqTerms = [
+      // The exact shape of the bug: the accelerator's name, in a quote about
+      // somebody else's cheque.
+      { label: "Y Combinator", evidence: "founded by a Y Combinator Summer Fellow" },
+      // Nothing in the registry, so nothing to refuse it with. Kept, which is what
+      // makes the assertion above a gate rather than a wall.
+      { label: "Clements Robotics Invitational", evidence: "ran the Clements Robotics Invitational" },
+    ];
+    groqSchools = { "Clements High School": { kind: "highschool", state: "Texas", sure: true } };
+
+    calls = [];
+    const first = await tagFresh(OWNER, ["cron-found"], Date.now() + 30_000);
+    check("the campaign reads the profile", first.tagged, 1);
+
+    const stored = (await readRoster())["cron-found"];
+    const terms = stored.extractedTerms ?? [];
+    check(
+      "a borrowed accelerator name is refused here too",
+      terms.includes("Y Combinator"),
+      false
+    );
+    check("and the term it could not refuse is kept", terms.includes("Clements Robotics Invitational"), true);
+
+    // The school half. Zero weight is the whole design: it may become a hub and a
+    // home state without deciding that a high school is worth points.
+    const team = await readTeam();
+    const learned = Object.values(team.taxonomy.tags).find((t) => t.label === "Clements High School");
+    checkThat("the school it had never seen is now a tag", Boolean(learned), learned?.label);
+    check("at zero weight", learned?.weight, 0);
+    check("and unpromoted, so no score moved", learned?.promoted, false);
+    check(
+      "which is what gives the person a home state",
+      inferHomeState(stored.enriched!, schoolStateLookup(team.taxonomy)),
+      "Texas"
+    );
+
+    // What `taggedAt` is for, and what the MCP door needs past it.
+    calls = [];
+    const again = await tagFresh(OWNER, ["cron-found"], Date.now() + 30_000);
+    check("a second pass re-reads nobody", again.tagged, 0);
+    check("and pays for nothing", groqCalls(), 0);
+
+    calls = [];
+    const forced = await tagFresh(OWNER, ["cron-found"], Date.now() + 30_000, true);
+    check("unless the profile text was just replaced", forced.tagged, 1);
+    checkThat("which does reach the model", groqCalls() > 0, `${groqCalls()} calls`);
+
+    groqTerms = [];
+    groqSchools = {};
+  }
+
+  /**
+   * A school missed once is not missed forever.
+   *
+   * The rest of tagging is gated by `taggedAt`, which makes an unfinished pass free to
+   * abandon. Placing a school was not: it is paced by the Groq window and bounded by a
+   * deadline, so a tick that ran out of time dropped the names it had left — and their
+   * people were stamped as read, so nothing would ever look again. This is the case
+   * that catches it: somebody enriched and tagged before the school pass existed.
+   */
+  console.log("\na school nobody placed is picked up by the next pass");
+  {
+    await freshStore();
+    process.env.ZSCORE_GROQ_API_KEY = "test-key";
+
+    const older = personWith("read-last-week", {
+      about: "Robotics and math.",
+      educations: [{ school: "Ravenwood High School", degree: "High School Diploma" }],
+    });
+    await writePeople([
+      { ...older, taggedAt: new Date().toISOString() } as Person,
+      personWith("read-today", { about: "Studying computer science." }),
+    ]);
+
+    groqTerms = [];
+    groqSchools = { "Ravenwood High School": { kind: "highschool", state: "Tennessee", sure: true } };
+
+    const res = await tagFresh(OWNER, ["read-today"], Date.now() + 30_000);
+    check("only the untagged person is read", res.tagged, 1);
+
+    const team = await readTeam();
+    const found = Object.values(team.taxonomy.tags).find((t) => t.label === "Ravenwood High School");
+    checkThat("but the school pass looked at everyone", Boolean(found), "not placed");
+    check("and placed it with its state", found?.state, "Tennessee");
+    checkThat("saying so in the note", /Placed 1 school/.test(res.note ?? ""), res.note);
+
+    groqSchools = {};
   }
 
   console.log("\nadjudication asks only about what the rules could not settle");

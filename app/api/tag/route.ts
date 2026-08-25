@@ -12,7 +12,7 @@ import { isHighSchool } from "@/lib/enrichment";
 import type { ProfileId } from "@/lib/profiles";
 import { migrateIfNeeded, readRoster, readTeam, writePeople } from "@/lib/serverState";
 import { groundedTerms, unmatchedTerms, vocabulary } from "@/lib/tags";
-import { autoSchools } from "@/lib/schools";
+import { learnFrom } from "@/lib/schools";
 import { aliasesToLearn, withPromoted, worthPromoting } from "@/lib/team";
 import { TEAM_KEY, type TeamState } from "@/lib/state";
 import { set } from "@/lib/store";
@@ -171,34 +171,18 @@ export async function POST(req: Request) {
      * what the queue is for.
      */
     /**
-     * First, write down the spellings the registry can already read.
-     *
-     * Before auto-promotion, because an alias learned here can be the reason a term
-     * in the same batch stops looking new. Free and unmetered — no model call, and an
-     * alias cannot invent a score, it can only make a match the scorer was already
-     * making an exact one.
+     * What the app learns on its own: spellings it can already read, and the schools
+     * nobody had seeded. Shared with the campaign and MCP paths, because a correction
+     * that only happens when a human is watching is a correction of one batch.
      */
-    const learned = await autoAlias(updated).catch((e) => {
-      log.warn("tag.autoalias.failed", { error: e instanceof Error ? e.message : "unknown" });
-      return 0;
-    });
+    const { aliases: learned, schools: placed } = await learnFrom(
+      updated,
+      r.profile,
+      Date.now() + 60_000
+    );
 
-    /**
-     * Then place the schools nobody had seeded.
-     *
-     * A home state is only knowable through `TagDef.state`, which until now existed
-     * only on the fifty-odd schools seeded by hand — so eighteen people in this roster
-     * named a high school and were still from nowhere. Same shape of gap on the other
-     * side: a college the registry has never heard of resolves to no tag, so it can
-     * never be a hub on the graph however many people share it.
-     */
-    const placed = await autoSchools(updated, r.profile, Date.now() + 60_000).catch((e) => {
-      log.warn("tag.autoschools.failed", { error: e instanceof Error ? e.message : "unknown" });
-      return 0;
-    });
-
-    // Re-read if either earlier step wrote the taxonomy, since a learned alias or a
-    // newly placed school can be the reason a term stops looking new.
+    // Re-read if either step wrote the taxonomy, since a learned alias or a newly
+    // placed school can be the reason a term stops looking new.
     const before = learned > 0 || placed > 0 ? await readTeam() : team;
     const promoted = await autoPromote(updated, before).catch((e) => {
       // Best effort, always. The people are already written; a rate limit or a bad
@@ -267,23 +251,6 @@ export async function GET() {
 const MAX_AUTO_PROMOTE = 8;
 
 /**
- * Teach the registry a spelling of a tag it already has.
- *
- * The review queue used to offer "Research Science Institute (RSI)" while RSI was
- * being awarded to the same six people, because deciding "unmatched" asked whether
- * the whole string was a key and the scorer asked whether any window inside it was.
- * `coverageOf` reconciles the two, and every term it calls `exact` is a name the
- * registry can read but has not written down.
- *
- * Writing it down is worth doing rather than merely hiding the row: an alias also
- * lets the tagger's own terms and the search chips resolve, which are two award paths
- * that only ever did exact lookups. And it is the safest write in the app — `addAlias`
- * cannot change a weight, cannot create an entry, and declines a key that is already
- * the id or already present, so running twice is running once.
- */
-const MAX_AUTO_ALIAS = 24;
-
-/**
  * The stored terms, plus what this run found, minus what it refused.
  *
  * Compared through `normalizeKey` so a refusal lands on the spelling that is stored
@@ -296,31 +263,6 @@ function mergeTerms(
 ): string[] {
   const refused = new Set(dropped.map((d) => normalizeKey(d.label)));
   return [...new Set([...(stored ?? []), ...kept])].filter((l) => !refused.has(normalizeKey(l)));
-}
-
-async function autoAlias(people: Person[]): Promise<number> {
-  const fresh = await readTeam();
-  const exact = unmatchedTerms(people, fresh.taxonomy).filter((u) => u.covered?.exact);
-  if (exact.length === 0) return 0;
-
-  const take = aliasesToLearn(exact, fresh.taxonomy.tags, MAX_AUTO_ALIAS);
-  if (take.length === 0) return 0;
-
-  let tags = fresh.taxonomy.tags;
-  for (const a of take) tags = addAlias(tags, a.id, a.label);
-  // `addAlias` vets the key as well, so a row can survive the decision above and
-  // still be declined. Nothing written means nothing to say.
-  if (tags === fresh.taxonomy.tags) return 0;
-
-  await set(TEAM_KEY, { ...fresh, taxonomy: { ...fresh.taxonomy, tags } });
-
-  // Said out loud rather than truncated in silence: a capped sweep that reports the
-  // full count reads as "covered everything" when it did not.
-  log.info("tag.autoalias", {
-    learned: take.length,
-    dropped: exact.length - take.length,
-  });
-  return take.length;
 }
 
 async function autoPromote(people: Person[], team: TeamState): Promise<string[]> {
