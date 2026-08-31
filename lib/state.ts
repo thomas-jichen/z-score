@@ -564,8 +564,13 @@ export const SEED_VERSION = 6;
  *
  * Only touches tags the seed lists own, and only their weight and cluster — a tag
  * the team created, and anything the team added to a seeded tag, is left exactly as
- * it is. Guarded by the version so it cannot run twice and cannot creep into being a
- * rule that quietly overwrites tuning whenever a seed changes.
+ * it is. Guarded by the version so it cannot run twice.
+ *
+ * And it skips anything marked `tuned`, because the guard above was not enough: a
+ * bump is once per version, but there had been two in a week, and one of them was a
+ * version line in a commit about the graph. Every hand-set weight and cluster in the
+ * document went back to the table both times, silently, which is exactly the "rule
+ * that quietly overwrites tuning" this comment used to claim it was not.
  */
 const behindSeeds = (tax: Partial<TaxonomyPrefs>) => (tax.seedVersion ?? 1) < SEED_VERSION;
 
@@ -584,6 +589,10 @@ function adoptSeedWeights(tags: TagRegistry): TagRegistry {
       }
       continue;
     }
+    // Tuned by hand, so the table does not get to overrule it. Below the retirement
+    // branch on purpose: withdrawing a name is a decision about the vocabulary and
+    // outranks any pricing anyone gave it.
+    if (def.tuned) continue;
     const seed = seeded[id];
     if (!seed) continue;
     if (def.weight === seed.weight && (def.cluster ?? null) === (seed.cluster ?? null)) continue;

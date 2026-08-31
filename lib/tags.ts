@@ -634,13 +634,29 @@ export function heldTags(p: Person, tax: TaxonomyPrefs): HeldTag[] {
    * back as "STS" — so a credential frequently appears nowhere verbatim in the
    * text. Matching on text alone would mean switching a tag on, watching nothing
    * happen, and having no way to tell why.
+   *
+   * ── Held to the same facets as step 2, and for the same reason ─────────────
+   * The rule above is stated and then broken three lines later: `proseTags` refuses
+   * to read a company out of words, and this loop resolved *any* facet, so the
+   * tagger could do what the scanner is forbidden to. It did. A profile whose NASA
+   * role read "ML for asteroid & black hole discoveries (AAS, ISEF, Jane Street)"
+   * came back holding Jane Street — a 1.4 company tag, five connections on the
+   * graph, and a Quant label on a researcher. The venue of a result is not an
+   * employer, and a structured field is where an employer comes from.
+   *
+   * `manualTerms` is exempt on purpose. A person typing a name is stating a fact
+   * they know; the tagger is guessing from prose. That difference is the line
+   * everywhere else in this app, and it is the line here.
    */
+  const fromTagger = new Set((p.extractedTerms ?? []).map((l) => l.toLowerCase()));
   for (const label of [...(p.extractedTerms ?? []), ...(p.manualTerms ?? [])]) {
     const def = resolveAny(index, label);
+    if (!def) continue;
+    if (fromTagger.has(label.toLowerCase()) && !TEXT_FACETS.has(def.facet)) continue;
     // The term itself is where a tier is stated most plainly: the tagger returns
     // "USABO Semifinalist" and "Neo Scholar Finalist" verbatim, and `normalizeKey`
     // is about to delete exactly the word that distinguishes them.
-    if (def) take(def, "extracted", { ...(readTier(label) ? { tier: readTier(label) } : {}) });
+    take(def, "extracted", { ...(readTier(label) ? { tier: readTier(label) } : {}) });
   }
 
   /**
@@ -950,6 +966,16 @@ function refuse(def: TagDef, evidence: string): string | null {
 
   // Never read from words at all, and the tagger reads nothing else.
   if (policy === "structured") return "structured-only";
+
+  /**
+   * Only a programme or an accelerator may be named in prose.
+   *
+   * `heldTags` enforces this too, which is what fixes a roster already carrying one
+   * of these. Refusing it here as well is what stops it being *stored*: an honest
+   * record of what the tagger found should not contain a company it inferred from a
+   * sentence, and leaving it in means filtering it out on every read forever.
+   */
+  if (!TEXT_FACETS.has(def.facet)) return "not readable from prose";
 
   if (def.facet === "accelerator" && BORROWED_NAME.test(evidence)) return "borrowed name";
 

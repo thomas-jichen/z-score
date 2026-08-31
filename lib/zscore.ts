@@ -83,7 +83,7 @@ export type Candidate = {
   school?: string;
   graduation_year?: string;
 
-  /** Primary cluster: the single highest-weighted matched term wins. */
+  /** Primary cluster: the one the person has the most points in. */
   archetype: Archetype;
   /** Reaching `taxonomy.polymathPoints` in two or more clusters. A badge. */
   polymath: boolean;

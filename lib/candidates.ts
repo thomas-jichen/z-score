@@ -3,6 +3,7 @@ import {
   ARCHETYPES,
   FOUNDER_WORDS,
   assignCluster,
+  clusterPoints,
   clusterFromText,
   round,
 } from "./clusters";
@@ -117,17 +118,13 @@ export function scoreOne(p: Person, tax: TaxonomyPrefs): Candidate {
 
   const score = round(terms.reduce((sum, t) => sum + t.weight, 0));
 
-  // Points per cluster: the same sum, restricted to the terms that vote for it.
-  // A term with no cluster still counts toward the total, it just casts no vote.
-  const cluster_scores: Partial<Record<Archetype, number>> = {};
-  for (const t of terms) {
-    if (!t.cluster) continue;
-    cluster_scores[t.cluster] = round((cluster_scores[t.cluster] ?? 0) + t.weight);
-  }
+  // Points per cluster, from the same definition `assignCluster` decides on, so the
+  // label and the number beside it cannot disagree.
+  const cluster_scores = clusterPoints(terms);
 
-  // Primary: highest-weighted matched term wins. Manual override beats it, and
-  // a text heuristic catches people with no taxonomy term at all — which is
-  // most of the population this tool exists to find.
+  // Primary: the cluster with the most points. Manual override beats it, and a
+  // text heuristic catches people with no taxonomy term at all — which is most of
+  // the population this tool exists to find.
   const computed =
     assignCluster(terms) ??
     clusterFromText(textOf(p), (p.enriched?.projects.length ?? 0) > 0) ??
@@ -136,9 +133,11 @@ export function scoreOne(p: Person, tax: TaxonomyPrefs): Candidate {
 
   // Was "clears +0.5σ in two clusters". Now a point threshold, from the taxonomy,
   // because there is no sigma left to clear.
-  const cleared = ARCHETYPES.map((a) => a.id).filter(
-    (c) => (cluster_scores[c] ?? 0) >= tax.polymathPoints
-  );
+  // Strongest first. It was in declaration order, so the badge could name a 0.3
+  // secondary ahead of a 5.2 one and say nothing about which was which.
+  const cleared = ARCHETYPES.map((a) => a.id)
+    .filter((c) => (cluster_scores[c] ?? 0) >= tax.polymathPoints)
+    .sort((a, b) => (cluster_scores[b] ?? 0) - (cluster_scores[a] ?? 0));
   const polymath = cleared.length >= 2;
 
   const signals: Signal[] = terms.map((t, i) => ({

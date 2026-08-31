@@ -878,11 +878,31 @@ function boundary(n: GraphNode, ux: number, uy: number): number {
 }
 
 /**
+ * How many connections are a first view. The rest are one tap away.
+ *
+ * `graph.connections` is the whole answer and always has been — `buildGraph` caps
+ * the leads strip on the line above it and deliberately does not cap this. So the
+ * window is a reading decision, not a data one, which is why it can simply open.
+ */
+const CONN_WINDOW = 8;
+
+/**
  * Who this person is connected to, and why.
  *
  * Independent of the draw mode on purpose: in Hubs mode the person-to-person edges
  * are not on the canvas, but the question does not stop being worth answering
  * because of how the picture is arranged.
+ *
+ * ── The overflow is a button ──────────────────────────────────────────────
+ * It printed "and 19 more" as a sentence, which is the graph's own version of a bug
+ * the taxonomy screen already fixed: the count told you an answer existed and gave
+ * you no way to read it. On this roster thirty-five of fifty-eight people are past
+ * the window and the largest has twenty-four connections, so the unreachable part
+ * was the majority of the answer for most of the queue.
+ *
+ * Expanding stays expanded as you walk the graph. Clicking a name re-points the
+ * panel at that person, and collapsing under the click would mean re-opening it at
+ * every hop.
  */
 function Connections({
   links,
@@ -893,6 +913,8 @@ function Connections({
   roster: Record<string, { name?: string } | undefined>;
   onFocus: (slug: string) => void;
 }) {
+  const [all, setAll] = useState(false);
+
   if (links.length === 0) {
     return (
       <p className="z-micro" style={{ marginTop: "var(--z-space-4)" }}>
@@ -900,21 +922,38 @@ function Connections({
       </p>
     );
   }
+
+  const rest = links.length - CONN_WINDOW;
   return (
     <div className="z-stack" style={{ gap: 0, marginTop: "var(--z-space-4)" }}>
       <span className="z-label is-quiet" style={{ marginBottom: 4 }}>
         Connected to
       </span>
-      {links.slice(0, 8).map((l) => (
-        <button key={l.slug} className="z-conn" onClick={() => onFocus(l.slug)}>
-          <span className="z-conn-name">{roster[l.slug]?.name ?? l.slug}</span>
-          <span className="z-conn-why">{l.reasons.slice(0, 3).join(", ")}</span>
+      {/* Their own box, so `.z-conn:last-of-type` still means the last row. It
+          matches by element type, so a sibling button would steal it and leave a
+          divider hanging under the list. */}
+      <div className="z-stack" style={{ gap: 0 }}>
+        {(all ? links : links.slice(0, CONN_WINDOW)).map((l) => (
+          <button key={l.slug} className="z-conn" onClick={() => onFocus(l.slug)}>
+            <span className="z-conn-name">{roster[l.slug]?.name ?? l.slug}</span>
+            {/* Three is enough to read at a glance and the reasons are rarest-first,
+                so the top three are the ones that mean something. Opened, it says
+                everything: on this roster the most any pair shares is four. */}
+            <span className="z-conn-why">
+              {(all ? l.reasons : l.reasons.slice(0, 3)).join(", ")}
+            </span>
+          </button>
+        ))}
+      </div>
+      {rest > 0 && (
+        <button
+          className="z-linkish"
+          style={{ marginTop: "var(--z-space-3)" }}
+          aria-expanded={all}
+          onClick={() => setAll(!all)}
+        >
+          {all ? "Show less" : `${rest} more ${rest === 1 ? "person" : "people"}`}
         </button>
-      ))}
-      {links.length > 8 && (
-        <span className="z-micro" style={{ marginTop: 4 }}>
-          and {links.length - 8} more
-        </span>
       )}
     </div>
   );

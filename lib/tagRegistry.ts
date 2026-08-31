@@ -188,6 +188,20 @@ export type TagDef = {
    * and says nothing about how it went.
    */
   tiers?: Partial<Record<Tier, number>>;
+  /**
+   * A human set this weight or cluster, so a seed recalibration must leave it alone.
+   *
+   * `adoptSeedWeights` re-syncs every seeded tag to the source table when
+   * `SEED_VERSION` moves, and it overwrote hand-tuning silently — twice in one week,
+   * once as the only change in a commit about something else entirely. A weight
+   * somebody chose on the taxonomy screen is a decision, and a table in the source
+   * does not get to quietly revert it.
+   *
+   * Only weight and cluster, because those are the only two fields the adoption
+   * touches. Retiring a name from the vocabulary still overrides this: that is a
+   * decision about what the vocabulary contains, not about how it is priced.
+   */
+  tuned?: true;
 };
 
 export type TagRegistry = Record<string, TagDef>;

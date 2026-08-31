@@ -893,6 +893,70 @@ console.log("\nhydrateTeam — a stored registry keeps up with the seed lists");
   check("and is marked so it only happens once", stale.taxonomy.seedVersion, SEED_VERSION);
 
   /**
+   * Once per version was not enough of a guard.
+   *
+   * There were two bumps in a week, and one of them was a version line in a commit
+   * about the graph — so every hand-set weight and cluster in the document went back
+   * to the table twice, silently, and a person's label moved with it. The version
+   * still decides *when* the recalibration runs; `tuned` decides which rows it is
+   * allowed to touch.
+   */
+  // The cluster is deliberately not the seed's, or the assertion below passes
+  // whether the guard is there or not.
+  const tunedDoc = (seedVersion?: number): Partial<TaxonomyPrefs> => {
+    const base = handTuned(seedVersion);
+    return {
+      ...base,
+      tags: {
+        "jane-street": { ...base.tags!["jane-street"], cluster: "research", tuned: true },
+      },
+    };
+  };
+  check("a bump does not overwrite a tuned weight", weightAfterRead(tunedDoc(undefined)), 1.9);
+  check(
+    "and the flag survives a save, or it protects one read only",
+    cleanTaxonomy(tunedDoc(SEED_VERSION)).tags["jane-street"].tuned,
+    true
+  );
+  check(
+    "a tuned cluster is kept too",
+    hydrateTeam({ taxonomy: tunedDoc(undefined) } as Parameters<typeof hydrateTeam>[0]).taxonomy.tags[
+      "jane-street"
+    ].cluster,
+    "research"
+  );
+
+  /**
+   * Retiring still wins. Withdrawing a name is a decision about what the vocabulary
+   * contains; tuning is a decision about how it is priced, and the narrower claim
+   * does not get to override the wider one.
+   */
+  {
+    const retiredId = tagId("PennApps", "program");
+    const doc: Partial<TaxonomyPrefs> = {
+      ...emptyTeam().taxonomy,
+      seedVersion: undefined,
+      tags: {
+        [retiredId]: {
+          id: retiredId,
+          label: "PennApps",
+          facet: "program",
+          aliases: [],
+          weight: 1.9,
+          cluster: "builder",
+          promoted: true,
+          tuned: true,
+        },
+      },
+    };
+    const after = hydrateTeam({ taxonomy: doc } as Parameters<typeof hydrateTeam>[0]).taxonomy.tags[
+      retiredId
+    ];
+    check("a retired tag is switched off even when tuned", after.weight, 0);
+    check("and unpromoted with it", after.promoted, false);
+  }
+
+  /**
    * Un-dismissing a seeded term has to stick.
    *
    * `LOW_SIGNAL` was unioned into `dismissed` on *every* read, so pressing × wrote a
@@ -1897,6 +1961,37 @@ console.log("\nthe tagger obeys the rules the scanner obeys");
     groundedTerms([{ label: "Brylo", evidence: "Co-founder at Brylo" }], TAX).kept,
     ["Brylo"]
   );
+
+  /**
+   * A company is not readable from prose, and the tagger's words are prose.
+   *
+   * The whole point of the gate, one facet further. A NASA role reading "ML for
+   * high-frequency asteroid & black hole discoveries (AAS, ISEF, Jane Street)" came
+   * back with Jane Street as a term, and it resolved to the *firm* — a 1.4 company
+   * tag, five invented connections on the graph, and a Quant label on a researcher
+   * whose research points were double his quant ones. The venue where a result was
+   * recognised is not an employer.
+   */
+  check(
+    "a company named in prose is refused",
+    groundedTerms(
+      [{ label: "Jane Street", evidence: "asteroid & black hole discoveries (AAS, ISEF, Jane Street)" }],
+      TAX
+    ).dropped[0]?.why,
+    "not readable from prose"
+  );
+  check(
+    "and so is a school",
+    groundedTerms([{ label: "Stanford", evidence: "collaborated with a Stanford lab" }], TAX).dropped[0]
+      ?.why,
+    "not readable from prose"
+  );
+  // The two facets the tagger is actually asked for still pass.
+  check(
+    "a programme still passes",
+    groundedTerms([{ label: "RSI", evidence: "RSI Scholar, 2025" }], TAX).kept,
+    ["RSI"]
+  );
 }
 
 console.log("\na fellowship is not a cheque");
@@ -2059,6 +2154,51 @@ console.log("\npromoting a term actually makes it score");
   // A term already found in the text must not be counted a second time.
   const both: Person = { ...bare("both", ["RSI"]), extractedTerms: ["RSI"] };
   check("a term in both text and tags counts once", scoreOne(both, TAX).signals.filter((s) => s.label === "RSI").length, 1);
+
+  /**
+   * What the tagger may name, and what only a person may.
+   *
+   * `heldTags` states the rule at step 2 — a company or a school is known exactly
+   * from a structured field, and string-matching one out of words would make
+   * "interned at a Google-backed startup" a Google role — and then step 3 resolved
+   * any facet at all. So the model could award what the scanner is bolted shut
+   * against, and it did: a NASA role reading "(AAS, ISEF, Jane Street)" gave someone
+   * the Jane Street firm at 1.4, five invented graph edges, and a Quant label over a
+   * research total twice the size.
+   *
+   * `manualTerms` stays exempt. Somebody typing a name is stating a fact they know;
+   * the tagger is inferring one from a sentence. This is the same line the app draws
+   * everywhere else — a human may promote a tag, the agent may not.
+   */
+  const prose: Person = { ...bare("prose"), extractedTerms: ["Jane Street"] };
+  check(
+    "a company the tagger read out of prose is not held",
+    scoreOne(prose, TAX).signals.some((sg) => sg.label === "Jane Street"),
+    false
+  );
+  const stated: Person = { ...bare("stated"), manualTerms: ["Jane Street"] };
+  check(
+    "the same name typed by a person is",
+    scoreOne(stated, TAX).signals.some((sg) => sg.label === "Jane Street"),
+    true
+  );
+  // Still held from the field it belongs in, which is why refusing the prose copy
+  // loses nothing real.
+  const employed: Person = { ...bare("employed"), extractedTerms: ["Jane Street"] };
+  employed.enriched!.experience = [{ title: "Intern", company: "Jane Street" }];
+  check(
+    "and working there still counts, from the structured row",
+    scoreOne(employed, TAX).signals.some((sg) => sg.label === "Jane Street"),
+    true
+  );
+  // The two facets the tagger is asked for are untouched.
+  const programme: Person = { ...bare("programme"), extractedTerms: ["RSI", "Y Combinator"] };
+  check(
+    "a programme and an accelerator still come through",
+    scoreOne(programme, TAX).signals.filter((sg) => sg.label === "RSI" || sg.label === "Y Combinator")
+      .length,
+    2
+  );
 }
 
 // ── Scoring: fixed calibration ───────────────────────────────────────────
@@ -3515,7 +3655,7 @@ console.log("\nthe score does not depend on who else is in the pool");
   check("a lone candidate gets a real score, not zero", alone !== 0, true);
 }
 
-console.log("\ncluster assignment — highest weight wins");
+console.log("\ncluster assignment — the cluster with the most points wins");
 {
   check(
     "the heavier term decides",
@@ -3551,11 +3691,96 @@ console.log("\ncluster assignment — highest weight wins");
   );
   check("nothing to go on returns null", assignCluster([]), null);
 
+  /**
+   * The case that made the rule wrong.
+   *
+   * A researcher with 2.7 research points and 1.4 quant read as Quant: one 1.4
+   * research term tied one 1.4 quant term, and the tie-break gave it to quant
+   * because quant is first in the list. The detail panel then printed an archetype
+   * score of 1.4 next to Research 2.7 filed as a secondary — the label and the
+   * number beside it disagreeing about the same person.
+   */
+  check(
+    "several smaller terms outweigh one heavier one",
+    assignCluster([
+      { label: "ISEF Grand Award", weight: 1.4, cluster: "research" },
+      { label: "Jane Street", weight: 1.4, cluster: "quant" },
+      { label: "ISEF", weight: 0.7, cluster: "research" },
+      { label: "2 publications", weight: 0.6, cluster: "research" },
+    ]),
+    "research"
+  );
+  check(
+    "and a single heaviest term does not carry it on its own",
+    assignCluster([
+      { label: "Z Fellow", weight: 2.0, cluster: "founder" },
+      { label: "RSI", weight: 1.6, cluster: "research" },
+      { label: "MIT PRIMES", weight: 1.4, cluster: "research" },
+    ]),
+    "research"
+  );
+  // Equal totals: the strongest single statement anyone has made decides.
+  check(
+    "an equal total falls through to the heaviest term",
+    assignCluster([
+      { label: "Y Combinator", weight: 2.0, cluster: "founder" },
+      { label: "RSI", weight: 1.2, cluster: "research" },
+      { label: "STS", weight: 0.8, cluster: "research" },
+    ]),
+    "founder"
+  );
+  // Equal on both, and only then does the fixed order speak.
+  check(
+    "equal on both falls through to the fixed order",
+    assignCluster([
+      { label: "A", weight: 1.0, cluster: "operator" },
+      { label: "B", weight: 0.5, cluster: "operator" },
+      { label: "C", weight: 1.0, cluster: "quant" },
+      { label: "D", weight: 0.5, cluster: "quant" },
+    ]),
+    "quant"
+  );
+  // A cluster nobody votes for is not a cluster with zero points.
+  check(
+    "one voting term still decides",
+    assignCluster([
+      { label: "Stanford", weight: 0.8, cluster: null },
+      { label: "SSP", weight: 0.3, cluster: "research" },
+    ]),
+    "research"
+  );
+
   // The case that motivated the whole mechanic.
   const iorsi = scoreOne(bare("iorsi", ["IOI", "RSI"]), TAX);
   check("IOI + RSI is primarily Olympiad", iorsi.archetype, "quant");
   check("and carries the Polymath badge", iorsi.polymath, true);
   check("with Research as the secondary", iorsi.secondary_archetypes, ["research"]);
+
+  /**
+   * Secondaries, strongest first.
+   *
+   * They came out in declaration order, so the badge could name a 0.3 cluster ahead
+   * of a 5.2 one and say nothing about which was which.
+   */
+  {
+    // Chosen so declaration order and points order disagree: `ARCHETYPES` lists
+    // quant before founder, and here quant is the weakest cluster on the person.
+    const wide = scoreOne(bare("wide", ["RSI", "MIT PRIMES", "Y Combinator", "USAPhO"]), {
+      ...TAX,
+      polymathPoints: 0.4,
+    });
+    check("research 3.0 leads", wide.archetype, "research");
+    check(
+      "and the secondaries read strongest first",
+      wide.secondary_archetypes,
+      ["founder", "quant"]
+    );
+    check(
+      "with the primary not among them",
+      wide.secondary_archetypes.includes(wide.archetype),
+      false
+    );
+  }
 
   // Reweighting the taxonomy genuinely reassigns people, which is the point of
   // the sliders on that screen.

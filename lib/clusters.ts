@@ -472,37 +472,89 @@ export function round(n: number): number {
   return Math.round(n * 1000) / 1000;
 }
 
-/**
- * Primary cluster: the single highest-weighted matched term wins.
- *
- * Deliberately not "the cluster where their own z is highest", which would ask
- * which population they are more exceptional within. Highest-weight-wins is
- * simpler and predictable: drag RSI above IOI on the taxonomy screen and an
- * IOI+RSI person becomes Research. The taxonomy is the model.
- *
- * Per-cluster z is computed anyway for the badge, so switching to
- * highest-z-wins later is a change to this function alone.
- */
-export function assignCluster(
-  terms: { label: string; weight: number; cluster: Archetype | null }[]
-): Archetype | null {
-  let best: { cluster: Archetype; weight: number } | null = null;
+type Voter = { label: string; weight: number; cluster: Archetype | null };
 
+/**
+ * Points per cluster: the score, restricted to the terms that vote for each one.
+ *
+ * A term with no cluster still counts toward the total score, it just casts no
+ * vote — a company, a school and a state say nothing about what kind of person
+ * somebody is. Shared with `scoreOne`, which needs the same object for the badge,
+ * so there is one definition of what a cluster's points are.
+ */
+export function clusterPoints(terms: Voter[]): Partial<Record<Archetype, number>> {
+  const out: Partial<Record<Archetype, number>> = {};
   for (const t of terms) {
     if (!t.cluster) continue;
-    if (!best || t.weight > best.weight) {
-      best = { cluster: t.cluster, weight: t.weight };
-      continue;
-    }
-    // Equal weight: fixed order decides, so the label is stable.
-    if (t.weight === best.weight) {
-      const a = CLUSTER_ORDER.indexOf(t.cluster);
-      const b = CLUSTER_ORDER.indexOf(best.cluster);
-      if (a !== -1 && (b === -1 || a < b)) best = { cluster: t.cluster, weight: t.weight };
-    }
+    out[t.cluster] = round((out[t.cluster] ?? 0) + t.weight);
+  }
+  return out;
+}
+
+/**
+ * Primary cluster: the one with the most points.
+ *
+ * ── Why not the single heaviest term ──────────────────────────────────────
+ * That is what this did, and it produced a label that contradicted the panel it
+ * was printed in. A researcher with 2.7 research points and 1.4 quant read as
+ * Quant, because one 1.4 research term tied one 1.4 quant term and the tie-break
+ * below is alphabetical in spirit: quant is first in the list, so quant always won.
+ * The detail screen then showed an archetype score of 1.4 beside Research 2.7
+ * listed as a *secondary*. Two numbers, in the same box, disagreeing.
+ *
+ * Totals are also the question people actually ask. "I have more points in
+ * research" is the obvious reading of a screen that shows points per cluster, and
+ * a rule that means something else has to be read in the source to be believed.
+ *
+ * ── The two tie-breaks, in order ──────────────────────────────────────────
+ * Equal totals go to whoever has the heaviest single term, because that is the
+ * strongest single statement anyone has made about the person — a 2.0 accelerator
+ * cheque is somebody acting on their judgement, not offering an opinion. Still
+ * equal, and `CLUSTER_ORDER` decides, which is what keeps a label from flickering
+ * between two renders of the same data.
+ *
+ * Deliberately still not "the cluster where their own z is highest", which would
+ * ask which population they are more exceptional within. This is predictable: drag
+ * a weight on the taxonomy screen and you can see which way a label will move.
+ */
+export function assignCluster(terms: Voter[]): Archetype | null {
+  const points = clusterPoints(terms);
+
+  /** The heaviest single term each cluster has, for the first tie-break. */
+  const peak: Partial<Record<Archetype, number>> = {};
+  for (const t of terms) {
+    if (!t.cluster) continue;
+    if (t.weight > (peak[t.cluster] ?? -Infinity)) peak[t.cluster] = t.weight;
   }
 
-  return best?.cluster ?? null;
+  let best: Archetype | null = null;
+  for (const [cluster, total] of Object.entries(points) as [Archetype, number][]) {
+    if (best === null) {
+      best = cluster;
+      continue;
+    }
+    const mine = total;
+    const theirs = points[best] ?? 0;
+    if (mine > theirs) {
+      best = cluster;
+      continue;
+    }
+    if (mine < theirs) continue;
+
+    const myPeak = peak[cluster] ?? 0;
+    const theirPeak = peak[best] ?? 0;
+    if (myPeak > theirPeak) {
+      best = cluster;
+      continue;
+    }
+    if (myPeak < theirPeak) continue;
+
+    const a = CLUSTER_ORDER.indexOf(cluster);
+    const b = CLUSTER_ORDER.indexOf(best);
+    if (a !== -1 && (b === -1 || a < b)) best = cluster;
+  }
+
+  return best;
 }
 
 /** Headline words that indicate building rather than credentialling. */

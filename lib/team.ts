@@ -130,6 +130,9 @@ export function cleanTaxonomy(raw: Partial<TaxonomyPrefs>): TaxonomyPrefs {
       // The tier ladder, keys and values both checked. Dropping it on save would
       // have re-flattened every rung the moment anyone touched a slider.
       ...(cleanTiers(def.tiers) ?? {}),
+      // Whether a human chose this weight. Dropping it here would hand the row back
+      // to the next seed recalibration, which is the whole thing the flag prevents.
+      ...(def.tuned === true ? { tuned: true as const } : {}),
       promoted: def.promoted === true,
     };
   }

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useApp } from "@/components/AppState";
 import { ARCHETYPES, archetypeLabel, type Archetype } from "@/lib/zscore";
 import { DEFAULT_WEIGHT } from "@/lib/clusters";
@@ -82,7 +82,16 @@ export default function TaxonomyPage() {
   const [adding, setAdding] = useState(false);
   const [newTerm, setNewTerm] = useState("");
   const [query, setQuery] = useState("");
-  const [facet, setFacet] = useState<TagFacet | "all">("all");
+  /**
+   * Programmes, until asked otherwise.
+   *
+   * There was an All tab and it was never the right first view: four hundred rows
+   * in one scroll is a list nobody reads to the end, and the rail is how anyone
+   * actually uses this screen. Programmes lead because they are first in
+   * `TAG_FACETS`, carry the heaviest seeded weights, and are what this screen
+   * exists to tune. `TagList` moves off it if it turns out to be empty.
+   */
+  const [facet, setFacet] = useState<TagFacet>("program");
   /**
    * Held, until asked otherwise.
    *
@@ -621,7 +630,9 @@ export default function TaxonomyPage() {
  * The accordion allowed one section at a time, which made comparing a company
  * weight against a programme weight impossible without two clicks and a memory —
  * and the two numbers being on one scale is the entire point of the model. The
- * facet rail narrows the same list rather than hiding the rest of it.
+ * facet rail is how you move between them: one section at a time, with every other
+ * section's size on the pill beside it, so the shape of the vocabulary is visible
+ * without scrolling through it.
  */
 function TagList({
   registry,
@@ -637,11 +648,11 @@ function TagList({
   registry: TagRegistry;
   holders: Map<string, number>;
   query: string;
-  facet: TagFacet | "all";
+  facet: TagFacet;
   scope: Scope;
   /** Holders are counted from the roster, so before it arrives nothing is held. */
   loading: boolean;
-  onFacet: (f: TagFacet | "all") => void;
+  onFacet: (f: TagFacet) => void;
   onPatch: (tags: TagRegistry) => void;
   onRemove: (id: string) => void;
 }) {
@@ -687,13 +698,42 @@ function TagList({
     }));
   }, [registry, holders, term, scope]);
 
-  const shown = facet === "all" ? sections : sections.filter((s) => s.facet === facet);
-  const total = sections.reduce((n, s) => n + s.list.length, 0);
+  const shown = sections.filter((s) => s.facet === facet);
 
+  /**
+   * Never sit on an empty facet.
+   *
+   * Two ways to end up on one, and one line answers both. A search is the sharp
+   * one: with no All tab the rail always filters, so typing "jane" while sitting on
+   * Programmes would show nothing at all, even though the rail is saying Companies
+   * has a match. The other is a fresh roster, where the default facet holds nobody
+   * and there is no obvious way back. So the selection follows the matches — and
+   * only when the current facet has none, or it would fight every deliberate click.
+   */
+  useEffect(() => {
+    if (shown.length > 0 || sections.length === 0) return;
+    onFacet(sections[0].facet);
+  }, [shown.length, sections, onFacet]);
+
+  /**
+   * Every edit to a row, and the place a hand-set price is recorded as one.
+   *
+   * `tuned` is stamped here rather than at each control, so a weight or a cluster
+   * changed by any means is protected from the next seed recalibration — which used
+   * to reset the whole table and take every deliberate choice with it. Not stamped
+   * for a promoted switch: the adoption never touches `promoted`, and claiming a
+   * tuning that did not happen would freeze the row's price at whatever the table
+   * last said.
+   */
   const write = useCallback(
     (id: string, change: Partial<TagDef>) => {
       const def = registry[id];
-      if (def) onPatch({ ...registry, [id]: { ...def, ...change } });
+      if (!def) return;
+      const priced = change.weight !== undefined || change.cluster !== undefined;
+      onPatch({
+        ...registry,
+        [id]: { ...def, ...change, ...(priced ? { tuned: true as const } : {}) },
+      });
     },
     [registry, onPatch]
   );
@@ -716,10 +756,6 @@ function TagList({
   return (
     <>
       <div className="z-rail">
-        <Pill as="button" active={facet === "all"} onClick={() => onFacet("all")}>
-          All
-          <span className="z-count">{total}</span>
-        </Pill>
         {sections.map((s) => (
           <Pill
             key={s.facet}
@@ -744,7 +780,7 @@ function TagList({
             hint={
               term
                 ? "Try fewer letters, or add it as a new tag."
-                : "Switch to All to see the whole vocabulary."
+                : "Switch the scope to All to see the whole vocabulary."
             }
           />
         )
@@ -1049,7 +1085,7 @@ function PromoteForm({
         <p className="z-micro" style={{ marginTop: "var(--z-space-2)" }}>
           For scale, Y Combinator and IMO are 2.0, RSI is 1.6, ISEF is 0.7.
           {promoting.cluster
-            ? ` Anyone whose top term is this becomes ${archetypeLabel(promoting.cluster)}.`
+            ? ` It counts toward ${archetypeLabel(promoting.cluster)}, and whoever has the most points in a cluster is labelled it.`
             : " No cluster means it scores but does not decide the label."}
         </p>
       </div>
