@@ -851,6 +851,17 @@ export function allTags(p: Person, tax: TaxonomyPrefs): Tag[] {
     // the duplicate the registry exists to prevent.
     const def = resolveAny(index, label);
     if (def && placed.has(def.id)) continue;
+    /**
+     * Refused upstream, so not shown as a fact here either.
+     *
+     * `heldTags` will not read a company or a school out of the tagger's words, and
+     * a term it declined falls straight through the guard above — the registry knows
+     * the name, it simply was not placed. Rendering it anyway put a confirmed "Jane
+     * Street" chip on a profile whose score had just stopped counting it, which is
+     * the same two-sources-disagreeing problem one layer up. The review queue does
+     * not want it either: the name resolves exactly, so there is nothing to promote.
+     */
+    if (def && !TEXT_FACETS.has(def.facet)) continue;
     take({ label, kind: "extracted", origin: "llm", confirmed: true });
   }
 

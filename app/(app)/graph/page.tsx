@@ -948,7 +948,9 @@ function Connections({
       {rest > 0 && (
         <button
           className="z-linkish"
-          style={{ marginTop: "var(--z-space-3)" }}
+          // A button centres its own text, and inside a stretching column that put
+          // this in the middle of a panel where every other line starts at the left.
+          style={{ marginTop: "var(--z-space-3)", alignSelf: "flex-start" }}
           aria-expanded={all}
           onClick={() => setAll(!all)}
         >

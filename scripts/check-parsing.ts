@@ -2199,6 +2199,33 @@ console.log("\npromoting a term actually makes it score");
       .length,
     2
   );
+
+  /**
+   * And it is not shown as a fact either.
+   *
+   * `allTags` renders any extracted term the registry did not place, which is right
+   * for a name nobody has heard of and wrong for one that was deliberately refused:
+   * the profile grew a confirmed "Jane Street" chip beside a score that had just
+   * stopped counting it. Nor does the review queue want it — the name resolves
+   * exactly, so there is nothing to promote.
+   */
+  check(
+    "a refused company is not a chip",
+    allTags(prose, TAX).some((t) => t.label === "Jane Street"),
+    false
+  );
+  check(
+    "but an unknown name still is",
+    allTags({ ...bare("unknown"), extractedTerms: ["Cognigauge"] }, TAX).some(
+      (t) => t.label === "Cognigauge"
+    ),
+    true
+  );
+  check(
+    "and a term typed by a person is shown",
+    allTags(stated, TAX).some((t) => t.label === "Jane Street"),
+    true
+  );
 }
 
 // ── Scoring: fixed calibration ───────────────────────────────────────────
