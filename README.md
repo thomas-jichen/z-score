@@ -1,70 +1,61 @@
 # Z-Score
 
-Internal talent-discovery tool for Z Fellows. It finds high school and early-college students
-before the world knows their names, scores them against a program taxonomy, and ranks them in a
-digest.
+Z-Score is the Z Fellows tool for finding high schoolers and early college students before
+anyone else has noticed them. It searches for them, scores them against a taxonomy we tune by
+hand, and ranks the best into a digest.
 
-A candidate's score is a **hand-calibrated sum**: the weight of every tag they hold, plus a priced
-count of their experiences, projects, publications and patents. No mean, no standard deviation, no
-division, and no dependence on who else has been enriched.
+The score is written in sigma notation (`+2.4σ`), which is where the name comes from. It isn't a
+standard deviation. It's a fixed, hand-calibrated sum, so a person's score doesn't depend on who
+else is in the queue.
 
-It is still written in sigma notation (`+24.0σ`), which is house style and where the name comes from.
-It is not a standard deviation, and nothing in the product claims it is.
+## Getting in
 
-## The pipeline
+Teammates unlock the site with a shared passphrase, then pick who they are (Cory, Grace or
+Thomas). The picker isn't security. It's how each person keeps their own marks and history.
+
+## Screens
 
 ```
-sweep ──▶ select ──▶ queue ──▶ digest
-  ▲                    │
-  │                    ├──▶ graph      (a live view of the queue)
-  │                    └──▶ taxonomy   (the ruleset that scores everything)
-  │
-agent  ──▶ the same three steps, once a day, unattended
+sweep → queue → digest
+          ├→ graph      a live view of the queue
+          └→ taxonomy   the rules that score everything
+agent → the same loop, once a day, on its own
 ```
 
-| Route | What it is |
+| Route | What it's for |
 |---|---|
-| `/sweep` | Both discovery paths, and the two things you can do with results |
-| `/queue` | The roster. Pin, mark known, remove, enrich, retag, override a cluster |
-| `/digest` | Top ten by score, email-safe layout. The primary surface |
-| `/graph` | People and tags as one network, clustered by whatever you group on |
+| `/sweep` | Find people and decide what to do with the results |
+| `/queue` | The roster: pin, mark known, remove, enrich, retag, override a cluster |
+| `/digest` | The top ten by score, laid out so it can be emailed. The main screen |
+| `/graph` | People and their tags as one network |
 | `/taxonomy` | Term weights, cluster assignments, and the review queue for new terms |
-| `/candidate/[slug]` | One person: score breakdown, tags, profile, discovery trace |
-| `/agent` | Multi-day searches that run themselves, and the Claude connection |
+| `/candidate/[slug]` | One person: score breakdown, tags, profile, and how we found them |
+| `/agent` | Multi-day campaigns that run themselves, plus the Claude connection |
 
-### Two things you can do with search results
+### Search results
 
-Queuing and enriching are different decisions, so they are different buttons.
+Each result has two buttons. **Add to queue** is free and uses only what the search returned.
+**Enrich** pays Apify about $0.004 to pull the full profile, then queues the person. If you enrich
+someone who's already queued, their record is upgraded in place, and their marks, discovery trace
+and first-seen date are kept. Adding now and enriching later works fine.
 
-- **Add to queue** — free and instant, on search data alone. Nothing is spent.
-- **Enrich** — runs Apify at about $0.004 a profile, then queues them with full data.
+### Queue rows
 
-Enriching someone already queued **upgrades them in place**. Their marks, their discovery trace
-and the date you first saw them all survive; they simply gain the profile data. So "add now,
-enrich later" is a real workflow rather than a dead end.
+- ★ pins someone to the top, and you can filter by it.
+- ◆ means you already know them. They leave the queue but still count on the digest. Kept apart
+  from removal on purpose: "this sweep found eight people Cory already rates" is evidence the
+  tool works.
+- ✕ removes them. Later sweeps leave them unticked and say why. You can undo right away, or
+  restore anyone from the Removed view.
 
-### The three buttons on a row
+There's no "interested" button because being in the queue already means that.
 
-| | Means |
-|---|---|
-| ★ | Pin to the top. Filterable |
-| ◆ | Already know them. Leaves the queue, counted on the digest |
-| ✕ | Remove. Leaves the queue, and **future sweeps un-tick them and say why** |
-
-"Interested" is not one of them, because being in the queue already says that. `known` is kept
-separate from `rejected` on purpose: *"this sweep surfaced eight people Cory already rates"* is
-evidence the tool works, and folding it into delete throws that away.
-
-Removals are reversible — the queue offers an undo, and a Removed view restores anything older.
-
-## The score
+## Scoring
 
 ```
-raw = Σ weight(matched term) + publication/patent/project bonuses
-z   = (raw − 2.2) / 1.8            constants, not measured
+raw = Σ weight(matched term) + bonuses for publications, patents and projects
+z   = (raw − 2.2) / 1.8        fixed constants, not measured from the data
 ```
-
-Worked examples, all asserted in `npm run check` so a weight edit cannot silently move the scale:
 
 | Profile | raw | z |
 |---|---|---|
@@ -72,299 +63,225 @@ Worked examples, all asserted in `npm run check` so a weight edit cannot silentl
 | RSI + ISEF + USAMO | 4.5 | +1.3σ |
 | IMO + IOI + RSI + 1 publication | 6.6 | +2.4σ |
 
-**Why the calibration is fixed.** It used to standardise over whoever happened to be enriched,
-which had three consequences: a person's number moved as the queue grew, a lone candidate always
-scored exactly 0, and two teammates saw different values for the same kid. Now the same person
-scores the same forever, until someone deliberately retunes a weight on the taxonomy screen.
+`npm run check` asserts these three, so a weight change can't quietly move the scale. The
+calibration is fixed because standardising over the current pool made scores drift as the queue
+grew and gave teammates different numbers for the same person. Now a score only changes when
+someone retunes a weight.
 
-Search-only and enriched records run through the identical formula with **no discount**. A
-search-only person simply has less text, so they match fewer terms and score lower — a consequence
-of the evidence rather than a penalty on top of it. Their score badge reads hollow, and says
-"from search", so you can see how much was read to get the number.
+Search-only and enriched people go through the same formula. A search-only person has less text,
+so they usually match fewer terms. Their badge is hollow and says "from search" so you can tell.
 
-Lives in two files: [`lib/clusters.ts`](lib/clusters.ts) for the model,
-[`lib/candidates.ts`](lib/candidates.ts) for applying it.
+The model is in [`lib/clusters.ts`](lib/clusters.ts). Applying it is in
+[`lib/candidates.ts`](lib/candidates.ts).
 
-### Six clusters, and Polymath is not one of them
+### Clusters
 
-A cluster is a **reference class** — you judge an olympiad kid against olympiad kids. Polymath is
-not a population, it is the union of overlaps, so a mean polymath does not exist. It was also
-absorbing everything unclassifiable, which is how you could tell two clusters were missing: Jane
-Street, Coca-Cola Scholar, QuestBridge, TASP and SPARC were all polymaths.
+A cluster is a reference class: olympiad kids get compared with olympiad kids.
 
 | Cluster | Terms |
 |---|---|
 | Olympiad | IMO, IOI, USAMO, USACO Platinum, USAPhO, USABO, Mathcamp, PROMYS |
-| Research | RSI, STS, ISEF, SSP, MIT PRIMES, Simons Fellow, Garcia Program, + publications |
-| Builder | Hack Club, Conrad Challenge, + projects, open source |
-| Founder | Thiel Fellow, Neo Scholar, Diamond Challenge, + YC and founder headlines |
-| Quant | Jane Street, + quant and trading internships |
+| Research | RSI, STS, ISEF, SSP, MIT PRIMES, Simons Fellow, Garcia Program, publications |
+| Builder | Hack Club, Conrad Challenge, projects, open source |
+| Founder | Thiel Fellow, Neo Scholar, Diamond Challenge, YC and founder headlines |
+| Quant | Jane Street, quant and trading internships |
 | Scholar | Coca-Cola Scholar, TASP, SPARC |
 
-**Polymath is a badge**, awarded for clearing +0.5σ in two or more clusters.
+A person's cluster comes from their single highest-weighted term. IOI (2.0) beats RSI (1.8), so
+someone with both is Olympiad, with Research as a secondary. Move RSI above IOI on the taxonomy
+screen and they become Research. A term can belong to no cluster. QuestBridge, for example, adds
+weight but doesn't vote. A hand override on a person always wins.
 
-**Assignment: the single highest-weighted matched term wins.** IOI (2.0) + RSI (1.8) → Olympiad,
-with the Polymath badge and Research as a secondary. Drag RSI above IOI on the taxonomy screen and
-that person becomes Research. The taxonomy is the model.
+Polymath is a badge rather than a cluster. You get it by clearing +0.5σ in two or more clusters.
 
-A term can also map to **no cluster** — QuestBridge is a socioeconomic context signal, not a
-talent type, so it carries score weight and casts no vote. Editable per term, including back to a
-cluster. Any person's cluster can be overridden by hand, which always wins.
+### Which tags count
 
-## Tags, and how much each is trusted
-
-| Source | Trust |
+| Where the tag came from | Counts toward the score? |
 |---|---|
-| Taxonomy term found in the record's own text | Scores |
-| A search chip **confirmed** against the hit's title or snippet | Scores |
-| A search chip the text does not show | Rendered struck through. Scores nothing |
-| Extracted by the tagger, once promoted | Scores |
-| Extracted, not yet promoted | Zero weight. Sits in the review queue |
+| A taxonomy term found in the person's own text | Yes |
+| A search chip that the hit's title or snippet confirms | Yes |
+| A search chip the text doesn't show | No. Shown struck through |
+| A term the tagger extracted, once promoted | Yes |
+| A term the tagger extracted, not yet promoted | No. Waits in the review queue |
 
-A query like `(RSI OR IMO) (MIT OR Stanford)` never reports which branch matched, so attaching
-every chip to every hit would invent facts, and those facts would then score. Each chip is
-cross-checked against the hit's own text, which is free and turns a guess into evidence.
-Unconfirmed chips are still kept, because they record why a person was looked at.
+A query like `(RSI OR IMO) (MIT OR Stanford)` doesn't tell you which branch matched, so each chip
+is checked against the hit's own text. Unconfirmed chips stay on the record because they show why
+we looked at someone.
 
 ## The tagger
 
-`ZSCORE_GROQ_API_KEY` enables one thing: reading credential names out of profile free text
-(`openai/gpt-oss-120b`, roughly $0.0002 a profile, about 5% of the Apify cost). It runs
-automatically as each enrichment lands, and behind an Analyze button for search-only people.
+With `ZSCORE_GROQ_API_KEY` set, Groq (`openai/gpt-oss-120b`, about $0.0002 a profile) reads
+credential names out of profile text. It runs on every enrichment, and behind an Analyze button
+for search-only people.
 
-**It never moves a number.** An extracted term carries zero weight until someone promotes it on
-the taxonomy screen, and there is no per-person LLM archetype or summary — both would make a score
-depend on a sampled generation, and reproducibility is the whole basis for trusting the ranking.
-Cluster and starting weight are asked **once per term, at promotion**, not per person.
+The tagger never changes a score. A new term weighs nothing until someone promotes it on the
+taxonomy screen and picks its cluster and starting weight. That happens once per term, not once
+per person. Nothing is ever generated per person, so the ranking stays reproducible.
 
-**Every screen works with the key unset.** You lose new-term discovery, not the product; the
-review panel says so rather than showing an empty box that looks broken.
-
-Only credential-bearing text is sent: no name, no URL, no school, no location. The population is
-minors and the model does not need to know who someone is to recognise "Davidson Fellow".
+It only gets credential text: no name, URL, school or location, because the people are minors.
+Every screen still works without the key. You just stop discovering new terms, and the review
+panel tells you that.
 
 ## The graph
 
-People **and** tags are nodes, and a person links only to their own tags. Connecting every pair
-who share a tag grows edges quadratically, so a hundred people is already a hairball; this is
-linear, and it shows *which* credential connects a cluster instead of leaving you to hover an edge
-and guess.
+People and tags are both nodes, and each person links only to their own tags. That keeps the
+number of edges linear and shows which credential connects a group.
 
-**The rarity window is what keeps it readable.** A tag is a node only while between 2 and 8 people
-hold it. Below that it is a lone pendant; above that it is background — "class of 2028" as a hub
-drags everything into one blob. Both bounds are adjustable, and anything dropped is named on
-screen rather than silently disappearing.
+A tag only appears while 2 to 8 people hold it. Rarer tags are noise, and common ones like "class
+of 2028" pull everything into one blob. You can change both limits, and the screen lists whatever
+it dropped. Discovery edges (who turned up on whose People Also Viewed) link people directly and
+are always shown.
 
-Discovery edges (who was found on whose People Also Viewed) are drawn person-to-person and are
-never subject to the window, because nothing about them is inferred.
-
-Layout is a **seeded deterministic simulation**: positions hash from the node id, iterate, then
-freeze. Identical across reloads, no animation loop, no new dependency, and no float-rounding
-hydration bugs because it only ever runs on the client. Capped at 120 people, lowest scores
-dropped, with a note saying so.
+The layout is a seeded simulation that runs once on the client, so it's the same on every reload.
+It shows at most 120 people, drops the lowest scores first, and says when it has.
 
 ## Setup
 
 ```bash
 npm install
 cp .env.example .env.local
-npm run dev
+npm run dev      # http://localhost:3737
 ```
 
-Then open http://localhost:3737. Set `ZSCORE_APIFY_MOCK=1` to exercise the whole flow for free.
+`ZSCORE_APIFY_MOCK=1` lets you run the whole flow without paying. `.env.example` documents every
+variable.
 
-Everything selectable on the sweep screen lives in one file,
-[`lib/searchTaxonomy.ts`](./lib/searchTaxonomy.ts) — five plain string arrays, each entry used
-verbatim in the Google query.
+### Discovery
 
-### How discovery works
-
-One sweep is one Google query. Selecting more options widens that same query rather than starting
-another, so a sweep always costs a single search. Categories are ANDed by juxtaposition, options
-inside a category are ORed:
+Everything you can pick on the sweep screen lives in
+[`lib/searchTaxonomy.ts`](lib/searchTaxonomy.ts). A sweep is a single Google query through Serper.
+Options inside a category are ORed and categories are ANDed, so adding options widens the query
+without costing another search:
 
 ```
 (Coca-Cola Scholar OR RSI) (MIT OR Stanford) (TJHSST OR Harker) site:linkedin.com/in
 ```
 
-Nothing is quoted: exact-match phrases switch off Google's synonym expansion and relevance
-ranking, which is the part doing the real work. Queries hit Google, not LinkedIn — nothing here
-touches LinkedIn's servers, uses cookies, or needs an account. Results dedupe on the profile slug,
-never on name.
-
-**Serper's free tier caps at 10 results per query.** The app detects the rejection, latches it, and
-retries at 10 so the sweep completes rather than failing. A paid plan returns up to 100.
+Nothing is quoted, so Google's synonyms and ranking keep working. We only ever talk to Google,
+never LinkedIn: no cookies, no account. Results are deduped by profile slug, not name. Serper's
+free tier caps a query at 10 results. The app notices and retries at 10, and paid plans get 100.
 
 ### Enrichment
 
-[`harvestapi/linkedin-profile-scraper`](https://apify.com/harvestapi/linkedin-profile-scraper) at
-**$4 per 1,000 profiles**, so a 10-hit sweep costs about 4¢. Public pages only. One actor covers
-both paths, because it returns each profile's People Also Viewed list alongside the profile
-itself — which is why there is one client, one parser and one cost line instead of two vendors.
+[`harvestapi/linkedin-profile-scraper`](https://apify.com/harvestapi/linkedin-profile-scraper),
+at $4 per 1,000 public profiles. It also returns each profile's People Also Viewed list, so a
+single vendor handles both enrichment and following people outward.
 
-Runs are started and polled, never awaited: Apify's synchronous endpoint 408s at 300 seconds and a
-Vercel function caps there too. A run survives a page reload, **and survives navigating to another
-screen** — the poll lives in an app-wide provider, and the nav shows its progress from anywhere.
+Runs are started and polled because Apify and Vercel both time out at 300 seconds. A run survives
+reloads and moving between screens, and the nav shows its progress.
 
-`moreProfiles` is a **co-view model, not a similarity model**. It reports who browsers looked at in
-the same session. On a well-known adult it fills with unrelated adults — a probe against Reid
-Hoffman returns Jensen Huang. On a low-traffic 16-year-old it can be empty. Every person stores
-where they came from, so drift is measurable before you trust a second hop.
+People Also Viewed tracks who gets viewed together, not who is similar. A famous adult's list
+fills with other famous adults, and a quiet 16-year-old's may be empty. Every person records where
+they came from, so you can see the drift before trusting a second hop.
 
 ## Storage
 
 | Key | Type | Holds |
 |---|---|---|
-| `zscore:team:people` | Redis **hash**, field = slug | The roster. Shared |
-| `zscore:team:prefs` | string | Taxonomy and custom menu terms. Shared |
-| `zscore:profile:<id>` | string | Marks, sweeps, filters, seeds, active job. Personal |
-| `zscore:job:<profile>:<id>` | string | An enrichment run in flight |
+| `zscore:team:people` | hash, field = slug | The roster, shared |
+| `zscore:team:prefs` | string | Taxonomy and custom search terms, shared |
+| `zscore:profile:<id>` | string | Your marks, sweeps, filters, seeds and active job |
+| `zscore:job:<profile>:<id>` | string | An enrichment run in progress |
 
-**The roster is shared, the judgement is not.** Nobody pays Apify twice for the same person and
-everyone sees one score for them; pin, already-known and removed stay private, so Grace triaging
-her list does not reshape Cory's. A split scoring model would give one person three different
-z-scores depending on who was looking, so the taxonomy is team-wide too.
+The roster and taxonomy are shared, so nobody pays twice for a profile and everyone sees the same
+score. Pins, known and removed are personal, so one person's triage doesn't reshape anyone else's
+list. Each person is a single hash field, so pinning someone writes a few bytes, not the whole
+roster. Old documents migrate once, on first read.
 
-The hash matters: `HSET` writes one person atomically, so pinning someone costs a few bytes
-instead of reading a multi-megabyte document, merging, and writing all of it back — which is what
-one-document-per-teammate forced, and it got worse with every profile enriched.
+With Upstash Redis credentials set, the app uses Redis. Without them it writes JSON to `.data/`,
+which is only for local use. Vercel can't persist files, so production needs Redis. If it's
+missing, the app shows a banner rather than losing writes quietly. To attach it, open Vercel →
+Storage → Marketplace → Upstash Redis, connect it to the project and redeploy. `UPSTASH_REDIS_REST_*`,
+`KV_REST_API_*` and `ZSCORE_REDIS_REST_*` all work.
 
-Old documents migrate on first read, once, guarded by a stored schema version.
-
-### Attaching a database, required before deploying
-
-Storage picks a backend automatically: **Upstash Redis** when REST credentials are present,
-otherwise **a JSON file under `.data/`** for local development only. Vercel's filesystem is
-read-only outside `/tmp`, so **without Redis attached nothing will save in production**. The app
-detects this and shows a banner rather than silently dropping writes.
-
-1. Vercel dashboard → Storage → Marketplace → add **Upstash Redis**, connect it to the project.
-2. The integration sets `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` for you.
-3. Redeploy.
-
-`KV_REST_API_*` and `ZSCORE_REDIS_REST_*` are also accepted, so any Upstash-compatible endpoint
-works.
+Local dev reads `.env.development.local` as well. If that file holds the Vercel KV variables,
+your dev server is writing to the shared Redis.
 
 ## Before deploying
 
-- **The spend cap is server-side.** 500 profiles per teammate per UTC day by default, counted in
-  profiles because that is what Apify bills, and reserved before the run starts so a crash cannot
-  hand quota back. Refusals say what the cap is and when it resets.
-- **Every route body is validated** — slug shape, enum values, array lengths, payload size —
-  and rejected with a 400 rather than trusted.
-- **Paid calls are logged** as JSON lines with count, cost and duration, and no candidate PII.
-  Without that the first surprising bill is unexplainable.
-- **`noindex` and a narrow CSP** on every response. The corpus is minors; it should never reach a
-  search index even if a URL leaks.
-- **Delete all stored people** lives under "Stored data" on the taxonomy screen. Weights survive,
-  since those are the team's tuning rather than anybody's personal data.
-- The target population is minors, CCPA has required a documented risk assessment for processing
-  known under-16 data since 1 January 2026, and email-finding should stay off for this group.
-  `VENDOR_RECOMMENDATION.md` §7 covers this properly.
+- The spend cap is enforced on the server: 500 profiles per teammate per UTC day by default
+  (`ZSCORE_DAILY_PROFILE_CAP`). Quota is reserved before a run starts, and a refusal says when it
+  resets.
+- Every API body is validated and rejected with a 400 if it's malformed.
+- Paid calls are logged as JSON lines with count, cost and duration, and no candidate data.
+- Every response sends `noindex` and a narrow CSP, because the people in here are minors.
+- "Stored data" on the taxonomy screen deletes every stored person and keeps the weights.
+- Minors' data carries legal obligations. Since 1 January 2026, CCPA has required a documented
+  risk assessment for processing known under-16 data, and email-finding stays off.
+  `VENDOR_RECOMMENDATION.md` §7 covers this.
+- The cron stays off until `CRON_SECRET` is set. Until then the route returns 503 instead of
+  leaving a public URL that starts paid work.
 
-- **The cron is off until `CRON_SECRET` is set.** The route 503s rather than allowing the call,
-  because the alternative is a public URL in production that starts paid work and a secret
-  comparison against the literal string `Bearer undefined`.
+## The agent
+
+A campaign runs the pipeline on a timer. You give it a selection, a number of days and a daily
+search budget. Each day it ranks finds by how many of your search terms their own text confirms,
+queues the best new ones, enriches a few, and keeps a running top thirty. When it's done you get a
+report.
+
+It has two strategies. **Keyword search** just runs queries. **Search then explore** searches
+for the first few days, then switches to opening the People Also Viewed lists of its best enriched
+finds and following the good neighbours. Those hops are free because the lists came with profiles
+we'd already paid for. They're less precise, though, so `maxHop` (default 2) limits how far it
+wanders, and seeds only come from the top thirty. On a day with nothing left to explore, it
+searches. Running out of queries only ends a keyword campaign.
+
+Three things advance a campaign: the daily cron, the Advance button on `/agent`, or Claude. Every
+setting it uses is on that screen: days, searches, queued and enrichments per day, the dollar
+ceiling, the score bar, and team defaults. Limits we don't control are listed there too.
+
+Claude connects over MCP at `/api/mcp` with a `zsk_` token you mint on `/agent`. Only a SHA-256
+hash of the token is stored. Through its 14 tools Claude can read the taxonomy, the queue and
+campaigns, test a query for a tenth of a cent, create, advance, update and stop campaigns, and
+search, queue and enrich. It can't delete people, reset the roster, change weights, or mark anyone
+known or rejected. Those are human calls.
+
+An unattended run won't re-add someone who was permanently deleted, and won't bring back someone a
+person rejected. Clicking Add again in the UI does revive them, because then a person chose to.
+
+## Email
+
+The digest was always meant to go out by email, which is why its rows are tables. When a campaign
+finishes, its report goes to whoever started it. The queue digest goes out daily or weekly. You set
+your address and cadence at the bottom of the digest screen, and a button there sends you one
+now. Cadence options appear once you've entered an address.
+
+Email needs `RESEND_API_KEY` and `ZSCORE_EMAIL_FROM`. With neither set, nothing sends and the
+screen says so. Resend only sends to the account owner until you verify a domain. Use a subdomain
+and add the MX, SPF and DKIM records Resend gives you.
+
+Mail goes out with the 09:00 UTC cron, or right away when a campaign is advanced by hand or by
+Claude. Repeated cron runs can't double-send, because each send checks what's finished and
+unnotified or whose cadence is due.
 
 ## Commands
 
 ```bash
-npm run check        # 630 assertions over the pure functions. No network, no API key
-npm run check:agent  # 173 assertions over the campaign engine and the LLM steps, end to end with the paid calls stubbed
-npm run build:check  # type-check build into .next-check, so it cannot clobber a running dev server
+npm run check          # pure-function checks, no network or keys
+npm run check:agent    # the campaign engine and LLM steps end to end, paid calls stubbed
+npm run build:check    # type-check build into .next-check, safe while dev is running
+npm run preview:email  # write both email templates to .data/
 ```
 
-`npm run check` covers the parts that corrupt data silently: slug extraction (the dedupe key),
-name and headline splitting, year inference, query construction, HarvestAPI payload parsing, hop
-expansion and its dedupe, the confirmed/unconfirmed tag split, fixed-calibration scores against
-the three worked examples above, **the same person scoring identically in a pool of 1 and a pool of
-30**, cluster assignment and its tie-break, the polymath threshold, promoting a term actually
-making it score, status transitions and sweep suppression, graph rarity windowing and layout
-determinism, hash-store operations, migration of a legacy document, the agent's query plan and its
-arity ordering, when a campaign stops and why, and **the two things an unattended run must
-refuse** — re-adding a permanently deleted person, and un-rejecting one a human already
-turned down — each mutation-tested so the check cannot pass vacuously.
+`check` focuses on bugs that would corrupt data without anyone noticing. It covers slug
+extraction (the dedupe key), name, headline and year parsing, query building, Apify payload
+parsing, hop expansion, the confirmed/unconfirmed split, the worked examples above, a person
+scoring the same in a pool of 1 or 30, cluster assignment and ties, the polymath threshold,
+promotion, status changes and sweep suppression, graph windowing and layout determinism, the hash
+store, legacy migration, and the agent's query plan and stopping rules. It also mutation-tests the
+two things an unattended run must refuse, so those checks can't pass by accident.
 
-## Design
+## Design docs
 
-- [`DESIGN_TOKENS.md`](./DESIGN_TOKENS.md) — every token with a citation back to zfellows.com
-- [`DESIGN_LANGUAGE.md`](./DESIGN_LANGUAGE.md) — the standing judgement rules
-- [`REDESIGN_PLAN.md`](./REDESIGN_PLAN.md) — component derivations and screen specs
-- [`VENDOR_RECOMMENDATION.md`](./VENDOR_RECOMMENDATION.md) — why SERP discovery over the HarvestAPI
-  search actor, and the constraints on storing real profile data
+- [`DESIGN_TOKENS.md`](DESIGN_TOKENS.md): every token, traced back to zfellows.com
+- [`DESIGN_LANGUAGE.md`](DESIGN_LANGUAGE.md): the standing design rules
+- [`REDESIGN_PLAN.md`](REDESIGN_PLAN.md): component and screen specs
+- [`VENDOR_RECOMMENDATION.md`](VENDOR_RECOMMENDATION.md): why SERP discovery, and the rules
+  for storing real profile data
 
-The logo lives at `assets/logo.png`; `app/icon.png` and `app/apple-icon.png` are generated from it.
-
-## The agent loop
-
-A campaign is the whole pipeline on a timer. You give it a selection, a number of days and a daily
-query budget; each day it ranks what it finds on how many of your own search terms the person's own
-text confirms, queues the best it does not already have, pays to enrich a capped few, and keeps a
-running top thirty. At the end you read the report.
-
-*How* it finds people is the strategy, and there are two ways. **Keyword search** runs its queries,
-which is what every campaign did. **Search then explore** casts a wide net for the first days and
-then stops searching: from the switch day it opens the People Also Viewed list of the best people it
-has enriched, queues the neighbours worth having, and enriches those so the next day has somewhere
-to go. That is how somebody actually works — find one good person, look at who else was viewed
-alongside them, follow it — and the hop is free, because the co-view list arrived with a profile
-that was already paid for.
-
-What it costs instead is precision, which is why `maxHop` bounds how far from a searched person a
-find may be and defaults to 2, and why seeds are only ever taken from the top of the running
-thirty: a co-view list is worth opening only if the taxonomy already liked the person it belongs to.
-An exploring day with nothing left to open searches instead rather than idling. And an exhausted
-query plan only ends a campaign that searches — burning the plan on day one is the point of the
-other shape.
-
-Three things move it: the daily Vercel cron, the Advance button on `/agent`, or Claude. There is no
-setting the loop obeys that is not on that screen and settable from either side — days, searches a
-day, queued a day, enrichments a day, the dollar ceiling, the score bar, and the team defaults a
-new campaign starts from. The caps we do not own are printed there too, with their values.
-
-Claude reaches it over MCP at `/api/mcp`, authenticated by a `zsk_` token minted on `/agent` and
-stored only as a SHA-256 hash. Fourteen tools: read the taxonomy, the queue and any campaign;
-sanity-check a query for a tenth of a cent; create, advance, update and stop a campaign; search,
-queue and enrich directly. **What it deliberately cannot do**: delete a person, reset the roster,
-change a taxonomy weight, or mark anyone known or rejected. Deciding who is worth talking to stays
-a human call, so an unattended loop can fill the queue but never triage it.
-
-Two refusals worth knowing, because they are what keeps a week-long run from doing damage: a
-campaign never re-adds a permanently deleted person, and never un-rejects one. Clicking add again
-in the UI plainly means revive; a nightly job doing it would quietly undo every triage decision.
-
-## Email
-
-The digest was always meant to be one, which is why its rows are `<table>` and why `--z-r-email`
-exists. A campaign finishing mails its report to whoever started it, and the queue digest goes
-daily or weekly. Each person sets their own address and cadence at the foot of the digest screen,
-next to the thing being delivered, and there is a button there to send yourself one now. No cadence
-is offered until an address exists, because asking how often before asking where is how you end up
-with a settings panel full of controls that do nothing.
-
-Two variables switch it on, and with neither set nothing is sent and the screen says so:
-
-```
-RESEND_API_KEY=re_...
-ZSCORE_EMAIL_FROM="Z-Score <digest@zscore.zfellows.com>"
-```
-
-**A verified domain is not optional.** Resend sends only from `onboarding@resend.dev`, and only to
-the address the account was registered with, until you add one. Use a subdomain rather than the
-apex so this app's sending reputation stays separate from anyone's real mail, and add the MX, SPF
-and DKIM records Resend hands you.
-
-Sending rides the existing daily cron, so a campaign that finishes overnight is mailed at 09:00
-UTC. Advancing by hand or through Claude mails immediately, because the same drain runs at the end
-of that request. Both are idempotent: the campaign report asks which campaigns are finished and
-unnotified, the digest asks whose cadence is due, so a repeated cron cannot double-send either.
-
-```bash
-npm run preview:email   # writes both templates to .data/ so you can open them
-```
+The logo is `assets/logo.png`. `app/icon.png` and `app/apple-icon.png` are generated from it.
 
 ## Not built
 
-LLM screening beyond term extraction. The digest is the top ten by score; screening is a separate
-decision.
-# z-score
+LLM screening beyond pulling out terms. The digest is the top ten by score, and screening is a
+separate decision.
