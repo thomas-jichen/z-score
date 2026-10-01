@@ -491,7 +491,7 @@ export default function GraphPage() {
 
             <div className="z-graph-line">
               <span className="z-label is-quiet z-graph-key">Links</span>
-              <div className="z-row z-row-wrap" style={{ gap: "var(--z-space-2)" }}>
+              <div className="z-row z-row-wrap z-graph-rail" style={{ gap: "var(--z-space-2)" }}>
                 {EDGE_SOURCES.map((s) => (
                   <Pill
                     key={s}
@@ -508,7 +508,7 @@ export default function GraphPage() {
 
             <div className="z-graph-line">
               <span className="z-label is-quiet z-graph-key">Arrange</span>
-              <div className="z-row z-row-wrap" style={{ gap: "var(--z-space-2)" }}>
+              <div className="z-row z-row-wrap z-graph-rail" style={{ gap: "var(--z-space-2)" }}>
                 {GROUP_BY.map((g) => (
                   <Pill
                     key={g}
@@ -533,7 +533,7 @@ export default function GraphPage() {
                * and there was no way to find it.
                */}
               <label
-                className="z-row z-micro"
+                className="z-row z-micro z-graph-window"
                 style={{ gap: 8, flex: "none" }}
                 title="Something most of the queue shares is not a connection between any two of them. Past this it stops drawing links and stays in the leads below."
               >

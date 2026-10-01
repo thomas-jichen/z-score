@@ -582,7 +582,22 @@ a.z-archetype:hover {
   border-radius: var(--z-r-pill);
   padding: var(--z-space-1);
   gap: var(--z-space-1);
-  flex-wrap: wrap;
+  /**
+   * One control, one line, at every width.
+   *
+   * It carried `flex-wrap: wrap`. On a phone the Find input beside the graph's
+   * People/Hubs switch claimed the whole row, squeezed this to min-content, and the
+   * two halves stacked into a column inside a 999rem radius — a tall blob with the
+   * pressed segment's outer shadow as a halo. A segmented control that wraps is not
+   * a segmented control, so this belongs on the component rather than on a
+   * breakpoint.
+   *
+   * `flex: none` is the other half: it keeps its own width instead of yielding it to
+   * whatever sits next to it. Every one of these is two short segments, so there is
+   * no width at which holding its ground overflows a row.
+   */
+  flex-wrap: nowrap;
+  flex: none;
 }
 
 .z-segment {
@@ -1404,6 +1419,25 @@ a.z-archetype:hover {
 }
 
 @media (max-width: 720px) {
+  /**
+   * The face stays beside the score instead of wrapping above it.
+   *
+   * `.z-hero` wraps, and the text block's flex basis was its content width — a
+   * display-size sigma and an h1 name — so it never fitted and always went to the
+   * next line. What was left on the first line was a lone 72px square with a
+   * "Replace" link under it, which reads as a stray control rather than as this
+   * person's face. Letting the text column shrink is all it needed; the face is
+   * 72px of 358, so there is room for both.
+   */
+  .z-hero {
+    flex-wrap: nowrap;
+  }
+
+  .z-hero-body {
+    flex: 1;
+    min-width: 0;
+  }
+
   .z-picker-row {
     gap: var(--z-space-6);
   }
@@ -3067,10 +3101,32 @@ tr[data-pinned] td:first-child {
     margin-top: var(--z-space-3);
   }
 
-  /* The cells stack on a phone, so a 34px square gets a line of its own and reads
-     as a gap above the name. The name is the row; the face is a nicety. */
+  /**
+   * The face rides with the name rather than taking a line of its own.
+   *
+   * It was hidden here, on the reasoning that a stacked 34px square reads as a gap
+   * above the name. True of a square on its own line, and the answer is not to drop
+   * the face — the queue shows one at this width and the digest is the screen
+   * somebody opens first, so this was the one place the photos did not arrive. The
+   * two cells sit side by side instead, which is the arrangement the queue already
+   * uses.
+   *
+   * `!important` throughout because the stacking rule above uses it, and a cell that
+   * stacks is exactly what is being undone.
+   */
   .z-digest-face {
-    display: none !important;
+    display: inline-block !important;
+    vertical-align: top;
+    width: 34px !important;
+  }
+
+  .z-digest-face + td {
+    display: inline-block !important;
+    vertical-align: top;
+    /* 34px of face plus the gutter below. */
+    width: calc(100% - 48px) !important;
+    padding-left: var(--z-space-3) !important;
+    margin-top: 0 !important;
   }
 
   /* Right-aligning a wrapped pill column against a left-aligned sentence
@@ -3125,39 +3181,125 @@ tr[data-pinned] td:first-child {
    * Each control row swipes instead of wrapping. Three rows of pills wrap to seven
    * lines at this width, which puts the canvas below the fold on its own screen.
    */
+
+  /**
+   * The label goes above its pills, and the pills swipe underneath it.
+   *
+   * It used to sit in the gutter and stay there, `position: sticky`, so a swiped row
+   * still said what it controlled. Two things were wrong with that. The box it
+   * painted was its inline content box — `.z-label` carries a bottom margin and the
+   * row centres its items — so it could not reach the row's top and bottom edges, and
+   * an active pill's blue fill showed through above and below the word.
+   *
+   * And masking it properly is a worse repair than the fault. `.z-tune-head` is the
+   * precedent for a sticky element and it works by being a header *bar*: a surface, a
+   * border, chrome. Giving a bare grey word a surface makes it look like a pill it is
+   * not, and `DESIGN_LANGUAGE.md` prefers a tone shift to a border and bans the rule
+   * attached before a word. A word should not have content slide under it.
+   *
+   * A section label above its controls is what the queue screen already does in
+   * `FilterRow`, so the graph now agrees with it, and nothing is pinned to overlap.
+   */
   .z-graph-line {
-    overflow-x: auto;
-    scrollbar-width: none;
-    padding-bottom: 2px;
+    flex-direction: column;
+    align-items: stretch;
+    /* `.z-label`'s own bottom margin is the gap. Keeping both would give 16px. */
+    gap: 0;
   }
 
-  .z-graph-line::-webkit-scrollbar {
+  /* Nothing is pushed to a far edge here: every row either stacks or fills. Left in,
+     it adds a second 12px gap between the mode switch and the Find input. */
+  .z-graph-controls .z-spacer {
     display: none;
   }
 
-  .z-graph-line > * {
+  /**
+   * Edge-to-edge, so the overflow is visible rather than guessed at.
+   *
+   * The treatment `.z-rail` already uses, down to the gutter it restores inside:
+   * `.z-page` is `--z-space-4` at this width, so the first pill starts under its
+   * label and only what runs past the end bleeds to the screen edge. The 2px on the
+   * cross axis is room for a focused pill's outline, which an overflow container
+   * clips on both axes however only one of them scrolls.
+   *
+   * Compound selector so it outranks `.z-row-wrap` on specificity rather than on
+   * which rule happens to come later in the file.
+   */
+  .z-graph-line .z-graph-rail {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+    margin-left: calc(-1 * var(--z-space-4));
+    margin-right: calc(-1 * var(--z-space-4));
+    padding: 2px var(--z-space-4);
+  }
+
+  .z-graph-rail::-webkit-scrollbar {
+    display: none;
+  }
+
+  .z-graph-rail > * {
     flex: none;
   }
 
-  .z-graph-key {
-    /* Sticks to the left edge so a swiped row still says what it controls. */
-    position: sticky;
-    left: 0;
-    z-index: 1;
-    background: var(--z-bg);
-    min-width: 52px;
+  /**
+   * The window slider leaves the rail.
+   *
+   * It sat at the end of the Arrange row behind five pills, off the right edge, in a
+   * scroller with no scrollbar — so the one control that answers "this picture is a
+   * hairball" was the one you could only find by accident. `components/Nav.tsx`
+   * carries this repo's verdict on exactly that, written when the nav links were
+   * ripped out for it: a destination you cannot see is a destination you do not have.
+   *
+   * A lossy rail is still right for the pills. All six link types are on by default,
+   * so not seeing "College" until you swipe costs nothing.
+   */
+  .z-graph-window {
+    margin-top: var(--z-space-3);
+  }
+
+  /* The track takes the width it is given rather than the desktop 88px. */
+  .z-graph-window .z-graph-range {
+    flex: 1;
   }
 
   .z-graph-find {
+    /* Takes what is left rather than claiming the row, which is what squeezed the
+       mode switch beside it into a column. */
     max-width: none;
-    width: 100%;
+    flex: 1;
+    min-width: 0;
   }
 
-  /* Taller than the desktop 1000:620, because the width is fixed and the height is
-     the only axis left to give it. The layout letterboxes rather than distorts. */
-  .z-graph,
-  .z-graph-loading {
-    aspect-ratio: 1 / 1;
+  /**
+   * The canvas keeps the viewBox's own ratio here too.
+   *
+   * It was square, on the reasoning that width is fixed and height is the only axis
+   * left to give it. But `preserveAspectRatio` defaults to `meet`, so the extra
+   * height was letterbox: the picture rendered 358×222 inside a 358×358 box and the
+   * remaining 136px was blank. A square canvas made the graph no larger, it only
+   * pushed the leads strip further down the page. Zooming still overflows and pans,
+   * which is where the room to move actually comes from.
+   */
+
+  /**
+   * The detail panel becomes a block under the canvas.
+   *
+   * Floating, it was 272px over a 358px-wide canvas — three quarters of the picture,
+   * including the node you had just tapped. The point of tapping a node is to see it
+   * lit among its connections, so a panel that covers them answers the question by
+   * hiding it. Below the canvas both fit on screen at once, and the card keeps them
+   * together with a hairline between.
+   */
+  .z-graph-panel {
+    position: static;
+    width: auto;
+    max-height: none;
+    border: 0;
+    border-top: 1px solid var(--z-border);
+    border-radius: 0;
+    box-shadow: none;
   }
 
   /**
@@ -3178,13 +3320,6 @@ tr[data-pinned] td:first-child {
   }
 }
 
-@media (max-width: 720px) {
-  /* Inside a swipeable row, a wrapping segmented control stacks its two halves
-     into a column. It is one control and it stays on one line. */
-  .z-graph-line .z-segmented {
-    flex-wrap: nowrap;
-  }
-}
 
 /* ── The sweep query, now a field ───────────────────────────────────────── */
 

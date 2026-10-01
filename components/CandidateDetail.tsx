@@ -141,7 +141,7 @@ export function CandidateDetail({ slug }: { slug: string }) {
           the two people whose headshot LinkedIn will not serve to a scraper.
         */}
         <HeroFace candidate={c} />
-        <div style={{ minWidth: 0 }}>
+        <div className="z-hero-body" style={{ minWidth: 0 }}>
         <ZScoreBadge candidate={c} display />
         <h1 className="z-h1" style={{ marginTop: "var(--z-space-4)" }}>
           {c.name}
@@ -174,7 +174,11 @@ export function CandidateDetail({ slug }: { slug: string }) {
         </div>
 
         {!c.enriched && (
-          <div className="z-banner" style={{ marginTop: "var(--z-space-6)" }}>
+          /* `z-row` because the spacer below needs a flex parent to mean anything —
+             without it the button sat inline at the tail of the wrapped sentence, and
+             on a phone that reads as a control dropped on top of the text. Wrapping,
+             so the button takes its own line when the sentence fills one. */
+          <div className="z-banner z-row z-row-wrap" style={{ marginTop: "var(--z-space-6)" }}>
             Known from search results only, so the score reads whatever the snippet said.
             <span className="z-spacer" />
             <Button
